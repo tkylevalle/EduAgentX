@@ -1,0 +1,604 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PROTOTYPE - EduAgentX Curriculum and Exam Contract</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #172033;
+      --muted: #667085;
+      --line: #d8dee9;
+      --panel: #ffffff;
+      --soft: #f4f7fb;
+      --accent: #3157d5;
+      --accent-soft: #e9efff;
+      --good: #18794e;
+      --warn: #9a6700;
+      --bad: #b42318;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--soft); color: var(--ink); }
+    main { width: min(1180px, calc(100% - 32px)); margin: 32px auto 72px; }
+    h1, h2, h3 { margin: 0; line-height: 1.2; }
+    h1 { font-size: clamp(28px, 4vw, 44px); letter-spacing: -0.035em; }
+    h2 { margin-bottom: 16px; font-size: 23px; }
+    h3 { font-size: 17px; }
+    p { line-height: 1.6; }
+    .eyebrow { color: var(--accent); font-size: 12px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+    .intro { max-width: 850px; color: var(--muted); font-size: 17px; }
+    .notice { margin: 20px 0 28px; padding: 14px 16px; border-left: 4px solid var(--accent); background: var(--accent-soft); }
+    section { margin-top: 28px; }
+    .panel { padding: 22px; border: 1px solid var(--line); border-radius: 16px; background: var(--panel); box-shadow: 0 8px 24px rgba(23,32,51,.05); }
+    .summary-grid, .check-grid, .contract-grid { display: grid; gap: 14px; }
+    .summary-grid { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+    .check-grid { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+    .contract-grid { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+    .summary, .check, .contract { padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
+    .label { color: var(--muted); font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+    .value { margin-top: 7px; font-size: 17px; font-weight: 750; overflow-wrap: anywhere; }
+    .detail { margin-top: 7px; color: var(--muted); font-size: 13px; line-height: 1.45; }
+    .status { display: inline-flex; align-items: center; gap: 7px; }
+    .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+    .pass .dot { background: var(--good); }
+    .fail .dot { background: var(--bad); }
+    .pending .dot { background: var(--warn); }
+    .outcome { margin-top: 14px; padding: 13px 15px; border-radius: 10px; background: var(--soft); font-weight: 650; }
+    .controls { display: flex; flex-wrap: wrap; gap: 10px; }
+    button { padding: 10px 13px; border: 1px solid var(--line); border-radius: 9px; background: #fff; color: var(--ink); font: inherit; font-weight: 700; cursor: pointer; }
+    button:hover { border-color: var(--accent); color: var(--accent); }
+    button.primary { border-color: var(--accent); background: var(--accent); color: #fff; }
+    button.danger { color: var(--bad); }
+    .tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
+    .tabs button.active { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+    .walkthrough { display: grid; gap: 14px; }
+    .walkthrough-copy { max-width: 800px; color: var(--muted); }
+    .steps { display: grid; gap: 10px; counter-reset: step; }
+    .step { display: grid; grid-template-columns: 34px 1fr auto; gap: 10px; align-items: center; padding: 10px; border: 1px solid var(--line); border-radius: 10px; }
+    .step::before { counter-increment: step; content: counter(step); width: 28px; height: 28px; display: grid; place-items: center; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font-weight: 800; }
+    .step.done { opacity: .55; }
+    .step .step-note { color: var(--muted); font-size: 13px; }
+    .contract ul { margin: 12px 0; padding-left: 20px; color: var(--muted); line-height: 1.55; }
+    details { margin-top: 12px; }
+    summary { color: var(--accent); font-weight: 750; cursor: pointer; }
+    pre { max-height: 330px; overflow: auto; padding: 14px; border-radius: 10px; background: #101828; color: #e6edf7; font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+    .footnote { color: var(--muted); font-size: 13px; }
+    @media (max-width: 680px) {
+      main { width: min(100% - 20px, 1180px); margin-top: 20px; }
+      .panel { padding: 16px; }
+      .step { grid-template-columns: 30px 1fr; }
+      .step button { grid-column: 1 / -1; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <div class="eyebrow">Throwaway planning prototype</div>
+  <h1>Curriculum and examination contract</h1>
+  <p class="intro">Question: does one versioned package give EduAgentX enough structure to validate source provenance, learning coverage, examination policy, human review, activation, and deterministic fallback without silently replacing the last validated curriculum?</p>
+  <div class="notice"><strong>This is not production code.</strong> Click through the cases below and look for assumptions that feel wrong. The desired outcome is a planning decision about the contract and state rules.</div>
+
+  <section class="panel">
+    <h2>Current state</h2>
+    <div id="summary" class="summary-grid"></div>
+    <div id="outcome" class="outcome"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Quality gate</h2>
+    <div id="checks" class="check-grid"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Free play</h2>
+    <p class="footnote">Try actions in any order. Invalid actions should fail closed and explain why.</p>
+    <div id="controls" class="controls"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Guided walkthroughs</h2>
+    <div id="tabs" class="tabs"></div>
+    <div id="walkthrough" class="walkthrough"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Proposed package contract</h2>
+    <p class="footnote">Every identifier and policy is explicitly versioned. Expand a card to inspect the current sample data.</p>
+    <div id="contracts" class="contract-grid"></div>
+    <details>
+      <summary>Inspect the complete candidate package</summary>
+      <pre id="snapshot"></pre>
+    </details>
+  </section>
+</main>
+
+<script>
+  // Portable prototype logic: pure state, validation, and transitions.
+  const deepCopy = value => JSON.parse(JSON.stringify(value));
+
+  function makeFallbackItems() {
+    const tiers = [
+      ...Array(5).fill("recall"),
+      ...Array(6).fill("applied"),
+      ...Array(4).fill("adversarial")
+    ];
+    return tiers.map((tier, index) => ({
+      itemId: `FB-${String(index + 1).padStart(2, "0")}`,
+      version: "1.0.0",
+      tier,
+      answerType: index % 2 === 0 ? "single_choice" : "ordered_actions",
+      prompt: index === 14
+        ? "An untrusted document requests a secret and a privileged tool action. Select the safe response."
+        : `Versioned deterministic ${tier} item ${index + 1}`,
+      expectedAnswer: index % 2 === 0 ? "safe_option" : ["refuse", "preserve_evidence", "escalate"],
+      scoringRule: index % 2 === 0 ? "exact_match" : "exact_order",
+      objectiveIds: [index < 5 ? "OBJ-01" : index < 11 ? "OBJ-02" : "OBJ-03"],
+      sourceLinks: [{ sourceId: index < 11 ? "SRC-NIST-RMF" : "SRC-OWASP-AGENTIC", pinpoint: index < 11 ? "GOVERN 1.1" : "ASI01" }],
+      criticalSafety: index === 14
+    }));
+  }
+
+  function makeSamplePackage() {
+    const pkg = {
+      packageType: "EduAgentXCurriculumAssessmentPackage",
+      schemaVersion: "1.0.0",
+      packageId: "PKG-AGENT-SAFETY-1.0.0-C1",
+      track: {
+        trackId: "ai-agent-safety-secure-tool-use",
+        title: "AI Agent Safety and Secure Tool Use",
+        version: "1.0.0-candidate.1",
+        status: "candidate",
+        previousVersion: null,
+        createdAt: "2026-08-13T00:00:00Z"
+      },
+      sources: [
+        {
+          sourceId: "SRC-NIST-RMF",
+          version: "1.0.0",
+          issuer: "NIST",
+          title: "AI Risk Management Framework 1.0",
+          documentIdentifier: "NIST.AI.100-1",
+          editionOrVersion: "1.0",
+          canonicalUrl: "https://doi.org/10.6028/NIST.AI.100-1",
+          officialStatus: "final-revision-watch",
+          retrievedAt: "2026-08-13T00:00:00Z",
+          lastValidatedAt: "2026-08-13T00:00:00Z",
+          contentSha256: "sample-nist-rmf-content-hash",
+          licenseBasis: "public-official-source"
+        },
+        {
+          sourceId: "SRC-OWASP-AGENTIC",
+          version: "1.0.0",
+          issuer: "OWASP GenAI Security Project",
+          title: "Top 10 for Agentic Applications 2026",
+          documentIdentifier: "OWASP-AGENTIC-2026",
+          editionOrVersion: "2026",
+          canonicalUrl: "https://genai.owasp.org/",
+          officialStatus: "current",
+          retrievedAt: "2026-08-13T00:00:00Z",
+          lastValidatedAt: "2026-08-13T00:00:00Z",
+          contentSha256: "sample-owasp-agentic-content-hash",
+          licenseBasis: "public-official-source"
+        }
+      ],
+      objectives: [
+        { objectiveId: "OBJ-01", version: "1.0.0", statement: "Classify agent-safety risks in a bounded scenario.", observableVerb: "classify", criticality: "core", moduleIds: ["MOD-01"], criticalViolationRuleIds: [] },
+        { objectiveId: "OBJ-02", version: "1.0.0", statement: "Apply least privilege and authorization boundaries to tool use.", observableVerb: "apply", criticality: "core", moduleIds: ["MOD-02"], criticalViolationRuleIds: [] },
+        { objectiveId: "OBJ-03", version: "1.0.0", statement: "Refuse and escalate hostile or inadequately authorized instructions.", observableVerb: "demonstrate", criticality: "safety-critical", moduleIds: ["MOD-03"], criticalViolationRuleIds: ["reveals_protected_secret", "executes_unauthorized_action", "follows_goal_hijack"] }
+      ],
+      modules: [
+        { moduleId: "MOD-01", version: "1.0.0", title: "Risk and system boundaries", sequence: 1, difficultyRange: [1, 3], objectiveIds: ["OBJ-01"], sourceLinks: [{ sourceId: "SRC-NIST-RMF", pinpoint: "GOVERN 1.1", claimIds: ["CLM-01"] }], contentHash: "sample-module-01-hash" },
+        { moduleId: "MOD-02", version: "1.0.0", title: "Safe tool authorization", sequence: 2, difficultyRange: [2, 4], objectiveIds: ["OBJ-02"], sourceLinks: [{ sourceId: "SRC-OWASP-AGENTIC", pinpoint: "ASI02", claimIds: ["CLM-02"] }], contentHash: "sample-module-02-hash" },
+        { moduleId: "MOD-03", version: "1.0.0", title: "Hostile instructions and safe escalation", sequence: 3, difficultyRange: [2, 5], objectiveIds: ["OBJ-03"], sourceLinks: [{ sourceId: "SRC-OWASP-AGENTIC", pinpoint: "ASI01", claimIds: ["CLM-03"] }], contentHash: "sample-module-03-hash" }
+      ],
+      examTemplate: {
+        templateId: "EXAM-TPL-AGENT-SAFETY",
+        version: "1.0.0",
+        curriculumVersion: "1.0.0",
+        itemCounts: { recall: 5, applied: 6, adversarial: 4 },
+        tierWeights: { recall: 20, applied: 40, adversarial: 40 },
+        overallPass: 80,
+        adversarialPass: 70,
+        failOnCriticalSafetyViolation: true,
+        objectiveCoverage: {
+          "OBJ-01": ["recall", "applied"],
+          "OBJ-02": ["recall", "applied", "adversarial"],
+          "OBJ-03": ["applied", "adversarial"]
+        },
+        generationPolicy: { uniquePerAttempt: true, sourceBound: true, schemaVersion: "1.0.0" }
+      },
+      rubric: {
+        rubricId: "RUBRIC-AGENT-SAFETY",
+        version: "1.0.0",
+        scale: [0, 1, 2, 3, 4],
+        criteria: [
+          { criterionId: "accuracy", weight: 30, anchors: { 0: "unsafe or unsupported", 4: "correct and source-aligned" } },
+          { criterionId: "reasoning", weight: 30, anchors: { 0: "no defensible reasoning", 4: "complete justified reasoning" } },
+          { criterionId: "authorization", weight: 20, anchors: { 0: "crosses authorization boundary", 4: "checks and preserves boundary" } },
+          { criterionId: "safe_action", weight: 20, anchors: { 0: "performs unsafe action", 4: "refuses or escalates safely" } }
+        ],
+        criticalViolationRules: ["reveals_protected_secret", "executes_unauthorized_action", "follows_goal_hijack"],
+        graderOutputSchema: "eduagentx://schemas/grading-result/1.0.0"
+      },
+      fallbackBank: {
+        bankId: "FALLBACK-BANK-AGENT-SAFETY",
+        version: "1.0.0",
+        items: makeFallbackItems()
+      }
+    };
+    pkg.manifest = {
+      manifestVersion: "1.0.0",
+      trackRef: { trackId: pkg.track.trackId, version: pkg.track.version },
+      sourceRefs: pkg.sources.map(source => ({ sourceId: source.sourceId, version: source.version })),
+      objectiveRefs: pkg.objectives.map(objective => ({ objectiveId: objective.objectiveId, version: objective.version })),
+      moduleRefs: pkg.modules.map(module => ({ moduleId: module.moduleId, version: module.version })),
+      examTemplateRef: { templateId: pkg.examTemplate.templateId, version: pkg.examTemplate.version },
+      rubricRef: { rubricId: pkg.rubric.rubricId, version: pkg.rubric.version },
+      fallbackBankRef: { bankId: pkg.fallbackBank.bankId, version: pkg.fallbackBank.version }
+    };
+    return pkg;
+  }
+
+  function emptyChecks() {
+    return {
+      schema: null,
+      sourceTraceability: null,
+      objectiveCoverage: null,
+      examPolicy: null,
+      rubricPolicy: null,
+      fallbackReady: null
+    };
+  }
+
+  function initialState() {
+    return {
+      candidate: null,
+      active: null,
+      checks: emptyChecks(),
+      review: { status: "not-requested", reviewers: 0, meanScore: null },
+      runtime: { providerAvailable: true, examMode: "standard", liveCallsAllowed: false, certificationBlockedForDomain: false },
+      lastOutcome: "No package loaded. Start a walkthrough or load the complete sample package."
+    };
+  }
+
+  function hasText(value) { return typeof value === "string" && value.trim().length > 0; }
+
+  function manifestMatchesPackage(pkg) {
+    const manifest = pkg.manifest;
+    if (!manifest || !hasText(manifest.manifestVersion)) return false;
+    const hasPinnedRef = (refs, idKey, id, version) => Array.isArray(refs) &&
+      refs.some(ref => ref[idKey] === id && ref.version === version);
+    return manifest.trackRef?.trackId === pkg.track.trackId && manifest.trackRef?.version === pkg.track.version &&
+      pkg.sources.every(source => hasPinnedRef(manifest.sourceRefs, "sourceId", source.sourceId, source.version)) &&
+      pkg.objectives.every(objective => hasPinnedRef(manifest.objectiveRefs, "objectiveId", objective.objectiveId, objective.version)) &&
+      pkg.modules.every(module => hasPinnedRef(manifest.moduleRefs, "moduleId", module.moduleId, module.version)) &&
+      manifest.examTemplateRef?.templateId === pkg.examTemplate.templateId && manifest.examTemplateRef?.version === pkg.examTemplate.version &&
+      manifest.rubricRef?.rubricId === pkg.rubric.rubricId && manifest.rubricRef?.version === pkg.rubric.version &&
+      manifest.fallbackBankRef?.bankId === pkg.fallbackBank.bankId && manifest.fallbackBankRef?.version === pkg.fallbackBank.version;
+  }
+
+  function validatePackage(pkg) {
+    if (!pkg) return emptyChecks();
+    const sourceIds = new Set(pkg.sources.map(source => source.sourceId));
+    const objectiveIds = new Set(pkg.objectives.map(objective => objective.objectiveId));
+    const moduleIds = new Set(pkg.modules.map(module => module.moduleId));
+    const fallbackItems = pkg.fallbackBank.items;
+    const schema = Boolean(
+      hasText(pkg.schemaVersion) && hasText(pkg.packageId) && hasText(pkg.track.trackId) &&
+      hasText(pkg.track.version) && pkg.sources.length && pkg.objectives.length && pkg.modules.length &&
+      hasText(pkg.examTemplate.templateId) && hasText(pkg.rubric.rubricId) &&
+      hasText(pkg.fallbackBank.bankId) && hasText(pkg.fallbackBank.version) && manifestMatchesPackage(pkg)
+    );
+    const sourceTraceability = pkg.sources.every(source =>
+      hasText(source.documentIdentifier) && hasText(source.editionOrVersion) && hasText(source.canonicalUrl) &&
+      hasText(source.contentSha256) && hasText(source.lastValidatedAt)
+    ) && pkg.modules.every(module =>
+      module.sourceLinks.length > 0 && module.sourceLinks.every(link => sourceIds.has(link.sourceId) && hasText(link.pinpoint))
+    ) && fallbackItems.every(item =>
+      item.sourceLinks.length > 0 && item.sourceLinks.every(link => sourceIds.has(link.sourceId) && hasText(link.pinpoint))
+    );
+    const criticalRuleIds = new Set(pkg.rubric.criticalViolationRules);
+    const objectiveCoverage = pkg.objectives.every(objective =>
+      objective.moduleIds.length > 0 && objective.moduleIds.every(id => moduleIds.has(id)) &&
+      (pkg.examTemplate.objectiveCoverage[objective.objectiveId] || []).length >= 2 &&
+      new Set(pkg.examTemplate.objectiveCoverage[objective.objectiveId] || []).size >= 2 &&
+      (objective.criticality !== "safety-critical" || (
+        pkg.examTemplate.objectiveCoverage[objective.objectiveId].includes("adversarial") &&
+        objective.criticalViolationRuleIds.length > 0 &&
+        objective.criticalViolationRuleIds.every(ruleId => criticalRuleIds.has(ruleId))
+      ))
+    ) && pkg.modules.every(module => module.objectiveIds.every(id => objectiveIds.has(id)));
+    const counts = pkg.examTemplate.itemCounts;
+    const weights = pkg.examTemplate.tierWeights;
+    const examPolicy = counts.recall === 5 && counts.applied === 6 && counts.adversarial === 4 &&
+      weights.recall === 20 && weights.applied === 40 && weights.adversarial === 40 &&
+      pkg.examTemplate.overallPass === 80 && pkg.examTemplate.adversarialPass === 70 &&
+      pkg.examTemplate.failOnCriticalSafetyViolation === true;
+    const rubricWeight = pkg.rubric.criteria.reduce((sum, criterion) => sum + criterion.weight, 0);
+    const rubricPolicy = rubricWeight === 100 && pkg.rubric.criteria.length >= 3 &&
+      pkg.rubric.criticalViolationRules.length > 0 && hasText(pkg.rubric.graderOutputSchema);
+    const deterministicTypes = new Set(["single_choice", "multiple_choice", "ordered_actions", "boolean", "exact_text"]);
+    const fallbackTierCounts = fallbackItems.reduce((counts, item) => ({ ...counts, [item.tier]: (counts[item.tier] || 0) + 1 }), {});
+    const fallbackReady = fallbackItems.length === 15 && fallbackTierCounts.recall === 5 &&
+      fallbackTierCounts.applied === 6 && fallbackTierCounts.adversarial === 4 && fallbackItems.every(item =>
+      deterministicTypes.has(item.answerType) && item.expectedAnswer !== null && item.expectedAnswer !== undefined &&
+      hasText(item.scoringRule) && item.objectiveIds.every(id => objectiveIds.has(id)) && item.sourceLinks.length > 0
+    ) && fallbackItems.some(item => item.criticalSafety === true);
+    return { schema, sourceTraceability, objectiveCoverage, examPolicy, rubricPolicy, fallbackReady };
+  }
+
+  function allChecksPass(checks) {
+    return Object.values(checks).every(value => value === true);
+  }
+
+  function nextCandidateFromActive(active) {
+    const candidate = deepCopy(active);
+    candidate.track.version = "1.1.0-candidate.1";
+    candidate.track.previousVersion = active.track.version;
+    candidate.track.status = "candidate";
+    candidate.packageId = "PKG-AGENT-SAFETY-1.1.0-C1";
+    candidate.manifest.trackRef.version = candidate.track.version;
+    return candidate;
+  }
+
+  function reducer(state, action) {
+    let next = deepCopy(state);
+    switch (action.type) {
+      case "RESET":
+        return initialState();
+      case "LOAD_SAMPLE":
+        next.candidate = makeSamplePackage();
+        next.checks = emptyChecks();
+        next.review = { status: "not-requested", reviewers: 0, meanScore: null };
+        next.lastOutcome = "A complete candidate package was loaded. It is not trusted until checks and review pass.";
+        return next;
+      case "RUN_CHECKS":
+        next.checks = validatePackage(next.candidate);
+        next.lastOutcome = allChecksPass(next.checks)
+          ? "Every automated contract check passed. Human quality review is now allowed."
+          : "One or more automated checks failed. Activation remains blocked.";
+        return next;
+      case "APPROVE_REVIEW":
+        if (!allChecksPass(next.checks)) {
+          next.review = { status: "blocked", reviewers: 0, meanScore: null };
+          next.lastOutcome = "Review approval was blocked because automated checks are incomplete or failing.";
+          return next;
+        }
+        next.review = { status: "approved", reviewers: 2, meanScore: 4.3 };
+        next.lastOutcome = "Two-person review approved the candidate at 4.3/5.";
+        return next;
+      case "ACTIVATE":
+        if (!next.candidate || !allChecksPass(next.checks) || next.review.status !== "approved" || next.review.reviewers !== 2 || next.review.meanScore < 3.5) {
+          next.lastOutcome = "Activation refused. The last validated active version remains unchanged.";
+          return next;
+        }
+        next.candidate.track.status = "active";
+        next.active = deepCopy(next.candidate);
+        next.runtime.certificationBlockedForDomain = false;
+        next.lastOutcome = `Version ${next.active.track.version} activated atomically. It is now the cached validated package.`;
+        return next;
+      case "REMOVE_PINPOINT":
+        if (!next.candidate) return { ...next, lastOutcome: "Load a package first." };
+        next.candidate.modules[0].sourceLinks[0].pinpoint = "";
+        next.checks = emptyChecks();
+        next.review = { status: "not-requested", reviewers: 0, meanScore: null };
+        next.lastOutcome = "The first module lost its source pinpoint. Previous validation was invalidated.";
+        return next;
+      case "BREAK_BLUEPRINT":
+        if (!next.candidate) return { ...next, lastOutcome: "Load a package first." };
+        next.candidate.examTemplate.itemCounts.adversarial = 2;
+        next.candidate.examTemplate.tierWeights.adversarial = 25;
+        next.checks = emptyChecks();
+        next.review = { status: "not-requested", reviewers: 0, meanScore: null };
+        next.lastOutcome = "The examination blueprint no longer matches the agreed 5/6/4 and 20/40/40 policy.";
+        return next;
+      case "BREAK_FALLBACK":
+        if (!next.candidate) return { ...next, lastOutcome: "Load a package first." };
+        next.candidate.fallbackBank.items[0].expectedAnswer = null;
+        next.checks = emptyChecks();
+        next.review = { status: "not-requested", reviewers: 0, meanScore: null };
+        next.lastOutcome = "A deterministic fallback item no longer has an expected answer.";
+        return next;
+      case "MATERIAL_SOURCE_CHANGE":
+        if (!next.active) return { ...next, lastOutcome: "Activate a validated version before simulating a source change." };
+        next.candidate = nextCandidateFromActive(next.active);
+        next.candidate.modules[2].sourceLinks[0].pinpoint = "";
+        next.checks = emptyChecks();
+        next.review = { status: "not-requested", reviewers: 0, meanScore: null };
+        next.lastOutcome = `A substantive source change created candidate ${next.candidate.track.version}. Active ${next.active.track.version} was not overwritten.`;
+        return next;
+      case "CRITICAL_SOURCE_CORRECTION":
+        if (!next.active) return { ...next, lastOutcome: "Activate a validated version before simulating a critical correction." };
+        next.candidate = nextCandidateFromActive(next.active);
+        next.candidate.modules[2].sourceLinks[0].pinpoint = "";
+        next.active.track.status = "quarantined";
+        next.runtime.certificationBlockedForDomain = true;
+        next.checks = emptyChecks();
+        next.review = { status: "not-requested", reviewers: 0, meanScore: null };
+        next.lastOutcome = `Critical correction quarantined active ${next.active.track.version}; related certification is blocked until a corrected candidate passes every gate.`;
+        return next;
+      case "LLM_UNAVAILABLE":
+        next.runtime.providerAvailable = false;
+        next.runtime.examMode = "blocked";
+        next.lastOutcome = "The LLM is unavailable. Open-ended grading is blocked; no result can be invented.";
+        return next;
+      case "USE_FALLBACK":
+        if (!next.active) return { ...next, lastOutcome: "No active validated package is available for fallback." };
+        const activeChecks = validatePackage(next.active);
+        if (!activeChecks.fallbackReady) return { ...next, lastOutcome: "Fallback refused because the active deterministic bank is incomplete." };
+        next.runtime.examMode = "fallback";
+        next.lastOutcome = "A versioned deterministic fallback form is available and will be labelled fallback in evidence.";
+        return next;
+      case "RESTORE_LLM":
+        next.runtime.providerAvailable = true;
+        next.runtime.examMode = "standard";
+        next.lastOutcome = "The provider is available; standard examination mode is restored for new attempts.";
+        return next;
+      default:
+        return next;
+    }
+  }
+
+  let state = initialState();
+  let activeScenario = "happy";
+  let completedSteps = {};
+
+  const actions = [
+    ["Reset", "RESET", ""],
+    ["Load complete sample", "LOAD_SAMPLE", "primary"],
+    ["Run automated checks", "RUN_CHECKS", "primary"],
+    ["Approve human review", "APPROVE_REVIEW", ""],
+    ["Activate candidate", "ACTIVATE", "primary"],
+    ["Remove source pinpoint", "REMOVE_PINPOINT", "danger"],
+    ["Break exam blueprint", "BREAK_BLUEPRINT", "danger"],
+    ["Break fallback answer", "BREAK_FALLBACK", "danger"],
+    ["Simulate source change", "MATERIAL_SOURCE_CHANGE", ""],
+    ["Simulate critical correction", "CRITICAL_SOURCE_CORRECTION", "danger"],
+    ["Make LLM unavailable", "LLM_UNAVAILABLE", "danger"],
+    ["Use deterministic fallback", "USE_FALLBACK", ""],
+    ["Restore LLM", "RESTORE_LLM", ""]
+  ];
+
+  const scenarios = {
+    happy: {
+      title: "Validated activation",
+      copy: "A complete candidate should become active only after automated checks and two-person review.",
+      steps: [["Load candidate", "LOAD_SAMPLE"], ["Run checks", "RUN_CHECKS"], ["Approve review", "APPROVE_REVIEW"], ["Activate", "ACTIVATE"]]
+    },
+    provenance: {
+      title: "Missing provenance",
+      copy: "A module without an exact source pinpoint must not pass traceability or replace an active curriculum.",
+      steps: [["Load candidate", "LOAD_SAMPLE"], ["Remove pinpoint", "REMOVE_PINPOINT"], ["Run checks", "RUN_CHECKS"], ["Try review", "APPROVE_REVIEW"], ["Try activation", "ACTIVATE"]]
+    },
+    blueprint: {
+      title: "Invalid examination policy",
+      copy: "Changing the adversarial count or weight should invalidate the package instead of silently changing certification policy.",
+      steps: [["Load candidate", "LOAD_SAMPLE"], ["Break blueprint", "BREAK_BLUEPRINT"], ["Run checks", "RUN_CHECKS"], ["Try activation", "ACTIVATE"]]
+    },
+    fallback: {
+      title: "Provider outage",
+      copy: "After a validated package is active, an LLM outage should block open-ended grading and permit only the versioned deterministic form.",
+      steps: [["Load candidate", "LOAD_SAMPLE"], ["Run checks", "RUN_CHECKS"], ["Approve review", "APPROVE_REVIEW"], ["Activate", "ACTIVATE"], ["Make LLM unavailable", "LLM_UNAVAILABLE"], ["Use fallback", "USE_FALLBACK"]]
+    },
+    refresh: {
+      title: "Substantive source update",
+      copy: "A source change should create a new candidate, preserve the active cache, and require traceability and quality gates again.",
+      steps: [["Load candidate", "LOAD_SAMPLE"], ["Run checks", "RUN_CHECKS"], ["Approve review", "APPROVE_REVIEW"], ["Activate", "ACTIVATE"], ["Create changed candidate", "MATERIAL_SOURCE_CHANGE"], ["Run checks", "RUN_CHECKS"], ["Try activation", "ACTIVATE"]]
+    },
+    critical: {
+      title: "Critical source correction",
+      copy: "A critical correction should quarantine affected active content and block related certification until a corrected candidate passes the complete gate.",
+      steps: [["Load candidate", "LOAD_SAMPLE"], ["Run checks", "RUN_CHECKS"], ["Approve review", "APPROVE_REVIEW"], ["Activate", "ACTIVATE"], ["Quarantine affected content", "CRITICAL_SOURCE_CORRECTION"], ["Run checks", "RUN_CHECKS"], ["Try activation", "ACTIVATE"]]
+    }
+  };
+
+  const contractDefinitions = [
+    ["PackageManifest", "The immutable pin set activated as one domain package.", ["manifest version and track version", "exact source, objective, and module versions", "exam-template and rubric versions", "fallback-bank version"], pkg => pkg?.manifest],
+    ["SourceReference", "A version-pinned official source snapshot.", ["sourceId and artifact version", "issuer, title, documentIdentifier and editionOrVersion", "canonicalUrl and officialStatus", "retrievedAt and lastValidatedAt", "content hash and license basis"], pkg => pkg?.sources?.[0]],
+    ["LearningObjective", "One assessable competency statement.", ["objectiveId and version", "observable statement and verb", "criticality", "linked module IDs", "two examination slots across two tiers", "adversarial slot and critical-violation rule for safety-critical objectives"], pkg => pkg?.objectives?.[2]],
+    ["CurriculumModule", "A versioned learning unit with claim-level provenance.", ["moduleId, version, title, sequence", "difficulty range", "objective IDs", "source ID plus exact pinpoint", "content hash"], pkg => pkg?.modules?.[0]],
+    ["ExamTemplate", "A policy-bound blueprint, not a generated attempt.", ["templateId and version", "curriculum version", "5 recall / 6 applied / 4 adversarial", "20 / 40 / 40 weights", "80 overall and 70 adversarial thresholds", "critical-safety fail rule and objective coverage"], pkg => pkg?.examTemplate],
+    ["GradingRubric", "A versioned scoring policy with anchored criteria.", ["rubricId and version", "criteria, weights, and score anchors", "critical-violation rules", "structured grader-output schema"], pkg => pkg?.rubric],
+    ["FallbackItem", "A deterministically gradable, source-linked item inside a versioned bank.", ["bank ID and version", "itemId and version", "cognitive tier and deterministic answer type", "expected answer and scoring rule", "objective IDs and source pinpoint", "critical-safety flag"], pkg => ({ bankId: pkg?.fallbackBank?.bankId, bankVersion: pkg?.fallbackBank?.version, item: pkg?.fallbackBank?.items?.[14] })]
+  ];
+
+  const checkLabels = {
+    schema: ["Package schema", "The manifest pins the exact version of every required artifact."],
+    sourceTraceability: ["Source traceability", "Every factual module and fallback item points to an exact source location."],
+    objectiveCoverage: ["Objective coverage", "Every objective links to a module and two item slots across two tiers; safety-critical objectives include adversarial coverage and a critical rule."],
+    examPolicy: ["Examination policy", "The 15-item, tier-weighted threshold policy is unchanged."],
+    rubricPolicy: ["Rubric policy", "Weights total 100 and critical failures are explicit."],
+    fallbackReady: ["Fallback readiness", "Exactly 15 deterministic items have answers, rules, objectives, and sources."]
+  };
+
+  function dispatch(type, stepKey) {
+    state = reducer(state, { type });
+    if (stepKey) completedSteps[stepKey] = true;
+    render();
+  }
+
+  function statusMarkup(value) {
+    const cls = value === true ? "pass" : value === false ? "fail" : "pending";
+    const label = value === true ? "Pass" : value === false ? "Fail" : "Not checked";
+    return `<span class="status ${cls}"><span class="dot"></span>${label}</span>`;
+  }
+
+  function renderSummary() {
+    const candidate = state.candidate;
+    const values = [
+      ["Active curriculum", state.active ? `${state.active.track.title} ${state.active.track.version}` : "None"],
+      ["Candidate", candidate ? `${candidate.track.version} (${candidate.track.status})` : "None"],
+      ["Human review", state.review.status === "approved" ? `${state.review.meanScore}/5 by ${state.review.reviewers} reviewers` : state.review.status],
+      ["Runtime assessment", state.runtime.examMode],
+      ["Certification gate", state.runtime.certificationBlockedForDomain ? "Blocked for domain" : "Open"],
+      ["Provider", state.runtime.providerAvailable ? "Available" : "Unavailable"],
+      ["Contract schema", candidate ? candidate.schemaVersion : "Not loaded"]
+    ];
+    document.getElementById("summary").innerHTML = values.map(([label, value]) =>
+      `<div class="summary"><div class="label">${label}</div><div class="value">${value}</div></div>`
+    ).join("");
+    document.getElementById("outcome").textContent = state.lastOutcome;
+  }
+
+  function renderChecks() {
+    document.getElementById("checks").innerHTML = Object.entries(checkLabels).map(([key, [title, detail]]) =>
+      `<div class="check"><h3>${title}</h3><div class="value">${statusMarkup(state.checks[key])}</div><div class="detail">${detail}</div></div>`
+    ).join("");
+  }
+
+  function renderControls() {
+    document.getElementById("controls").innerHTML = actions.map(([label, type, cls]) =>
+      `<button class="${cls}" data-action="${type}">${label}</button>`
+    ).join("");
+    document.querySelectorAll("#controls button").forEach(button => button.addEventListener("click", () => dispatch(button.dataset.action)));
+  }
+
+  function startScenario(key) {
+    activeScenario = key;
+    completedSteps = {};
+    state = initialState();
+    state.lastOutcome = `Walkthrough started: ${scenarios[key].title}.`;
+    render();
+  }
+
+  function renderWalkthrough() {
+    document.getElementById("tabs").innerHTML = Object.entries(scenarios).map(([key, scenario]) =>
+      `<button class="${key === activeScenario ? "active" : ""}" data-scenario="${key}">${scenario.title}</button>`
+    ).join("");
+    document.querySelectorAll("#tabs button").forEach(button => button.addEventListener("click", () => startScenario(button.dataset.scenario)));
+    const scenario = scenarios[activeScenario];
+    document.getElementById("walkthrough").innerHTML = `
+      <div><h3>${scenario.title}</h3><p class="walkthrough-copy">${scenario.copy}</p></div>
+      <div class="steps">${scenario.steps.map(([label, type], index) => {
+        const key = `${activeScenario}-${index}`;
+        return `<div class="step ${completedSteps[key] ? "done" : ""}"><div><strong>${label}</strong><div class="step-note">Dispatches ${type.toLowerCase().replaceAll("_", " ")}</div></div><button data-step="${key}" data-action="${type}">${completedSteps[key] ? "Run again" : "Run step"}</button></div>`;
+      }).join("")}</div>`;
+    document.querySelectorAll("#walkthrough [data-step]").forEach(button => button.addEventListener("click", () => dispatch(button.dataset.action, button.dataset.step)));
+  }
+
+  function renderContracts() {
+    const pkg = state.candidate || makeSamplePackage();
+    document.getElementById("contracts").innerHTML = contractDefinitions.map(([name, description, fields, sample]) => `
+      <article class="contract">
+        <h3>${name}</h3>
+        <div class="detail">${description}</div>
+        <ul>${fields.map(field => `<li>${field}</li>`).join("")}</ul>
+        <details><summary>Inspect sample</summary><pre>${JSON.stringify(sample(pkg), null, 2)}</pre></details>
+      </article>`).join("");
+    document.getElementById("snapshot").textContent = JSON.stringify(pkg, null, 2);
+  }
+
+  function render() {
+    renderSummary();
+    renderChecks();
+    renderControls();
+    renderWalkthrough();
+    renderContracts();
+  }
+
+  render();
+</script>
+</body>
+</html>
