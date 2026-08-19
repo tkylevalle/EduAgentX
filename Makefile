@@ -3,6 +3,7 @@
 # copies .env if it's missing, builds, starts everything, waits for health
 up:
 	@if [ ! -f .env ]; then cp .env.example .env; echo "Created .env from .env.example"; fi
+	@./scripts/generate-dev-keys.sh
 	docker compose up --build -d
 	@echo "Waiting for services to become healthy..."
 	@./scripts/wait-for-healthy.sh
