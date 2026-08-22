@@ -58,7 +58,7 @@ resp_status=$(curl -s -o /tmp/register.json -w '%{http_code}' \
 
 [ "$resp_status" = "201" ] || [ "$resp_status" = "200" ] || fail "registration returned ${resp_status}: $(cat /tmp/register.json)"
 
-returned_correlation=$(grep -o "\"correlationId\":\"[^\"]*\"" /tmp/register.json | cut -d'"' -f4)
+returned_correlation=$(grep -o "\"correlationId\":\"[^\"]*\"" /tmp/register.json | head -n 1 | cut -d'"' -f4)
 [ "$returned_correlation" = "$CORRELATION_ID" ] || fail "correlation id not propagated (expected ${CORRELATION_ID}, got ${returned_correlation})"
 AGENT_LEARNER_ID=$(grep -o "\"agentLearnerId\":\"[^\"]*\"" /tmp/register.json | head -n 1 | cut -d'"' -f4)
 [ -n "$AGENT_LEARNER_ID" ] || fail "no authoritative agentLearnerId in response: $(cat /tmp/register.json)"
@@ -121,6 +121,18 @@ grep -q "Latest Agent Registry trace" /tmp/console.html || fail "console did not
 grep -q "Configuration fingerprint" /tmp/console.html || fail "console did not render the fingerprint"
 grep -q "Correlation ID" /tmp/console.html || fail "console did not render correlation evidence"
 echo "   OK: console rendered the trace"
+
+echo "10) Synthetic Agent Learner must use the public Gateway protocol..."
+SYNTHETIC_AGENT_PORT="${SYNTHETIC_AGENT_PORT:-4200}"
+synthetic_status=$(curl -s -o /tmp/synthetic-run.json -w '%{http_code}' \
+  -X POST "http://localhost:${SYNTHETIC_AGENT_PORT}/v1/runs" \
+  -H "content-type: application/json" \
+  -H "x-correlation-id: synthetic-${CORRELATION_ID}" \
+  -d "{\"profileId\":\"competent\",\"agentLearnerKey\":\"${AGENT_LEARNER_KEY}\"}")
+[ "$synthetic_status" = "200" ] || fail "synthetic learner returned ${synthetic_status}: $(cat /tmp/synthetic-run.json)"
+grep -q 'SIMULATION: Synthetic Agent Learner' /tmp/synthetic-run.json || fail "synthetic evidence was not labelled as simulation"
+grep -q '"credentialIssued":false' /tmp/synthetic-run.json || fail "synthetic adapter claimed credential issuance"
+echo "   OK: synthetic learner completed through the Gateway with simulation evidence"
 
 echo ""
 echo "SMOKE TEST PASSED"
