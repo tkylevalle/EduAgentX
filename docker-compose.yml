@@ -111,6 +111,8 @@ services:
       PORT: 4100
       API_GATEWAY_URL: http://api-gateway:4000
       SERVICE_NAME: assurance-console
+      ADMIN_CLIENT_ID: ${ADMIN_CLIENT_ID}
+      ADMIN_CLIENT_SECRET: ${ADMIN_CLIENT_SECRET}
     ports:
       - "${CONSOLE_PORT:-4173}:4100"
     depends_on:
