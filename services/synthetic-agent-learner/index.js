@@ -16,11 +16,11 @@ const AGENT_CLIENT_SECRET = process.env.AGENT_CLIENT_SECRET || 'changeme_local_o
 
 function createApp({ learner = createDefaultLearner() } = {}) {
   const app = express();
-  app.use(express.json({ limit: '16kb' }));
   app.use((req, res, next) => {
     req.correlationId = req.header('x-correlation-id') || null;
     next();
   });
+  app.use(express.json({ limit: '16kb' }));
 
   app.get('/health', (req, res) => {
     res.status(200).json({ status: 'ok', service: SERVICE_NAME, protocol: 'ExternalAgentLearner', protocolVersion: '1.0.0' });
@@ -59,6 +59,14 @@ function createApp({ learner = createDefaultLearner() } = {}) {
 
   app.use((error, req, res, next) => {
     if (res.headersSent) return next(error);
+    if (error instanceof SyntaxError && error.status === 400 && 'body' in error) {
+      return res.status(400).json({
+        apiVersion: 'v1',
+        error: 'invalid_request',
+        message: 'Request body must contain valid JSON',
+        correlationId: req.correlationId,
+      });
+    }
     console.error(`[${SERVICE_NAME}] unhandled request error`, error);
     return res.status(500).json({
       apiVersion: 'v1',

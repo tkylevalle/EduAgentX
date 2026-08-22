@@ -36,11 +36,13 @@ class GatewayProtocolClient {
   }
 
   async send(path, message) {
-    const accessToken = await this.getAccessToken(message.correlationId);
+    const startedAt = Date.now();
+    const accessToken = await this.getAccessToken(message.correlationId, message.timeoutMs);
     const controller = new AbortController();
+    const remainingTimeoutMs = Math.max(1, message.timeoutMs - (Date.now() - startedAt));
     const timeout = setTimeout(
       () => controller.abort(),
-      Math.min(message.timeoutMs, this.requestTimeoutMs)
+      Math.min(remainingTimeoutMs, this.requestTimeoutMs)
     );
 
     try {
@@ -67,26 +69,42 @@ class GatewayProtocolClient {
     }
   }
 
-  async getAccessToken(correlationId) {
+  async getAccessToken(correlationId, timeoutMs) {
     if (this.accessToken) return this.accessToken;
-    const response = await this.fetch(`${this.gatewayUrl}/v1/auth/tokens`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-correlation-id': correlationId,
-      },
-      body: JSON.stringify({ clientId: this.clientId, clientSecret: this.clientSecret }),
-    });
-    const parsed = await parseResponse(response);
-    if (parsed.status < 200 || parsed.status >= 300 || !parsed.body.accessToken) {
-      throw new GatewayProtocolError(
-        parsed.body.error || 'gateway_authentication_failed',
-        'Gateway authentication failed',
-        parsed.status
-      );
+    const controller = new AbortController();
+    const timeout = setTimeout(
+      () => controller.abort(),
+      Math.min(timeoutMs, this.requestTimeoutMs)
+    );
+
+    try {
+      const response = await this.fetch(`${this.gatewayUrl}/v1/auth/tokens`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-correlation-id': correlationId,
+        },
+        body: JSON.stringify({ clientId: this.clientId, clientSecret: this.clientSecret }),
+        signal: controller.signal,
+      });
+      const parsed = await parseResponse(response);
+      if (parsed.status < 200 || parsed.status >= 300 || !parsed.body.accessToken) {
+        throw new GatewayProtocolError(
+          parsed.body.error || 'gateway_authentication_failed',
+          'Gateway authentication failed',
+          parsed.status
+        );
+      }
+      this.accessToken = parsed.body.accessToken;
+      return this.accessToken;
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        throw new GatewayProtocolError('gateway_timeout', 'Gateway authentication timed out', 504);
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
     }
-    this.accessToken = parsed.body.accessToken;
-    return this.accessToken;
   }
 }
 

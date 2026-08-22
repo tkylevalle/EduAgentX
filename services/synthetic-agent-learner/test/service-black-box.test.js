@@ -74,11 +74,58 @@ test('synthetic failure profiles retain safe public outcomes and never claim cre
   }
 });
 
-async function startGatewayStub(requests) {
+test('Gateway authentication honors the protocol timeout before registration dispatch', async (t) => {
+  const gatewayRequests = [];
+  const gateway = await startGatewayStub(gatewayRequests, { tokenDelayMs: 100 });
+  const client = new GatewayProtocolClient({
+    gatewayUrl: `http://127.0.0.1:${gateway.address().port}`,
+    clientId: 'synthetic-agent-learner-dev',
+    clientSecret: 'synthetic-secret',
+  });
+  const learner = createSyntheticAgentLearner({ gatewayClient: client });
+  const service = http.createServer(createApp({ learner }));
+  await listen(service);
+  t.after(() => service.close());
+  t.after(() => gateway.close());
+
+  const response = await request(service, 'POST', '/v1/runs', {
+    profileId: 'competent',
+    agentLearnerKey: 'synthetic-agent-learner-dev',
+    correlationId: 'synthetic-auth-timeout',
+    timeoutMs: 20,
+  });
+
+  assert.equal(response.status, 503);
+  assert.equal(response.body.outcome, 'system_aborted');
+  assert.equal(response.body.reason, 'upstream_unavailable');
+  assert.equal(response.body.credentialIssued, false);
+  assert.deepEqual(gatewayRequests.map((item) => item.path), ['/v1/auth/tokens']);
+});
+
+test('synthetic service attaches the request correlation to malformed JSON errors', async (t) => {
+  const service = http.createServer(createApp({ learner: { run: async () => ({}) } }));
+  await listen(service);
+  t.after(() => service.close());
+
+  const response = await rawRequest(
+    service,
+    'POST',
+    '/v1/runs',
+    '{"profileId":',
+    { 'x-correlation-id': 'synthetic-malformed-json' }
+  );
+
+  assert.equal(response.status, 400);
+  assert.equal(response.body.error, 'invalid_request');
+  assert.equal(response.body.correlationId, 'synthetic-malformed-json');
+});
+
+async function startGatewayStub(requests, { tokenDelayMs = 0 } = {}) {
   const server = http.createServer(async (req, res) => {
     const body = await readJson(req);
     requests.push({ path: req.url, headers: req.headers, body });
     if (req.method === 'POST' && req.url === '/v1/auth/tokens') {
+      if (tokenDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, tokenDelayMs));
       return sendJson(res, 200, { accessToken: 'gateway-token' });
     }
     if (req.method === 'POST' && req.url === '/v1/agent-learner/registrations') {
@@ -129,6 +176,27 @@ function request(server, method, pathName, body) {
     });
     req.on('error', reject);
     if (payload) req.write(payload);
+    req.end();
+  });
+}
+
+function rawRequest(server, method, pathName, payload, headers = {}) {
+  return new Promise((resolve, reject) => {
+    const address = server.address();
+    const req = http.request({
+      host: address.address,
+      port: address.port,
+      method,
+      path: pathName,
+      headers: { 'content-type': 'application/json', ...headers },
+    }, (res) => {
+      let raw = '';
+      res.setEncoding('utf8');
+      res.on('data', (chunk) => { raw += chunk; });
+      res.on('end', () => resolve({ status: res.statusCode, body: raw ? JSON.parse(raw) : {} }));
+    });
+    req.on('error', reject);
+    req.write(payload);
     req.end();
   });
 }
