@@ -6,3 +6,4 @@ npm-debug.log*
 
 # local-only dev JWT signing keys - never commit private key material
 keys/
+.impeccable/
