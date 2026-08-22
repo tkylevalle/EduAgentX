@@ -42,7 +42,8 @@ Both message types use the same envelope:
 }
 ```
 
-`timeoutMs` is required and bounded to 1-60,000 ms. The optional
+`timeoutMs` is required and bounded to 1-60,000 ms. The Gateway enforces this
+deadline when forwarding registration work to an owning service. The optional
 `x-correlation-id` header must equal the envelope `correlationId`; the Gateway
 returns the same value in the response header and body. The idempotency key is
 bound to the authenticated subject and message content. Reusing it with the

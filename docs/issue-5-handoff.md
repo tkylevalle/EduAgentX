@@ -48,3 +48,12 @@ The protocol conformance suite is deliberately transport-shaped so Replay and
 future live adapters can reuse it. The lifecycle route currently proves the
 authenticated gateway boundary and returns `safeState: awaiting_lifecycle_owner`
 until the curriculum/training owner is delivered by the next work package.
+
+## Follow-on boundary
+
+The Gateway request-result cache is intentionally bounded to the process for
+this adapter seam. Durable cross-restart request/event idempotency belongs to
+the Sprint 1 persistence and Redis work package. Causation identifiers,
+baseline telemetry, and the consolidated Sprint Evidence Pack are likewise
+cross-cutting follow-on deliverables; Issue 5 records the protocol and
+synthetic-adapter evidence needed by those packages.
