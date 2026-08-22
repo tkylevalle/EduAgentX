@@ -160,3 +160,21 @@ test('lifecycle messages reject a missing adapter response', () => {
       && error.details.some((detail) => detail.field === 'payload.data.response')
   );
 });
+
+test('lifecycle messages require the Gateway-authorized agentLearnerKey identity', () => {
+  assert.throws(
+    () => createLifecycleMessage({
+      messageId: 'id-only-message',
+      correlationId: 'id-only-correlation',
+      idempotencyKey: 'id-only-idempotency',
+      timeoutMs: 1000,
+      evidence: { mode: 'synthetic' },
+      payload: {
+        interactionType: 'training.submit',
+        data: { agentLearnerId: 'id-only-agent', response: 'safe response' },
+      },
+    }),
+    (error) => error instanceof ProtocolValidationError
+      && error.code === 'invalid_lifecycle_identity'
+  );
+});

@@ -145,6 +145,22 @@ test('authentication, identity, version, timeout, evidence, and payload failures
   assert.equal(versionResponse.body.error, 'unsupported_protocol_version');
   assert.equal(versionResponse.body.evidence.label, 'SIMULATION: Synthetic Agent Learner');
 
+  const unsupportedWithoutHeader = {
+    ...unsupportedVersion,
+    messageId: 'unsupported-without-header',
+    correlationId: 'envelope-error-correlation',
+  };
+  const noHeaderVersionResponse = await request(
+    gateway,
+    'POST',
+    '/v1/agent-learner/registrations',
+    unsupportedWithoutHeader,
+    { authorization: `Bearer ${token}` }
+  );
+  assert.equal(noHeaderVersionResponse.status, 400);
+  assert.equal(noHeaderVersionResponse.body.correlationId, unsupportedWithoutHeader.correlationId);
+  assert.equal(noHeaderVersionResponse.headers['x-correlation-id'], unsupportedWithoutHeader.correlationId);
+
   const invalidTimeout = { ...valid, timeoutMs: 0, messageId: 'invalid-timeout' };
   const timeoutResponse = await request(gateway, 'POST', '/v1/agent-learner/registrations', invalidTimeout, {
     authorization: `Bearer ${token}`,
@@ -173,7 +189,7 @@ test('authentication, identity, version, timeout, evidence, and payload failures
     evidence: { mode: 'synthetic' },
     payload: {
       interactionType: 'training.submit',
-       data: { agentLearnerKey: 'protocol-agent', response: 'malformed test response' },
+      data: { agentLearnerKey: 'protocol-agent', response: 'malformed test response' },
     },
   });
   delete malformedLifecycle.payload.data;
@@ -235,6 +251,44 @@ test('protocol registration idempotency replays failed upstream results and conf
   assert.equal(registryRequests.filter((entry) => entry.url === '/v1/registrations').length, 1);
 });
 
+test('gateway enforces the protocol timeout on upstream registration and replays the timeout result', async (t) => {
+  const registryRequests = [];
+  const registry = await startRegistryStub(registryRequests, { registrationDelayMs: 100 });
+  process.env.AGENT_REGISTRY_URL = `http://127.0.0.1:${registry.address().port}`;
+
+  const { createApp } = require('../index');
+  const gateway = http.createServer(createApp());
+  await listen(gateway);
+  t.after(() => gateway.close());
+  t.after(() => registry.close());
+
+  const token = await getToken(gateway, 'protocol-agent', 'protocol-agent-secret');
+  const message = createRegistrationMessage({
+    messageId: 'timeout-registration-message',
+    correlationId: 'timeout-registration-correlation',
+    idempotencyKey: 'timeout-registration-idempotency',
+    timeoutMs: 20,
+    evidence: { mode: 'synthetic' },
+    payload: registrationPayload('protocol-agent', 'slow-provider'),
+  });
+
+  const first = await request(gateway, 'POST', '/v1/agent-learner/registrations', message, {
+    authorization: `Bearer ${token}`,
+    'x-correlation-id': message.correlationId,
+  });
+  const retry = await request(gateway, 'POST', '/v1/agent-learner/registrations', message, {
+    authorization: `Bearer ${token}`,
+    'x-correlation-id': message.correlationId,
+  });
+
+  assert.equal(first.status, 504);
+  assert.equal(first.body.error, 'upstream_timeout');
+  assert.equal(first.body.evidence.label, 'SIMULATION: Synthetic Agent Learner');
+  assert.equal(retry.status, 504);
+  assert.deepEqual(retry.body, first.body);
+  assert.equal(registryRequests.filter((entry) => entry.url === '/v1/registrations').length, 1);
+});
+
 function registrationPayload(agentLearnerKey, provider) {
   return {
     agentLearnerKey,
@@ -246,7 +300,7 @@ function registrationPayload(agentLearnerKey, provider) {
   };
 }
 
-async function startRegistryStub(requests, { registrationStatus = 201 } = {}) {
+async function startRegistryStub(requests, { registrationStatus = 201, registrationDelayMs = 0 } = {}) {
   const server = http.createServer(async (req, res) => {
     const body = await readJson(req);
     requests.push({ method: req.method, url: req.url, headers: req.headers, body });
@@ -254,6 +308,7 @@ async function startRegistryStub(requests, { registrationStatus = 201 } = {}) {
       return sendJson(res, 200, { status: 'ok' });
     }
     if (req.method === 'POST' && req.url === '/v1/registrations') {
+      if (registrationDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, registrationDelayMs));
       if (registrationStatus !== 201) {
         return sendJson(res, registrationStatus, {
           error: 'registry_rejected',

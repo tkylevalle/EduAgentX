@@ -211,12 +211,12 @@ function validateLifecyclePayload(payload, errors) {
   }
   if (!isPlainObject(payload.data)) {
     addError(errors, 'payload.data', 'invalid_lifecycle_payload', 'lifecycle payload data must be an object');
-  } else if (!text(payload.data.agentLearnerKey) && !text(payload.data.agentLearnerId)) {
+  } else if (!text(payload.data.agentLearnerKey)) {
     addError(
       errors,
       'payload.data.agentLearnerKey',
       'invalid_lifecycle_identity',
-      'lifecycle payload data must identify the Agent Learner'
+      'lifecycle payload data must identify the Agent Learner by agentLearnerKey'
     );
   }
   if (isPlainObject(payload.data)) {

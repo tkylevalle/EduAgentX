@@ -137,6 +137,7 @@ function createApp({
         method: 'POST',
         body: message.payload,
         correlationId: message.correlationId,
+        timeoutMs: message.timeoutMs,
         headers: { 'x-agent-subject': req.auth.subject },
       });
       const body = decorateProtocolResponse(message, upstream.body);
@@ -289,13 +290,15 @@ function adoptProtocolHeaders(req, res, message) {
 }
 
 function protocolError(req, res, error) {
+  const correlationId = protocolCorrelationId(req);
+  res.setHeader('x-correlation-id', correlationId);
   const body = {
     apiVersion: 'v1',
     error: error.code || 'invalid_protocol_message',
     message: error.message,
     ...(error.details?.length ? { details: error.details } : {}),
     ...(error.code === 'unsupported_protocol_version' ? { supportedProtocolVersions: SUPPORTED_PROTOCOL_VERSIONS } : {}),
-    correlationId: req.correlationId,
+    correlationId,
   };
   const evidence = safeEvidenceFromInput(req.body?.evidence);
   return res.status(error.statusCode || 400).json(evidence ? { ...body, evidence } : body);
@@ -356,41 +359,62 @@ async function proxyJson(req, res, url, options = {}) {
 }
 
 async function forwardJson(req, url, options = {}) {
-  const upstream = await fetch(url, {
-    method: options.method || 'GET',
-    headers: {
-      'x-correlation-id': options.correlationId || req.correlationId,
-      ...(options.body === undefined ? {} : { 'content-type': 'application/json' }),
-      ...(options.headers || {}),
-    },
-    ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
-  });
-  const raw = await upstream.text();
-  let body = {};
+  const controller = Number.isInteger(options.timeoutMs) ? new AbortController() : null;
+  const timeout = controller ? setTimeout(() => controller.abort(), options.timeoutMs) : null;
   try {
-    body = raw ? JSON.parse(raw) : {};
-  } catch (error) {
-    throw new Error(`upstream returned invalid JSON (${upstream.status})`);
-  }
+    const upstream = await fetch(url, {
+      method: options.method || 'GET',
+      headers: {
+        'x-correlation-id': options.correlationId || req.correlationId,
+        ...(options.body === undefined ? {} : { 'content-type': 'application/json' }),
+        ...(options.headers || {}),
+      },
+      ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
+      ...(controller ? { signal: controller.signal } : {}),
+    });
+    const raw = await upstream.text();
+    let body = {};
+    try {
+      body = raw ? JSON.parse(raw) : {};
+    } catch (error) {
+      throw new Error(`upstream returned invalid JSON (${upstream.status})`);
+    }
 
-  if (options.enforceAgentOwnership && upstream.ok && body.registration?.agentLearnerKey !== req.auth.subject) {
-    return { status: 403, body: identityMismatchBody(req.correlationId) };
+    if (options.enforceAgentOwnership && upstream.ok && body.registration?.agentLearnerKey !== req.auth.subject) {
+      return { status: 403, body: identityMismatchBody(req.correlationId) };
+    }
+    return { status: upstream.status, body };
+  } catch (error) {
+    if (error.name === 'AbortError' && controller) {
+      const timeoutError = new Error(`upstream request exceeded timeoutMs (${options.timeoutMs})`);
+      timeoutError.code = 'upstream_timeout';
+      throw timeoutError;
+    }
+    throw error;
+  } finally {
+    if (timeout) clearTimeout(timeout);
   }
-  return { status: upstream.status, body };
 }
 
 function proxyFailure(req, res, error, message, protocolIdempotencyStore, subject) {
   console.error(`[${SERVICE_NAME}] proxy error`, error);
+  const status = error.code === 'upstream_timeout' ? 504 : 502;
+  const errorCode = error.code === 'upstream_timeout' ? 'upstream_timeout' : 'upstream_unavailable';
   const body = {
     apiVersion: 'v1',
-    error: 'upstream_unavailable',
+    error: errorCode,
     correlationId: req.correlationId,
   };
   const responseBody = message ? decorateProtocolResponse(message, body) : body;
   if (message && protocolIdempotencyStore && subject) {
-    rememberProtocolIdempotency(protocolIdempotencyStore, subject, message, { status: 502, body: responseBody });
+    rememberProtocolIdempotency(protocolIdempotencyStore, subject, message, { status, body: responseBody });
   }
-  return res.status(502).json(responseBody);
+  return res.status(status).json(responseBody);
+}
+
+function protocolCorrelationId(req) {
+  const candidate = typeof req.body?.correlationId === 'string' ? req.body.correlationId.trim() : '';
+  return candidate && candidate.length <= 256 ? candidate : req.correlationId;
 }
 
 function safeEvidenceFromInput(value) {
