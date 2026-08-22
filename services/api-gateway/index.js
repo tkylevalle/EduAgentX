@@ -124,10 +124,10 @@ function createApp({
       return protocolError(req, res, error);
     }
     if (!adoptProtocolHeaders(req, res, message)) return undefined;
-    if (message.payload.agentLearnerKey !== req.auth.subject) return identityMismatch(req, res);
+    if (message.payload.agentLearnerKey !== req.auth.subject) return identityMismatch(req, res, message);
 
     const idempotencyResult = readProtocolIdempotency(protocolIdempotencyStore, req.auth.subject, message);
-    if (idempotencyResult?.conflict) return idempotencyConflict(req, res);
+    if (idempotencyResult?.conflict) return idempotencyConflict(req, res, message);
     if (idempotencyResult?.replay) {
       return res.status(idempotencyResult.status).json(idempotencyResult.body);
     }
@@ -140,17 +140,15 @@ function createApp({
         headers: { 'x-agent-subject': req.auth.subject },
       });
       const body = decorateProtocolResponse(message, upstream.body);
-      if (upstream.status >= 200 && upstream.status < 300) {
-        rememberProtocolIdempotency(
-          protocolIdempotencyStore,
-          req.auth.subject,
-          message,
-          { status: upstream.status, body }
-        );
-      }
+      rememberProtocolIdempotency(
+        protocolIdempotencyStore,
+        req.auth.subject,
+        message,
+        { status: upstream.status, body }
+      );
       return res.status(upstream.status).json(body);
     } catch (error) {
-      return proxyFailure(req, res, error);
+      return proxyFailure(req, res, error, message, protocolIdempotencyStore, req.auth.subject);
     }
   });
 
@@ -163,10 +161,10 @@ function createApp({
     }
     if (!adoptProtocolHeaders(req, res, message)) return undefined;
     const identity = message.payload.data?.agentLearnerKey;
-    if (identity !== req.auth.subject) return identityMismatch(req, res);
+    if (identity !== req.auth.subject) return identityMismatch(req, res, message);
 
     const idempotencyResult = readProtocolIdempotency(protocolIdempotencyStore, req.auth.subject, message);
-    if (idempotencyResult?.conflict) return idempotencyConflict(req, res);
+    if (idempotencyResult?.conflict) return idempotencyConflict(req, res, message);
     if (idempotencyResult?.replay) {
       return res.status(idempotencyResult.status).json(idempotencyResult.body);
     }
@@ -243,45 +241,46 @@ function requireAgentIdentity(req, res, next) {
   next();
 }
 
-function identityMismatch(req, res) {
-  return res.status(403).json({
+function identityMismatch(req, res, message) {
+  const body = {
     apiVersion: 'v1',
     error: 'identity_mismatch',
     message: 'agentLearnerKey must match the authenticated Agent Learner identity',
     correlationId: req.correlationId,
-  });
+  };
+  return res.status(403).json(message ? decorateProtocolResponse(message, body) : body);
 }
 
 function adoptProtocolHeaders(req, res, message) {
   const headerCorrelationId = req.header('x-correlation-id');
   if (headerCorrelationId && headerCorrelationId !== message.correlationId) {
-    res.status(400).json({
+    res.status(400).json(decorateProtocolResponse(message, {
       apiVersion: 'v1',
       error: 'correlation_mismatch',
       message: 'x-correlation-id must match the protocol correlationId',
       correlationId: req.correlationId,
-    });
+    }));
     return false;
   }
   const headerProtocolVersion = req.header('x-agent-protocol-version');
   if (headerProtocolVersion && headerProtocolVersion !== message.protocolVersion) {
-    res.status(400).json({
+    res.status(400).json(decorateProtocolResponse(message, {
       apiVersion: 'v1',
       error: 'protocol_version_mismatch',
       message: 'x-agent-protocol-version must match protocolVersion',
       supportedProtocolVersions: SUPPORTED_PROTOCOL_VERSIONS,
       correlationId: req.correlationId,
-    });
+    }));
     return false;
   }
   const headerIdempotencyKey = req.header('idempotency-key');
   if (headerIdempotencyKey && headerIdempotencyKey !== message.idempotencyKey) {
-    res.status(400).json({
+    res.status(400).json(decorateProtocolResponse(message, {
       apiVersion: 'v1',
       error: 'idempotency_key_mismatch',
       message: 'idempotency-key must match idempotencyKey',
       correlationId: req.correlationId,
-    });
+    }));
     return false;
   }
   req.correlationId = message.correlationId;
@@ -290,23 +289,26 @@ function adoptProtocolHeaders(req, res, message) {
 }
 
 function protocolError(req, res, error) {
-  return res.status(error.statusCode || 400).json({
+  const body = {
     apiVersion: 'v1',
     error: error.code || 'invalid_protocol_message',
     message: error.message,
     ...(error.details?.length ? { details: error.details } : {}),
     ...(error.code === 'unsupported_protocol_version' ? { supportedProtocolVersions: SUPPORTED_PROTOCOL_VERSIONS } : {}),
     correlationId: req.correlationId,
-  });
+  };
+  const evidence = safeEvidenceFromInput(req.body?.evidence);
+  return res.status(error.statusCode || 400).json(evidence ? { ...body, evidence } : body);
 }
 
-function idempotencyConflict(req, res) {
-  return res.status(409).json({
+function idempotencyConflict(req, res, message) {
+  const body = {
     apiVersion: 'v1',
     error: 'idempotency_conflict',
     message: 'idempotencyKey was already used for a different protocol message',
     correlationId: req.correlationId,
-  });
+  };
+  return res.status(409).json(message ? decorateProtocolResponse(message, body) : body);
 }
 
 function decorateProtocolResponse(message, body) {
@@ -377,13 +379,29 @@ async function forwardJson(req, url, options = {}) {
   return { status: upstream.status, body };
 }
 
-function proxyFailure(req, res, error) {
+function proxyFailure(req, res, error, message, protocolIdempotencyStore, subject) {
   console.error(`[${SERVICE_NAME}] proxy error`, error);
-  return res.status(502).json({
+  const body = {
     apiVersion: 'v1',
     error: 'upstream_unavailable',
     correlationId: req.correlationId,
-  });
+  };
+  const responseBody = message ? decorateProtocolResponse(message, body) : body;
+  if (message && protocolIdempotencyStore && subject) {
+    rememberProtocolIdempotency(protocolIdempotencyStore, subject, message, { status: 502, body: responseBody });
+  }
+  return res.status(502).json(responseBody);
+}
+
+function safeEvidenceFromInput(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const mode = typeof value.mode === 'string' ? value.mode.trim() : '';
+  if (!EVIDENCE_MODES.includes(mode)) return null;
+  return {
+    mode,
+    environment: EVIDENCE_ENVIRONMENTS[mode],
+    label: EVIDENCE_LABELS[mode],
+  };
 }
 
 function identityMismatchBody(correlationId) {

@@ -35,14 +35,18 @@ test('a competent synthetic learner registers and sends lifecycle interaction th
       },
       interact: async (message) => {
         calls.push({ kind: 'interact', message });
-        return { status: 202, body: { status: 'accepted', protocol: metadata(message) } };
+        return {
+          status: 202,
+          body: { status: 'accepted', safeState: 'awaiting_lifecycle_owner', protocol: metadata(message) },
+        };
       },
     },
   });
 
   const result = await learner.run({ profileId: 'competent', registration, correlationId: 'run-competent' });
 
-  assert.equal(result.outcome, 'completed');
+  assert.equal(result.outcome, 'accepted');
+  assert.equal(result.safeState, 'awaiting_lifecycle_owner');
   assert.equal(result.evidence.mode, 'synthetic');
   assert.equal(result.evidence.environment, 'simulation');
   assert.equal(result.credentialIssued, false);
@@ -62,7 +66,10 @@ test('malformed and inconsistent synthetic responses fail closed without credent
         }),
         interact: async (message) => {
           calls.push(message);
-          return { status: 202, body: { status: 'accepted', protocol: metadata(message) } };
+         return {
+           status: 202,
+           body: { status: 'accepted', safeState: 'awaiting_lifecycle_owner', protocol: metadata(message) },
+         };
         },
       },
     });

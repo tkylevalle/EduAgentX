@@ -134,6 +134,7 @@ test('authentication, identity, version, timeout, evidence, and payload failures
   });
   assert.equal(identityMismatch.status, 403);
   assert.equal(identityMismatch.body.error, 'identity_mismatch');
+  assert.equal(identityMismatch.body.evidence.label, 'SIMULATION: Synthetic Agent Learner');
 
   const unsupportedVersion = { ...valid, protocolVersion: '9.0.0', messageId: 'unsupported-version' };
   const versionResponse = await request(gateway, 'POST', '/v1/agent-learner/registrations', unsupportedVersion, {
@@ -142,6 +143,7 @@ test('authentication, identity, version, timeout, evidence, and payload failures
   });
   assert.equal(versionResponse.status, 400);
   assert.equal(versionResponse.body.error, 'unsupported_protocol_version');
+  assert.equal(versionResponse.body.evidence.label, 'SIMULATION: Synthetic Agent Learner');
 
   const invalidTimeout = { ...valid, timeoutMs: 0, messageId: 'invalid-timeout' };
   const timeoutResponse = await request(gateway, 'POST', '/v1/agent-learner/registrations', invalidTimeout, {
@@ -171,7 +173,7 @@ test('authentication, identity, version, timeout, evidence, and payload failures
     evidence: { mode: 'synthetic' },
     payload: {
       interactionType: 'training.submit',
-      data: { agentLearnerKey: 'protocol-agent' },
+       data: { agentLearnerKey: 'protocol-agent', response: 'malformed test response' },
     },
   });
   delete malformedLifecycle.payload.data;
@@ -181,7 +183,56 @@ test('authentication, identity, version, timeout, evidence, and payload failures
   });
   assert.equal(lifecycleResponse.status, 400);
   assert.equal(lifecycleResponse.body.error, 'invalid_lifecycle_payload');
+  assert.equal(lifecycleResponse.body.evidence.label, 'SIMULATION: Synthetic Agent Learner');
   assert.equal(registryRequests.length, 0);
+});
+
+test('protocol registration idempotency replays failed upstream results and conflicts on changed content', async (t) => {
+  const registryRequests = [];
+  const registry = await startRegistryStub(registryRequests, { registrationStatus: 422 });
+  process.env.AGENT_REGISTRY_URL = `http://127.0.0.1:${registry.address().port}`;
+
+  const { createApp } = require('../index');
+  const gateway = http.createServer(createApp());
+  await listen(gateway);
+  t.after(() => gateway.close());
+  t.after(() => registry.close());
+
+  const token = await getToken(gateway, 'protocol-agent', 'protocol-agent-secret');
+  const message = createRegistrationMessage({
+    messageId: 'failed-registration-message',
+    correlationId: 'failed-registration-correlation',
+    idempotencyKey: 'failed-registration-idempotency',
+    timeoutMs: 2000,
+    evidence: { mode: 'synthetic' },
+    payload: registrationPayload('protocol-agent', 'provider-failure'),
+  });
+
+  const first = await request(gateway, 'POST', '/v1/agent-learner/registrations', message, {
+    authorization: `Bearer ${token}`,
+    'x-correlation-id': message.correlationId,
+  });
+  const retry = await request(gateway, 'POST', '/v1/agent-learner/registrations', message, {
+    authorization: `Bearer ${token}`,
+    'x-correlation-id': message.correlationId,
+  });
+  const changed = await request(gateway, 'POST', '/v1/agent-learner/registrations', {
+    ...message,
+    messageId: 'failed-registration-changed-message',
+    payload: registrationPayload('protocol-agent', 'provider-changed'),
+  }, {
+    authorization: `Bearer ${token}`,
+    'x-correlation-id': message.correlationId,
+  });
+
+  assert.equal(first.status, 422);
+  assert.equal(first.body.evidence.label, 'SIMULATION: Synthetic Agent Learner');
+  assert.deepEqual(retry.body, first.body);
+  assert.equal(retry.status, 422);
+  assert.equal(changed.status, 409);
+  assert.equal(changed.body.error, 'idempotency_conflict');
+  assert.equal(changed.body.evidence.label, 'SIMULATION: Synthetic Agent Learner');
+  assert.equal(registryRequests.filter((entry) => entry.url === '/v1/registrations').length, 1);
 });
 
 function registrationPayload(agentLearnerKey, provider) {
@@ -195,7 +246,7 @@ function registrationPayload(agentLearnerKey, provider) {
   };
 }
 
-async function startRegistryStub(requests) {
+async function startRegistryStub(requests, { registrationStatus = 201 } = {}) {
   const server = http.createServer(async (req, res) => {
     const body = await readJson(req);
     requests.push({ method: req.method, url: req.url, headers: req.headers, body });
@@ -203,6 +254,12 @@ async function startRegistryStub(requests) {
       return sendJson(res, 200, { status: 'ok' });
     }
     if (req.method === 'POST' && req.url === '/v1/registrations') {
+      if (registrationStatus !== 201) {
+        return sendJson(res, registrationStatus, {
+          error: 'registry_rejected',
+          message: 'stubbed registry rejection',
+        });
+      }
       return sendJson(res, 201, {
         apiVersion: 'v1',
         outcome: 'registered',

@@ -87,7 +87,8 @@ The v1 payload shape is:
 }
 ```
 
-`interactionType` is a namespaced action so later curriculum, training,
+`response` is required so a lifecycle owner can validate the adapter output;
+missing responses are rejected before dispatch. `interactionType` is a namespaced action so later curriculum, training,
 examination, certification, and status owners can attach without changing the
 adapter envelope. In Sprint 1 the Gateway returns `202 accepted` with
 `safeState: awaiting_lifecycle_owner`; it does not fabricate a grade,
@@ -136,7 +137,9 @@ Required safe outcomes are:
 All synthetic responses carry the simulation label. The adapter has no
 credential issuer and reports `credentialIssued: false`; a later Examination
 or Certification service must make those decisions from complete immutable
-evidence rather than trusting the adapter.
+evidence rather than trusting the adapter. A competent synthetic profile is
+reported as `accepted` with `safeState: awaiting_lifecycle_owner`; it is not
+reported as a platform completion before the owning lifecycle service exists.
 
 The shared protocol package includes a conformance suite that checks valid
 registration and lifecycle messages plus unsupported-version and invalid-timeout

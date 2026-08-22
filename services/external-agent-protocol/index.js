@@ -31,6 +31,15 @@ class ProtocolValidationError extends Error {
   }
 }
 
+function canonicalEvidence(mode) {
+  if (!EVIDENCE_MODES.includes(mode)) throw new RangeError(`Unsupported evidence mode: ${mode}`);
+  return {
+    mode,
+    environment: EVIDENCE_ENVIRONMENTS[mode],
+    label: EVIDENCE_LABELS[mode],
+  };
+}
+
 function createRegistrationMessage(input) {
   return validateProtocolMessage({
     ...input,
@@ -210,6 +219,9 @@ function validateLifecyclePayload(payload, errors) {
       'lifecycle payload data must identify the Agent Learner'
     );
   }
+  if (isPlainObject(payload.data)) {
+    requiredText(errors, payload.data.response, 'payload.data.response', 'response');
+  }
 }
 
 function normalizeEvidence(value, errors) {
@@ -244,11 +256,7 @@ function normalizeEvidence(value, errors) {
     );
   }
 
-  return {
-    mode,
-    environment,
-    label,
-  };
+  return canonicalEvidence(mode);
 }
 
 function protocolResponseMetadata(message) {
@@ -321,6 +329,7 @@ module.exports = {
   PROTOCOL_VERSION,
   ProtocolValidationError,
   SUPPORTED_PROTOCOL_VERSIONS,
+  canonicalEvidence,
   createLifecycleMessage,
   createRegistrationMessage,
   normalizeEvidence,

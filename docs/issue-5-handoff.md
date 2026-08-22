@@ -8,6 +8,7 @@
 - Authenticated Gateway routes for protocol discovery, registration, and lifecycle interactions.
 - Deterministic Synthetic Agent Learner service using only the Gateway public boundary.
 - Explicit simulation labels and fail-closed outcomes for malformed, inconsistent, timing-out, and unavailable profiles.
+- Competent simulations remain `accepted`/`awaiting_lifecycle_owner` until a lifecycle owner can establish completion.
 - Reusable protocol conformance helpers and Gateway/service black-box tests.
 
 ## Run locally

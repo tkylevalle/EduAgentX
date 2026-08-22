@@ -3,6 +3,7 @@ const { randomUUID } = require('node:crypto');
 const {
   createLifecycleMessage,
   createRegistrationMessage,
+  canonicalEvidence,
   protocolResponseMetadata,
 } = require('../external-agent-protocol');
 const { getSyntheticProfile, listSyntheticProfiles } = require('./profiles');
@@ -146,12 +147,23 @@ function createSyntheticAgentLearner({ gatewayClient, idGenerator = randomUUID }
       };
     }
 
+    const lifecycleOutcome = profile.id === 'competent'
+      ? {
+        outcome: 'accepted',
+        status: 'accepted',
+        reason: null,
+        safeState: lifecycleResponse.body?.safeState || 'awaiting_lifecycle_owner',
+      }
+      : {
+        outcome: profile.outcome,
+        status: profile.outcome,
+        reason: profile.reason,
+        safeState: 'blocked',
+      };
+
     return {
       ...registrationResult,
-      outcome: profile.outcome,
-      status: profile.outcome,
-      reason: profile.reason,
-      safeState: profile.outcome === 'completed' ? 'accepted' : 'blocked',
+      ...lifecycleOutcome,
       lifecycle: lifecycleSummary(lifecycleMessage, lifecycleResponse),
     };
   }
@@ -198,6 +210,7 @@ function lifecycleSummary(message, response) {
     interactionType: message.payload.interactionType,
     messageId: message.messageId,
     status: response.body?.status || 'accepted',
+    safeState: response.body?.safeState || 'awaiting_lifecycle_owner',
   };
 }
 
@@ -207,7 +220,7 @@ function publicResult({
   outcome = 'pending',
   reason = null,
   safeState = 'blocked',
-  evidence = { mode: 'synthetic', environment: 'simulation', label: 'SIMULATION: Synthetic Agent Learner' },
+  evidence = canonicalEvidence('synthetic'),
   protocol = null,
   registration = null,
 } = {}) {

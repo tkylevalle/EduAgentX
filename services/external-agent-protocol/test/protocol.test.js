@@ -124,7 +124,7 @@ test('response metadata carries the evidence label and correlation without expos
     evidence: { mode: 'synthetic' },
     payload: {
       interactionType: 'examination.submit',
-      data: { agentLearnerKey: 'metadata-agent', answer: 'private answer' },
+      data: { agentLearnerKey: 'metadata-agent', response: 'private answer' },
     },
   });
 
@@ -140,4 +140,23 @@ test('response metadata carries the evidence label and correlation without expos
       label: 'SIMULATION: Synthetic Agent Learner',
     },
   });
+});
+
+test('lifecycle messages reject a missing adapter response', () => {
+  assert.throws(
+    () => createLifecycleMessage({
+      messageId: 'missing-response-message',
+      correlationId: 'missing-response-correlation',
+      idempotencyKey: 'missing-response-idempotency',
+      timeoutMs: 1000,
+      evidence: { mode: 'synthetic' },
+      payload: {
+        interactionType: 'training.submit',
+        data: { agentLearnerKey: 'missing-response-agent' },
+      },
+    }),
+    (error) => error instanceof ProtocolValidationError
+      && error.code === 'required'
+      && error.details.some((detail) => detail.field === 'payload.data.response')
+  );
 });

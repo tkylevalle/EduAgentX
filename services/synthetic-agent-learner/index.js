@@ -1,5 +1,6 @@
 const express = require('express');
 
+const { canonicalEvidence } = require('../external-agent-protocol');
 const { GatewayProtocolClient } = require('./gateway-client');
 const {
   DEFAULT_REGISTRATION,
@@ -28,7 +29,7 @@ function createApp({ learner = createDefaultLearner() } = {}) {
   app.get('/v1/profiles', (req, res) => {
     res.status(200).json({
       apiVersion: 'v1',
-      evidence: { mode: 'synthetic', environment: 'simulation', label: 'SIMULATION: Synthetic Agent Learner' },
+      evidence: canonicalEvidence('synthetic'),
       profiles: listSyntheticProfiles(),
       correlationId: req.correlationId,
     });

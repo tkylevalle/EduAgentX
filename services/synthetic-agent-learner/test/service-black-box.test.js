@@ -27,7 +27,8 @@ test('the synthetic service drives registration and lifecycle interaction throug
   });
 
   assert.equal(response.status, 200);
-  assert.equal(response.body.outcome, 'completed');
+  assert.equal(response.body.outcome, 'accepted');
+  assert.equal(response.body.safeState, 'awaiting_lifecycle_owner');
   assert.equal(response.body.evidence.label, 'SIMULATION: Synthetic Agent Learner');
   assert.equal(response.body.credentialIssued, false);
   assert.deepEqual(gatewayRequests.map((item) => item.path), [
@@ -87,7 +88,11 @@ async function startGatewayStub(requests) {
       });
     }
     if (req.method === 'POST' && req.url === '/v1/agent-learner/interactions') {
-      return sendJson(res, 202, { status: 'accepted', protocol: protocolMetadata(body) });
+       return sendJson(res, 202, {
+         status: 'accepted',
+         safeState: 'awaiting_lifecycle_owner',
+         protocol: protocolMetadata(body),
+       });
     }
     return sendJson(res, 404, { error: 'not_found' });
   });
