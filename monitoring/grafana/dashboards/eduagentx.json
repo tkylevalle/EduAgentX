@@ -1,0 +1,87 @@
+{
+  "title": "EduAgentX — Service Health Dashboard",
+  "uid": "eduagentx-health",
+  "schemaVersion": 27,
+  "panels": [
+    {
+      "id": 1,
+      "title": "API Gateway",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "up{job='api-gateway'}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Agent Registry",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "up{job='agent-registry'}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Curriculum Engine",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "up{job='curriculum-engine'}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Training Service",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "up{job='training-service'}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Exam Engine",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "up{job='exam-engine'}"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Certification Service",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "up{job='certification-service'}"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Marketplace",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "up{job='marketplace'}"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Monitoring",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "up{job='monitoring'}"
+        }
+      ]
+    }
+  ]
+}
