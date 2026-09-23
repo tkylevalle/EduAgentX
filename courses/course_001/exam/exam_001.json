@@ -1,0 +1,79 @@
+{
+  "id": "exam_001",
+  "course_id": "course_001",
+  "generated_by": "llm",
+  "passing_score": 0.7,
+  "questions": [
+    {
+      "id": 1,
+      "skill_ref": "skill_01",
+      "question": "Given: P causes Q; Q causes R and S; S causes T. List all downstream effects of P with confidence scores assuming 10% decay per hop.",
+      "expected_answer": "P->Q->R (conf 0.81), P->Q->S->T (conf 0.73)",
+      "difficulty": 8
+    },
+    {
+      "id": 2,
+      "skill_ref": "skill_02",
+      "question": "Solve: A in {1,2,3,4}, B in {1,2,3,4}, A != B, A + B = 5, A > B.",
+      "expected_answer": "A=3,B=2 and A=4,B=1",
+      "difficulty": 9
+    },
+    {
+      "id": 3,
+      "skill_ref": "skill_03",
+      "question": "Decompose 'serve dinner' into primitives. Available: prepare_meal (chop,cook), set_table (place_plates,place_cutlery), serve (bring_food).",
+      "expected_answer": "[chop, cook, place_plates, place_cutlery, bring_food]",
+      "difficulty": 9
+    },
+    {
+      "id": 4,
+      "skill_ref": "skill_04",
+      "question": "Source: heart pumps blood through veins. Target domain: computer network. Map the analogy.",
+      "expected_answer": "Heart->router, blood->data packets, veins->cables. Router pushes packets through cables.",
+      "difficulty": 8
+    },
+    {
+      "id": 5,
+      "skill_ref": "skill_05",
+      "question": "Factual: John studied (S), passed (P), got job (J). Counterfactual: what if John had not studied?",
+      "expected_answer": "John would not pass; without passing he would not get the job. P and J would not occur.",
+      "difficulty": 8
+    },
+    {
+      "id": 6,
+      "skill_ref": "skill_06",
+      "question": "2x2 minimax: Max at root. Left Min has leaves [3,5]. Right Min has leaves [2,9]. Optimal move and value?",
+      "expected_answer": "Left: Min picks 3. Right: Min picks 2. Max picks Left. Value=3.",
+      "difficulty": 9
+    },
+    {
+      "id": 7,
+      "skill_ref": "skill_07",
+      "question": "Time series: [50,51,49,52,50,48,95,51,50]. Identify anomalies using 3-sigma rule.",
+      "expected_answer": "t=7, value=95 is anomalous — significantly above the normal cluster mean of ~50.",
+      "difficulty": 7
+    },
+    {
+      "id": 8,
+      "skill_ref": "skill_08",
+      "question": "Solutions: X(quality=9,cost=8), Y(quality=6,cost=4), Z(quality=8,cost=7). Maximise quality, minimise cost. Find Pareto front.",
+      "expected_answer": "Pareto front: {X,Y}. Z is dominated by X.",
+      "difficulty": 9
+    },
+    {
+      "id": 9,
+      "skill_ref": "skill_09",
+      "question": "Observations: car won't start, lights don't work, radio silent. Rules: dead_battery->no_start, dead_battery->no_lights, dead_battery->no_radio, empty_fuel->no_start.",
+      "expected_answer": "H1: dead_battery (coverage=3/3, simple). Best explanation: dead battery.",
+      "difficulty": 8
+    },
+    {
+      "id": 10,
+      "skill_ref": "skill_10",
+      "question": "Tasks: A(priority=8,mean=4h,deadline=5h), B(priority=5,mean=6h,deadline=10h). Budget=1.0. Allocate to maximise expected utility.",
+      "expected_answer": "Allocate ~0.65 to A (tight deadline, high priority) and ~0.35 to B.",
+      "difficulty": 10
+    }
+  ],
+  "created_at": "2026-09-23T00:00:00Z"
+}
