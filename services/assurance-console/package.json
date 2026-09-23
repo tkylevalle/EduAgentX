@@ -1,0 +1,14 @@
+{
+  "name": "eduagentx-assurance-console",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Sprint 1 minimal Assurance Console shell. Real Monitoring/Governance views are owned by later work packages (Sprint 4).",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "node-fetch": "^2.7.0"
+  }
+}

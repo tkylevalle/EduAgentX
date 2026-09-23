@@ -1,0 +1,15 @@
+{
+  "name": "eduagentx-api-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Sprint 1 walking-skeleton stub for the API Gateway. Full auth/contract enforcement is owned by work package #3.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "node-fetch": "^2.7.0",
+    "uuid": "^9.0.1"
+  }
+}
