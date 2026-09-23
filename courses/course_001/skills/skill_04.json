@@ -1,0 +1,21 @@
+{
+  "id": "skill_04",
+  "name": "Analogical Reasoning and Transfer",
+  "description": "Identify structural analogies between domains and transfer solutions from source to target.",
+  "difficulty": 8,
+  "input_format": "Source problem with known solution, target problem in different domain",
+  "output_format": "Mapped solution for target with explicit analogy mapping",
+  "steps": [
+    "Extract relational structure from source",
+    "Extract relational structure from target",
+    "Compute structural alignment",
+    "Map solution onto target",
+    "Validate against target constraints"
+  ],
+  "example": {
+    "input": "Source: atom (nucleus:electrons). Target: solar system",
+    "output": "Planets orbit sun like electrons orbit nucleus",
+    "explanation": "Structural mapping: nucleus->sun, electrons->planets"
+  },
+  "source": "openclaw"
+}

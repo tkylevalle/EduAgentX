@@ -1,0 +1,21 @@
+{
+  "id": "skill_09",
+  "name": "Abductive Reasoning to Best Explanation",
+  "description": "Generate and rank hypotheses that best explain all observations using abductive inference.",
+  "difficulty": 8,
+  "input_format": "Set of observations and library of known causal rules",
+  "output_format": "Ranked hypotheses with coverage and simplicity scores",
+  "steps": [
+    "Generate hypotheses consistent with observations",
+    "Score by coverage",
+    "Apply Occams razor penalty",
+    "Combine into posterior rank",
+    "Return top-3 with justification"
+  ],
+  "example": {
+    "input": "Wet grass, wet road, clouds. Rules: rain->wet_grass, rain->wet_road",
+    "output": "H1: rain (coverage=1.0, simple)",
+    "explanation": "Rain alone explains all observations"
+  },
+  "source": "openclaw"
+}

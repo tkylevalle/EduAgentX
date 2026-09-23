@@ -1,0 +1,20 @@
+{
+  "id": "skill_08",
+  "name": "Multi-Objective Optimisation with Pareto Ranking",
+  "description": "Find the set of non-dominated solutions (Pareto front) for problems with conflicting objectives.",
+  "difficulty": 9,
+  "input_format": "Candidate solutions each with scores on 2+ objectives",
+  "output_format": "Pareto-optimal front with trade-off explanation",
+  "steps": [
+    "Check dominance for each pair",
+    "Collect non-dominated solutions",
+    "Sort front by primary objective",
+    "Explain trade-offs"
+  ],
+  "example": {
+    "input": "A(cost=10,time=5), B(cost=7,time=8), C(cost=9,time=6)",
+    "output": "Pareto front: {A,B}. C dominated by A.",
+    "explanation": "Trade-off is cost vs time"
+  },
+  "source": "openclaw"
+}

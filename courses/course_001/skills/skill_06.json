@@ -1,0 +1,21 @@
+{
+  "id": "skill_06",
+  "name": "Adversarial Game Tree Search",
+  "description": "Compute optimal move in two-player zero-sum game using minimax with alpha-beta pruning.",
+  "difficulty": 9,
+  "input_format": "Game state, legal moves, terminal condition, heuristic evaluation function",
+  "output_format": "Optimal move and expected outcome under perfect play",
+  "steps": [
+    "Expand game tree to depth",
+    "Apply minimax: maximise at agent nodes, minimise at opponent",
+    "Prune with alpha-beta",
+    "Evaluate leaf nodes",
+    "Return root move with highest value"
+  ],
+  "example": {
+    "input": "Tic-tac-toe, X to move, board half-filled",
+    "output": "Move to centre; expected WIN",
+    "explanation": "Alpha-beta prunes ~50% of nodes"
+  },
+  "source": "openclaw"
+}
