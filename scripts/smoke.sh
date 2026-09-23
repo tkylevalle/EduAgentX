@@ -11,7 +11,12 @@ if [ -f .env ]; then
 fi
 
 GATEWAY_PORT="${GATEWAY_PORT:-8080}"
-GATEWAY_TEST_TOKEN="${GATEWAY_TEST_TOKEN:-local-dev-test-token}"
+AGENT_CLIENT_ID="${AGENT_CLIENT_ID:-synthetic-agent-learner-dev}"
+AGENT_CLIENT_SECRET="${AGENT_CLIENT_SECRET:-changeme_local_only_agent_secret}"
+ADMIN_CLIENT_ID="${ADMIN_CLIENT_ID:-capstone-admin-dev}"
+ADMIN_CLIENT_SECRET="${ADMIN_CLIENT_SECRET:-changeme_local_only_admin_secret}"
+AGENT_LEARNER_KEY="${AGENT_LEARNER_KEY:-$AGENT_CLIENT_ID}"
+REGISTRATION_BODY="{\"agentLearnerKey\":\"${AGENT_LEARNER_KEY}\",\"model\":{\"provider\":\"synthetic\",\"version\":\"1.0.0\"},\"systemPromptHash\":\"sha256:smoke-prompt-v1\",\"approvedToolManifest\":[{\"name\":\"knowledge.lookup\",\"version\":\"1.0.0\",\"permissions\":[\"read\"]}],\"policyConfigurationHash\":\"sha256:smoke-policy-v1\",\"adapterVersion\":\"1.0.0\"}"
 BASE_URL="http://localhost:${GATEWAY_PORT}"
 CORRELATION_ID="smoke-$(date +%s)"
 
@@ -25,29 +30,97 @@ health_status=$(curl -s -o /tmp/health.json -w '%{http_code}' "${BASE_URL}/healt
 [ "$health_status" = "200" ] || fail "gateway /health returned ${health_status}: $(cat /tmp/health.json)"
 echo "   OK: $(cat /tmp/health.json)"
 
-echo "2) Submitting registration through the gateway..."
+echo "2) Registration without a token must be rejected..."
+noauth_status=$(curl -s -o /tmp/noauth.json -w '%{http_code}' \
+  -X POST "${BASE_URL}/v1/registrations" \
+  -H "content-type: application/json" \
+  -d '{"fingerprint":"smoke-test-fingerprint","payload":{}}')
+[ "$noauth_status" = "401" ] || fail "unauthenticated registration returned ${noauth_status}, expected 401: $(cat /tmp/noauth.json)"
+echo "   OK: rejected with 401"
+
+echo "3) Exchanging agent client credentials for a JWT..."
+token_status=$(curl -s -o /tmp/token.json -w '%{http_code}' \
+  -X POST "${BASE_URL}/v1/auth/tokens" \
+  -H "content-type: application/json" \
+  -d "{\"clientId\":\"${AGENT_CLIENT_ID}\",\"clientSecret\":\"${AGENT_CLIENT_SECRET}\"}")
+[ "$token_status" = "200" ] || fail "token exchange returned ${token_status}: $(cat /tmp/token.json)"
+AGENT_TOKEN=$(grep -o "\"accessToken\":\"[^\"]*\"" /tmp/token.json | cut -d'"' -f4)
+[ -n "$AGENT_TOKEN" ] || fail "no accessToken in response: $(cat /tmp/token.json)"
+echo "   OK: received a role=agent access token"
+
+echo "4) Submitting registration through the gateway with a valid agent token..."
 resp_status=$(curl -s -o /tmp/register.json -w '%{http_code}' \
   -X POST "${BASE_URL}/v1/registrations" \
   -H "content-type: application/json" \
   -H "x-correlation-id: ${CORRELATION_ID}" \
-  -H "authorization: Bearer ${GATEWAY_TEST_TOKEN}" \
-  -d '{"fingerprint":"smoke-test-fingerprint","payload":{"model":"synthetic-smoke-agent"}}')
+  -H "authorization: Bearer ${AGENT_TOKEN}" \
+  -d "${REGISTRATION_BODY}")
 
 [ "$resp_status" = "201" ] || [ "$resp_status" = "200" ] || fail "registration returned ${resp_status}: $(cat /tmp/register.json)"
 
 returned_correlation=$(grep -o "\"correlationId\":\"[^\"]*\"" /tmp/register.json | cut -d'"' -f4)
 [ "$returned_correlation" = "$CORRELATION_ID" ] || fail "correlation id not propagated (expected ${CORRELATION_ID}, got ${returned_correlation})"
+AGENT_LEARNER_ID=$(grep -o "\"agentLearnerId\":\"[^\"]*\"" /tmp/register.json | head -n 1 | cut -d'"' -f4)
+[ -n "$AGENT_LEARNER_ID" ] || fail "no authoritative agentLearnerId in response: $(cat /tmp/register.json)"
 echo "   OK (status ${resp_status}, correlation id ${returned_correlation}): $(cat /tmp/register.json)"
 
-echo "3) Re-submitting the same fingerprint to confirm idempotent retry..."
+echo "5) Re-submitting the same fingerprint to confirm idempotent retry..."
 resp2_status=$(curl -s -o /tmp/register2.json -w '%{http_code}' \
   -X POST "${BASE_URL}/v1/registrations" \
   -H "content-type: application/json" \
   -H "x-correlation-id: retry-${CORRELATION_ID}" \
-  -H "authorization: Bearer ${GATEWAY_TEST_TOKEN}" \
-  -d '{"fingerprint":"smoke-test-fingerprint","payload":{"model":"synthetic-smoke-agent"}}')
+  -H "authorization: Bearer ${AGENT_TOKEN}" \
+  -d "${REGISTRATION_BODY}")
 [ "$resp2_status" = "200" ] || fail "idempotent retry returned ${resp2_status}, expected 200: $(cat /tmp/register2.json)"
 echo "   OK: $(cat /tmp/register2.json)"
+
+echo "6) Retrieving the authoritative registration through the versioned contract..."
+retrieve_status=$(curl -s -o /tmp/retrieve.json -w '%{http_code}' \
+  "${BASE_URL}/v1/registrations/${AGENT_LEARNER_ID}" \
+  -H "authorization: Bearer ${AGENT_TOKEN}" \
+  -H "x-correlation-id: retrieve-${CORRELATION_ID}")
+[ "$retrieve_status" = "200" ] || fail "registration retrieval returned ${retrieve_status}: $(cat /tmp/retrieve.json)"
+echo "   OK: $(cat /tmp/retrieve.json)"
+
+echo "7) Agent token must be rejected on an admin-only endpoint..."
+agent_on_admin_status=$(curl -s -o /tmp/agent_on_admin.json -w '%{http_code}' \
+  "${BASE_URL}/v1/admin/whoami" \
+  -H "authorization: Bearer ${AGENT_TOKEN}")
+[ "$agent_on_admin_status" = "403" ] || fail "agent token on admin endpoint returned ${agent_on_admin_status}, expected 403: $(cat /tmp/agent_on_admin.json)"
+echo "   OK: rejected with 403"
+
+echo "8) Exchanging admin client credentials and reading the registration assurance trace..."
+admin_token_status=$(curl -s -o /tmp/admin_token.json -w '%{http_code}' \
+  -X POST "${BASE_URL}/v1/auth/tokens" \
+  -H "content-type: application/json" \
+  -d "{\"clientId\":\"${ADMIN_CLIENT_ID}\",\"clientSecret\":\"${ADMIN_CLIENT_SECRET}\"}")
+[ "$admin_token_status" = "200" ] || fail "admin token exchange returned ${admin_token_status}: $(cat /tmp/admin_token.json)"
+ADMIN_TOKEN=$(grep -o "\"accessToken\":\"[^\"]*\"" /tmp/admin_token.json | cut -d'"' -f4)
+[ -n "$ADMIN_TOKEN" ] || fail "no accessToken in admin response: $(cat /tmp/admin_token.json)"
+
+whoami_status=$(curl -s -o /tmp/whoami.json -w '%{http_code}' \
+  "${BASE_URL}/v1/admin/whoami" \
+  -H "authorization: Bearer ${ADMIN_TOKEN}")
+[ "$whoami_status" = "200" ] || fail "admin whoami returned ${whoami_status}: $(cat /tmp/whoami.json)"
+echo "   OK: $(cat /tmp/whoami.json)"
+
+trace_status=$(curl -s -o /tmp/trace.json -w '%{http_code}' \
+  "${BASE_URL}/v1/admin/registration-traces/latest" \
+  -H "authorization: Bearer ${ADMIN_TOKEN}" \
+  -H "x-correlation-id: trace-${CORRELATION_ID}")
+[ "$trace_status" = "200" ] || fail "registration trace returned ${trace_status}: $(cat /tmp/trace.json)"
+grep -q 'configurationFingerprint' /tmp/trace.json || fail "trace omitted the configuration fingerprint"
+grep -q 'correlationId' /tmp/trace.json || fail "trace omitted correlation evidence"
+echo "   OK: $(cat /tmp/trace.json)"
+
+echo "9) Assurance Console must display the read-only trace..."
+CONSOLE_PORT="${CONSOLE_PORT:-4173}"
+console_status=$(curl -s -o /tmp/console.html -w '%{http_code}' "http://localhost:${CONSOLE_PORT}/")
+[ "$console_status" = "200" ] || fail "assurance console returned ${console_status}: $(cat /tmp/console.html)"
+grep -q "Latest Agent Registry trace" /tmp/console.html || fail "console did not render the registry trace"
+grep -q "Configuration fingerprint" /tmp/console.html || fail "console did not render the fingerprint"
+grep -q "Correlation ID" /tmp/console.html || fail "console did not render correlation evidence"
+echo "   OK: console rendered the trace"
 
 echo ""
 echo "SMOKE TEST PASSED"

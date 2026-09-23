@@ -5,7 +5,7 @@ WORKDIR /app
 COPY package.json ./
 RUN npm install --omit=dev
 
-COPY index.js ./
+COPY index.js app.js domain.js postgres-repository.js registry-service.js schema.sql ./
 
 EXPOSE 4001
 
