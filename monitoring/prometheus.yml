@@ -1,0 +1,44 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'api-gateway'
+    static_configs:
+      - targets: ['api-gateway:4000']
+    metrics_path: /health
+
+  - job_name: 'agent-registry'
+    static_configs:
+      - targets: ['agent-registry:4001']
+    metrics_path: /health
+
+  - job_name: 'curriculum-engine'
+    static_configs:
+      - targets: ['curriculum-engine:4002']
+    metrics_path: /health
+
+  - job_name: 'training-service'
+    static_configs:
+      - targets: ['training-service:4003']
+    metrics_path: /health
+
+  - job_name: 'exam-engine'
+    static_configs:
+      - targets: ['exam-engine:4004']
+    metrics_path: /health
+
+  - job_name: 'certification-service'
+    static_configs:
+      - targets: ['certification-service:4005']
+    metrics_path: /health
+
+  - job_name: 'marketplace'
+    static_configs:
+      - targets: ['marketplace:4006']
+    metrics_path: /health
+
+  - job_name: 'monitoring'
+    static_configs:
+      - targets: ['monitoring:4007']
+    metrics_path: /health
