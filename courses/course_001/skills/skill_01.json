@@ -1,0 +1,21 @@
+{
+  "id": "skill_01",
+  "name": "Multi-Step Causal Chain Reasoning",
+  "description": "Given a sequence of events, identify all causal relationships and predict downstream effects up to 5 steps ahead.",
+  "difficulty": 8,
+  "input_format": "A list of events with timestamps and observed outcomes",
+  "output_format": "A directed causal graph with predicted effects and confidence scores",
+  "steps": [
+    "Parse each event and extract cause-effect pairs",
+    "Build a directed acyclic graph of relationships",
+    "Propagate effects forward through the chain",
+    "Assign confidence decay per step",
+    "Return graph and final predicted state"
+  ],
+  "example": {
+    "input": "Event A causes B; B causes C and D; D causes E",
+    "output": "A->B->C, A->B->D->E with confidence [1.0, 0.9, 0.81, 0.73]",
+    "explanation": "Confidence decays by 10% per hop"
+  },
+  "source": "openclaw"
+}
