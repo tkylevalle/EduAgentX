@@ -3,3 +3,6 @@ node_modules/
 npm-debug.log*
 *.log
 .DS_Store
+
+# local-only dev JWT signing keys - never commit private key material
+keys/
