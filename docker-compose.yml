@@ -29,6 +29,14 @@ services:
       start_period: 5s
     networks:
       - eduagentx-net
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
 
   redis:
     image: redis:7-alpine
@@ -46,6 +54,14 @@ services:
       start_period: 5s
     networks:
       - eduagentx-net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 128M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
 
   agent-registry:
     build:
@@ -69,6 +85,14 @@ services:
       start_period: 5s
     networks:
       - eduagentx-net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
 
   api-gateway:
     build:
@@ -92,6 +116,14 @@ services:
       start_period: 5s
     networks:
       - eduagentx-net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
 
   assurance-console:
     build:
@@ -114,3 +146,11 @@ services:
       start_period: 5s
     networks:
       - eduagentx-net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
