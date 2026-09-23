@@ -4,7 +4,8 @@
   "private": true,
   "description": "Sprint 1 API Gateway: routing, correlation ids, and RS256 JWT authN/authZ (work package #3).",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "test": "node --test"
   },
   "dependencies": {
     "express": "^4.19.2",
