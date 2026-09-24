@@ -1,0 +1,34 @@
+name: Sprint 1 tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  sprint1-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install test dependencies
+        run: bash ./scripts/install-test-dependencies.sh
+
+      - name: Create local test environment
+        run: cp .env.example .env
+
+      - name: Run Sprint 1 gate
+        run: make test
+
+      - name: Upload Sprint 1 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sprint1-test-evidence
+          path: artifacts/sprint1
+          if-no-files-found: warn
