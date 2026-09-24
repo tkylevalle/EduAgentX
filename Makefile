@@ -1,4 +1,4 @@
-.PHONY: up down reset smoke logs
+.PHONY: up down reset smoke test test-unit test-integration install-test-deps logs
 
 # copies .env if it's missing, builds, starts everything, waits for health
 up:
@@ -19,6 +19,18 @@ reset:
 
 smoke:
 	./scripts/smoke.sh
+
+install-test-deps:
+	bash ./scripts/install-test-dependencies.sh
+
+test-unit:
+	node ./scripts/run-unit-tests.js
+
+test-integration:
+	SPRINT1_RESET=1 bash ./scripts/test-sprint1.sh --integration-only
+
+test:
+	SPRINT1_RESET=1 bash ./scripts/test-sprint1.sh
 
 logs:
 	docker compose logs -f

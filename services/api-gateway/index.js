@@ -26,6 +26,7 @@ const { issueToken, requireRole } = require('./auth');
 const PORT = process.env.PORT || 4000;
 const SERVICE_NAME = process.env.SERVICE_NAME || 'api-gateway';
 const MAX_PROTOCOL_IDEMPOTENCY_ENTRIES = 1000;
+const HEALTH_DEPENDENCY_TIMEOUT_MS = Number(process.env.HEALTH_DEPENDENCY_TIMEOUT_MS || 1500);
 
 function createApp({
   agentRegistryUrl = process.env.AGENT_REGISTRY_URL || 'http://agent-registry:4001',
@@ -42,11 +43,12 @@ function createApp({
 
   app.get('/health', async (req, res) => {
     try {
-      const response = await fetch(`${agentRegistryUrl}/health`);
+      const response = await fetch(`${agentRegistryUrl}/health`, { timeout: HEALTH_DEPENDENCY_TIMEOUT_MS });
       if (!response.ok) throw new Error(`agent-registry health returned ${response.status}`);
       res.status(200).json({ status: 'ok', service: SERVICE_NAME });
     } catch (error) {
-      res.status(503).json({ status: 'unhealthy', service: SERVICE_NAME, error: error.message });
+      console.error(`[${SERVICE_NAME}] dependency health check failed`, error);
+      res.status(503).json({ status: 'unhealthy', service: SERVICE_NAME, error: 'dependency_unavailable' });
     }
   });
 

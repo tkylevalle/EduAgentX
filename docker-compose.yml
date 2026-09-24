@@ -108,6 +108,7 @@ services:
       JWT_ACCESS_TOKEN_TTL_SECONDS: ${JWT_ACCESS_TOKEN_TTL_SECONDS}
       JWT_PRIVATE_KEY_PATH: ${JWT_PRIVATE_KEY_PATH}
       JWT_PUBLIC_KEY_PATH: ${JWT_PUBLIC_KEY_PATH}
+      HEALTH_DEPENDENCY_TIMEOUT_MS: ${HEALTH_DEPENDENCY_TIMEOUT_MS:-1500}
       AGENT_CLIENT_ID: ${AGENT_CLIENT_ID}
       AGENT_CLIENT_SECRET: ${AGENT_CLIENT_SECRET}
       ADMIN_CLIENT_ID: ${ADMIN_CLIENT_ID}
@@ -160,6 +161,14 @@ services:
       start_period: 5s
     networks:
       - eduagentx-net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
 
   assurance-console:
     build:

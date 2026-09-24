@@ -30,7 +30,16 @@ Use `.env.example` as the template when setting up a new local environment.
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `GATEWAY_PORT` | Host port exposed to the browser/client | `8080` |
-| `GATEWAY_TEST_TOKEN` | Shared token for Sprint 1 smoke tests only — replaced by real auth in Sprint 2 | `sprint1-dev-token-changeme` |
+| `JWT_ISSUER` | Required issuer for signed access tokens | `eduagentx-api-gateway` |
+| `JWT_AUDIENCE` | Required audience for signed access tokens | `eduagentx-platform` |
+| `JWT_ACCESS_TOKEN_TTL_SECONDS` | Lifetime of a local access token | `900` |
+| `HEALTH_DEPENDENCY_TIMEOUT_MS` | Maximum wait for Registry health before the Gateway fails closed | `1500` |
+| `JWT_PRIVATE_KEY_PATH` | Container path to the local-only signing key | `/app/keys/dev-jwt-private.pem` |
+| `JWT_PUBLIC_KEY_PATH` | Container path to the local-only verification key | `/app/keys/dev-jwt-public.pem` |
+| `AGENT_CLIENT_ID` | Local Synthetic Agent Learner client identity | `synthetic-agent-learner-dev` |
+| `AGENT_CLIENT_SECRET` | Local-only agent client secret; change outside isolated development | `changeme_local_only_agent_secret` |
+| `ADMIN_CLIENT_ID` | Local Assurance Console client identity | `capstone-admin-dev` |
+| `ADMIN_CLIENT_SECRET` | Local-only admin client secret; change outside isolated development | `changeme_local_only_admin_secret` |
 
 ---
 
@@ -40,23 +49,11 @@ Use `.env.example` as the template when setting up a new local environment.
 |----------|-------------|---------|
 | `CONSOLE_PORT` | Host port for the assurance console UI | `4173` |
 
----
-
-## Agent Config
+## Synthetic Agent Learner
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `EXAM_PASS_THRESHOLD` | Minimum score (0.0–1.0) for an agent to pass an exam | `0.70` |
-| `MAX_RETRY_ATTEMPTS` | How many times Hermes can retry a failed exam before being flagged | `3` |
-
----
-
-## General
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `ENV` | Runtime environment (`development` / `production`) | `development` |
-| `LOG_LEVEL` | Log verbosity (`debug` / `info` / `warn` / `error`) | `info` |
+| `SYNTHETIC_AGENT_PORT` | Host port for deterministic Synthetic Agent Learner runs | `4200` |
 
 ---
 
@@ -70,6 +67,7 @@ These are not environment variables — they live inside `docker-compose.yml` un
 | `redis` | 0.5 core | 128 MB |
 | `agent-registry` | 0.5 core | 256 MB |
 | `api-gateway` | 0.5 core | 256 MB |
+| `synthetic-agent-learner` | 0.5 core | 256 MB |
 | `assurance-console` | 0.5 core | 256 MB |
 
 > **Note:** `deploy.resources` limits apply when running with `docker compose up` (Compose v2). They are ignored by `docker-compose` v1.

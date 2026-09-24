@@ -13,6 +13,11 @@ const SERVICE_NAME = process.env.SERVICE_NAME || 'agent-registry';
 const EVENT_STREAM = process.env.AGENT_REGISTRY_EVENT_STREAM || 'agent-registry.assurance';
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+// PostgreSQL emits errors on idle pooled clients when the database is
+// restarted. Handle the pool-level event so a dependency outage makes health
+// checks fail closed without terminating the Registry process; subsequent
+// queries can then acquire a fresh connection after PostgreSQL recovers.
+pool.on('error', (error) => console.error(`[${SERVICE_NAME}] postgres pool error`, error));
 const redisClient = createClient({ url: process.env.REDIS_URL });
 redisClient.on('error', (error) => console.error(`[${SERVICE_NAME}] redis error`, error));
 
@@ -32,6 +37,7 @@ async function start() {
     health: async () => {
       await postgresRepository.health();
       if (!redisReady) throw new Error('redis not ready');
+      await redisClient.ping();
     },
   };
   const eventPublisher = {
