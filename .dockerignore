@@ -1,0 +1,9 @@
+.git
+.gitignore
+.env
+keys
+tmp
+.impeccable
+.scratch
+**/node_modules
+**/*.log
