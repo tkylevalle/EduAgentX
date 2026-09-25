@@ -1,69 +1,62 @@
-
-up to date, audited 73 packages in 954ms
-
-16 packages are looking for funding
-  run `npm fund` for details
-
-found 0 vulnerabilities
 TAP version 13
 # Subtest: synthetic profiles are deterministic and expose the required safe scenarios
 ok 1 - synthetic profiles are deterministic and expose the required safe scenarios
   ---
-  duration_ms: 1.866339
+  duration_ms: 2.254167
   type: 'test'
   ...
 # Subtest: a competent synthetic learner registers and sends lifecycle interaction through the gateway client
 ok 2 - a competent synthetic learner registers and sends lifecycle interaction through the gateway client
   ---
-  duration_ms: 3.166393
+  duration_ms: 2.351739
   type: 'test'
   ...
 # Subtest: malformed and inconsistent synthetic responses fail closed without credential issuance
 ok 3 - malformed and inconsistent synthetic responses fail closed without credential issuance
   ---
-  duration_ms: 1.091585
+  duration_ms: 0.650824
   type: 'test'
   ...
 # Subtest: timing-out and unavailable profiles return distinct safe outcomes after registration
 ok 4 - timing-out and unavailable profiles return distinct safe outcomes after registration
   ---
-  duration_ms: 0.843516
+  duration_ms: 0.483079
   type: 'test'
   ...
 # Subtest: gateway or registration unavailability becomes a system-aborted public result
 ok 5 - gateway or registration unavailability becomes a system-aborted public result
   ---
-  duration_ms: 0.606825
+  duration_ms: 0.476926
   type: 'test'
   ...
 # Subtest: the synthetic service drives registration and lifecycle interaction through the gateway HTTP client
 ok 6 - the synthetic service drives registration and lifecycle interaction through the gateway HTTP client
   ---
-  duration_ms: 46.228957
+  duration_ms: 62.580231
   type: 'test'
   ...
 # Subtest: synthetic failure profiles retain safe public outcomes and never claim credentials
 ok 7 - synthetic failure profiles retain safe public outcomes and never claim credentials
   ---
-  duration_ms: 31.415236
+  duration_ms: 29.526672
   type: 'test'
   ...
 # Subtest: Gateway authentication honors the protocol timeout before registration dispatch
 ok 8 - Gateway authentication honors the protocol timeout before registration dispatch
   ---
-  duration_ms: 27.78177
+  duration_ms: 25.997313
   type: 'test'
   ...
 # Subtest: synthetic service attaches the request correlation to malformed JSON errors
 ok 9 - synthetic service attaches the request correlation to malformed JSON errors
   ---
-  duration_ms: 5.507999
+  duration_ms: 5.29664
   type: 'test'
   ...
 # Subtest: reuses valid tokens and refreshes near-expiry or expired tokens
 ok 10 - reuses valid tokens and refreshes near-expiry or expired tokens
   ---
-  duration_ms: 1.734515
+  duration_ms: 1.725926
   type: 'test'
   ...
 1..10
@@ -74,4 +67,4 @@ ok 10 - reuses valid tokens and refreshes near-expiry or expired tokens
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 385.229003
+# duration_ms 558.131997

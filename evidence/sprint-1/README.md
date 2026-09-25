@@ -91,3 +91,19 @@ do not establish completion of Issue 8 or approval of the Sprint 1 Gate.
   after restoring the original Gateway client settings.
 
 Sprint Gate status remains pending.
+
+## Evidence checker
+
+Run: python3 scripts/check-sprint-evidence.py
+
+Validates five component-test reports and independently recalculates
+both registration p95 measurements.
+
+Negative checks passed in temporary copies:
+- missing report rejected;
+- failed test rejected;
+- incomplete measurements rejected;
+- p95 above 3000 ms rejected despite floor_pass=true.
+
+This checker is not the complete Sprint Gate.
+Remaining acceptance work listed above still applies.
