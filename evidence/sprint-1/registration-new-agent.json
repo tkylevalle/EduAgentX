@@ -1,0 +1,127 @@
+{
+  "scenario": "new_agent_registration",
+  "environment": "local_simulation",
+  "composeProject": "eduagentx-issue8",
+  "timestamp": "2026-09-25T04:52:25.092075+00:00",
+  "commit": "e57d111e3f6a95baaa0330d289d62e493901a9d5",
+  "scriptSha256": "39f09d843ecbf764e57ff2fd312888aa198ca83c8eff0e2907f8f9021cd299e0",
+  "expectedSamples": 20,
+  "completedSamples": 20,
+  "concurrency": 1,
+  "warmupRegistrations": 0,
+  "method": "nearest_rank",
+  "measurement": "client request through complete registration response",
+  "conditions": "Gateway recreated per sample; Registry and database stay running",
+  "excluded": [
+    "Gateway restart",
+    "token acquisition",
+    "precondition GET"
+  ],
+  "p95_ms": 86.35516800001142,
+  "floor_pass": true,
+  "target_pass": true,
+  "failure": null,
+  "samples": [
+    {
+      "correlationId": "perf-40a7f6903a6b-000-registration",
+      "httpStatus": 201,
+      "durationMs": 52.71110800001111
+    },
+    {
+      "correlationId": "perf-40a7f6903a6b-001-registration",
+      "httpStatus": 201,
+      "durationMs": 31.326784000043517
+    },
+    {
+      "correlationId": "perf-40a7f6903a6b-002-registration",
+      "httpStatus": 201,
+      "durationMs": 57.565156000009665
+    },
+    {
+      "correlationId": "perf-40a7f6903a6b-003-registration",
+      "httpStatus": 201,
+      "durationMs": 30.505704000006517
+    },
+    {
+      "correlationId": "perf-40a7f6903a6b-004-registration",
+      "httpStatus": 201,
+      "durationMs": 20.298566000008123
+    },
+    {
+      "correlationId": "perf-40a7f6903a6b-005-registration",
+      "httpStatus": 201,
+      "durationMs": 20.431998999981715
+    },
+    {
+      "correlationId": "perf-40a7f6903a6b-006-registration",
+      "httpStatus": 201,
+      "durationMs": 30.922360000033677
+    },
+    {
+      "correlationId": "perf-40a7f6903a6b-007-registration",
+      "httpStatus": 201,
+      "durationMs": 22.90919600000052
+    },
+    {
+      "correlationId": "perf-40a7f6903a6b-008-registration",
+      "httpStatus": 201,
+      "durationMs": 57.198011999958
+    },
+    {
+      "correlationId": "perf-40a7f6903a6b-009-registration",
+      "httpStatus": 201,
+      "durationMs": 39.545492000002014
+    },
+    {
+      "correlationId": "perf-40a7f6903a6b-010-registration",
+      "httpStatus": 201,
+      "durationMs": 22.18925400001126
+    },
+    {
+      "correlationId": "perf-40a7f6903a6b-011-registration",
+      "httpStatus": 201,
+      "durationMs": 86.35516800001142
+    },
+    {
+      "correlationId": "perf-40a7f6903a6b-012-registration",
+      "httpStatus": 201,
+      "durationMs": 30.572260999974787
+    },
+    {
+      "correlationId": "perf-40a7f6903a6b-013-registration",
+      "httpStatus": 201,
+      "durationMs": 16.240025999991303
+    },
+    {
+      "correlationId": "perf-40a7f6903a6b-014-registration",
+      "httpStatus": 201,
+      "durationMs": 23.362745999975232
+    },
+    {
+      "correlationId": "perf-40a7f6903a6b-015-registration",
+      "httpStatus": 201,
+      "durationMs": 22.488355000007232
+    },
+    {
+      "correlationId": "perf-40a7f6903a6b-016-registration",
+      "httpStatus": 201,
+      "durationMs": 30.285729000070205
+    },
+    {
+      "correlationId": "perf-40a7f6903a6b-017-registration",
+      "httpStatus": 201,
+      "durationMs": 20.032712999977775
+    },
+    {
+      "correlationId": "perf-40a7f6903a6b-018-registration",
+      "httpStatus": 201,
+      "durationMs": 109.2570750000732
+    },
+    {
+      "correlationId": "perf-40a7f6903a6b-019-registration",
+      "httpStatus": 201,
+      "durationMs": 20.002847000000656
+    }
+  ],
+  "limitation": "20-sample local estimate; not production-load evidence"
+}
