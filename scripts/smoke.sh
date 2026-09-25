@@ -91,6 +91,11 @@ protocol_status=$(curl -s -o /tmp/protocol-register.json -w '%{http_code}' \
 grep -q 'SIMULATION: Synthetic Agent Learner' /tmp/protocol-register.json || fail "protocol response omitted simulation evidence"
 echo "   OK (status ${protocol_status}): $(cat /tmp/protocol-register.json)"
 
+before_reject=$(curl -fsS \
+  "${BASE_URL}/v1/registrations/${AGENT_LEARNER_ID}" \
+  -H "authorization: Bearer ${AGENT_TOKEN}") \
+  || fail "cannot read registration before rejection"
+
 echo "7) Versioned protocol rejection must fail closed before mutation..."
 protocol_reject_status=$(curl -s -o /tmp/protocol-rejected.json -w '%{http_code}' \
   -X POST "${BASE_URL}/v1/agent-learner/registrations" \
@@ -103,6 +108,27 @@ protocol_reject_status=$(curl -s -o /tmp/protocol-rejected.json -w '%{http_code}
 [ "$protocol_reject_status" = "400" ] || fail "protocol rejection returned ${protocol_reject_status}, expected 400: $(cat /tmp/protocol-rejected.json)"
 grep -q 'unsupported_protocol_version' /tmp/protocol-rejected.json || fail "protocol rejection omitted its reason"
 echo "   OK: rejected with 400 and no registry dispatch"
+
+after_reject=$(curl -fsS \
+  "${BASE_URL}/v1/registrations/${AGENT_LEARNER_ID}" \
+  -H "authorization: Bearer ${AGENT_TOKEN}") \
+  || fail "cannot read registration after rejection"
+
+printf '%s\n%s\n' "$before_reject" "$after_reject" |
+  python3 -c '
+import json
+import sys
+
+before = json.loads(sys.stdin.readline())
+after = json.loads(sys.stdin.readline())
+
+if not isinstance(before.get("registration"), dict):
+    sys.exit("Missing registration before rejection")
+if before["registration"] != after.get("registration"):
+    sys.exit("Registration changed after rejected request")
+
+print("   OK: registration and its history unchanged after rejection")
+' || fail "rejected request changed registration or verification failed"
 
 echo "8) Retrying the same protocol idempotency key must return the original result..."
 protocol_retry_status=$(curl -s -o /tmp/protocol-register-retry.json -w '%{http_code}' \
