@@ -38,6 +38,30 @@ function createApp({
     res.setHeader('x-correlation-id', req.correlationId);
     next();
   });
+
+  // Log request metadata without bodies, credentials, or query parameters.
+  app.use((req, res, next) => {
+    const startedAt = process.hrtime.bigint();
+
+    res.once('finish', () => {
+      const durationMs =
+        Number(process.hrtime.bigint() - startedAt) / 1e6;
+
+      console.log(JSON.stringify({
+        timestamp: new Date().toISOString(),
+        event: 'http_request_completed',
+        service: 'api-gateway',
+        correlationId: req.correlationId,
+        method: req.method,
+        path: req.route?.path || '[unmatched]',
+        statusCode: res.statusCode,
+        durationMs: Number(durationMs.toFixed(3)),
+      }));
+    });
+
+    next();
+  });
+
   app.use(express.json({ limit: '64kb' }));
 
   app.get('/health', async (req, res) => {
