@@ -1,0 +1,23 @@
+
+up to date, audited 73 packages in 971ms
+
+16 packages are looking for funding
+  run `npm fund` for details
+
+found 0 vulnerabilities
+TAP version 13
+# Subtest: console renders authoritative trace evidence and exposes no mutation route
+ok 1 - console renders authoritative trace evidence and exposes no mutation route
+  ---
+  duration_ms: 137.716293
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 238.913832

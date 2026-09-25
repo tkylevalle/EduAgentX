@@ -45,7 +45,6 @@ from this work's commits. Never include keys or real credentials.
 
 ## Remaining acceptance work
 
-- Measure new-agent registration p95 under a documented repeatable workload.
 - Extend redaction coverage to successful registration and dependency errors.
 - Verify health and telemetry coverage of registration dependencies.
 - Confirm required Sprint 1 tests and invariants from Issue 7.
@@ -58,3 +57,37 @@ from this work's commits. Never include keys or real credentials.
 
 Pending. Passing smoke checks and the existing-agent latency measurement
 do not establish completion of Issue 8 or approval of the Sprint 1 Gate.
+
+
+## Local service test suite
+
+- Evidence is stored under `tests/`.
+- external-agent-protocol: 7/7 passed.
+- agent-registry: 6/6 passed.
+- api-gateway: 5/5 passed.
+- assurance-console: 1/1 passed.
+- synthetic-agent-learner: 10/10 passed.
+- Total: 29/29 tests passed with 0 failures.
+- The post-measurement smoke suite also passed.
+- These local tests do not by themselves establish the remaining Issue 7
+  PostgreSQL/Redis integration and telemetry acceptance requirements.
+
+## New-agent registration measurement
+
+- Evidence: registration-new-agent.json.
+- Completed samples: 20/20.
+- p95: 86.355 ms, nearest-rank method.
+- Required floor: at most 3000 ms; passed.
+- Separate target: at most 2000 ms; achieved.
+- Concurrency: 1. No warm-up registrations.
+- Each sample used a new authenticated client identity.
+- Each identity returned 404 before registration, then 201 with version 1.
+- Gateway was recreated per sample; Registry and database stayed running.
+- Restart, token acquisition and precondition GET were excluded from timing.
+- This is a 20-sample local estimate, not production-load evidence.
+- An interrupted attempt was restarted as a new series after a computer shutdown.
+  The completed report contains only the successful replacement series.
+- smoke-after-measurement.txt confirms the standard smoke suite passed
+  after restoring the original Gateway client settings.
+
+Sprint Gate status remains pending.
