@@ -1,0 +1,16 @@
+[
+  {
+    "scenario": "created",
+    "httpStatus": 201,
+    "agentLearnerId": "cd545a10-93d9-4790-b14a-fc873a3735df",
+    "configurationVersion": 1
+  },
+  {
+    "scenario": "retry",
+    "exact_response_equal": true
+  },
+  {
+    "scenario": "rejected",
+    "state_unchanged": true
+  }
+]

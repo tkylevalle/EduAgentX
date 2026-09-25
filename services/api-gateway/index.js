@@ -1,3 +1,4 @@
+const telemetry = require('./telemetry');
 // api-gateway (Sprint 1)
 //
 // The gateway is the only public lifecycle boundary. Agent Learners use the
@@ -39,39 +40,29 @@ function createApp({
     next();
   });
 
-  // Log request metadata without bodies, credentials, or query parameters.
-  app.use((req, res, next) => {
-    const startedAt = process.hrtime.bigint();
-
-    res.once('finish', () => {
-      const durationMs =
-        Number(process.hrtime.bigint() - startedAt) / 1e6;
-
-      console.log(JSON.stringify({
-        timestamp: new Date().toISOString(),
-        event: 'http_request_completed',
-        service: 'api-gateway',
-        correlationId: req.correlationId,
-        method: req.method,
-        path: req.route?.path || '[unmatched]',
-        statusCode: res.statusCode,
-        durationMs: Number(durationMs.toFixed(3)),
-      }));
-    });
-
-    next();
-  });
+  app.use(telemetry.middleware('api-gateway'));
 
   app.use(express.json({ limit: '64kb' }));
 
   app.get('/health', async (req, res) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 3000);
     try {
-      const response = await fetch(`${agentRegistryUrl}/health`);
-      if (!response.ok) throw new Error(`agent-registry health returned ${response.status}`);
-      res.status(200).json({ status: 'ok', service: SERVICE_NAME });
+      const response = await fetch(`${agentRegistryUrl}/health`, {
+        signal: controller.signal, headers: { 'x-correlation-id': req.correlationId },
+      });
+      const upstream = await response.json();
+      if (!response.ok) throw new Error('dependency unavailable');
+      const { authHealth } = require('./auth');
+      if (!authHealth()) throw new Error('auth unavailable');
+      res.status(200).json({ status: 'ok', service: SERVICE_NAME,
+        dependencies: { registry: 'ok', authentication: 'ok',
+          postgres: upstream.dependencies?.postgres || 'unknown',
+          redis: upstream.dependencies?.redis || 'unknown' } });
     } catch (error) {
-      res.status(503).json({ status: 'unhealthy', service: SERVICE_NAME, error: error.message });
-    }
+      telemetry.log(SERVICE_NAME, 'health_failed', { correlationId: req.correlationId });
+      res.status(503).json({ status: 'unhealthy', service: SERVICE_NAME });
+    } finally { clearTimeout(timer); }
   });
 
   // Exchanges pre-shared Sprint 1 client credentials for a short-lived RS256 JWT.
@@ -254,7 +245,7 @@ function createApp({
         correlationId: req.correlationId,
       });
     }
-    console.error(`[${SERVICE_NAME}] unhandled request error`, error);
+    telemetry.log(SERVICE_NAME, 'request_failed', { correlationId: req.correlationId });
     return res.status(500).json({ apiVersion: 'v1', error: 'internal_error', correlationId: req.correlationId });
   });
 
@@ -421,7 +412,7 @@ async function forwardJson(req, url, options = {}) {
 }
 
 function proxyFailure(req, res, error, message, protocolIdempotencyStore, subject) {
-  console.error(`[${SERVICE_NAME}] proxy error`, error);
+  telemetry.log(SERVICE_NAME, 'upstream_failed', { correlationId: req.correlationId });
   const status = error.code === 'upstream_timeout' ? 504 : 502;
   const errorCode = error.code === 'upstream_timeout' ? 'upstream_timeout' : 'upstream_unavailable';
   const body = {

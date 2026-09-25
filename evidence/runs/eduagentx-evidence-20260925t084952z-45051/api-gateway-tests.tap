@@ -1,0 +1,81 @@
+TAP version 13
+# {"timestamp":"2026-09-25T08:49:58.670Z","service":"api-gateway","event":"http_request_completed","correlationId":"c869addb-9424-459d-983d-465866871387","method":"GET","path":"/health","statusCode":200,"durationMs":22.839097,"outcome":"completed"}
+# {"timestamp":"2026-09-25T08:49:58.683Z","service":"api-gateway","event":"health_failed","correlationId":"b969f1b1-3d12-4e9d-95e8-820b68ad78ed"}
+# {"timestamp":"2026-09-25T08:49:58.683Z","service":"api-gateway","event":"http_request_completed","correlationId":"b969f1b1-3d12-4e9d-95e8-820b68ad78ed","method":"GET","path":"/health","statusCode":503,"durationMs":2.999377,"outcome":"completed"}
+# {"timestamp":"2026-09-25T08:49:58.689Z","service":"api-gateway","event":"health_failed","correlationId":"97809820-8e0c-461c-9b80-83a5698e87fa"}
+# {"timestamp":"2026-09-25T08:49:58.690Z","service":"api-gateway","event":"http_request_completed","correlationId":"97809820-8e0c-461c-9b80-83a5698e87fa","method":"GET","path":"/health","statusCode":503,"durationMs":4.543386,"outcome":"completed"}
+# Subtest: gateway health follows live registry state and auth readiness without exposing errors
+ok 1 - gateway health follows live registry state and auth readiness without exposing errors
+  ---
+  duration_ms: 96.570869
+  type: 'test'
+  ...
+# {"timestamp":"2026-09-25T08:49:58.652Z","service":"api-gateway","event":"http_request_completed","correlationId":"e655292c-9810-4b71-950c-a955ee93f9ce","method":"POST","path":"/v1/auth/tokens","statusCode":200,"durationMs":17.848074,"outcome":"completed"}
+# {"timestamp":"2026-09-25T08:49:58.661Z","service":"api-gateway","event":"http_request_completed","correlationId":"cb5bd3c8-b468-480b-90ce-115256b48977","method":"GET","path":"/v1/agent-learner/protocol","statusCode":200,"durationMs":2.831869,"outcome":"completed"}
+# {"timestamp":"2026-09-25T08:49:58.671Z","service":"api-gateway","event":"http_request_completed","correlationId":"gateway-registration-correlation","method":"POST","path":"/v1/agent-learner/registrations","statusCode":201,"durationMs":7.680494,"outcome":"completed"}
+# Subtest: the gateway exposes the versioned protocol and routes provider-neutral registration to the registry
+ok 2 - the gateway exposes the versioned protocol and routes provider-neutral registration to the registry
+  ---
+  duration_ms: 177.726408
+  type: 'test'
+  ...
+# {"timestamp":"2026-09-25T08:49:58.680Z","service":"api-gateway","event":"http_request_completed","correlationId":"200a3237-f48e-4b25-8b0c-9cf9c291a40e","method":"POST","path":"/v1/auth/tokens","statusCode":200,"durationMs":2.442928,"outcome":"completed"}
+# {"timestamp":"2026-09-25T08:49:58.685Z","service":"api-gateway","event":"http_request_completed","correlationId":"conformance-registration-correlation","method":"POST","path":"/v1/agent-learner/registrations","statusCode":201,"durationMs":4.153336,"outcome":"completed"}
+# {"timestamp":"2026-09-25T08:49:58.689Z","service":"api-gateway","event":"http_request_completed","correlationId":"conformance-lifecycle-correlation","method":"POST","path":"/v1/agent-learner/interactions","statusCode":202,"durationMs":1.763191,"outcome":"completed"}
+# {"timestamp":"2026-09-25T08:49:58.692Z","service":"api-gateway","event":"http_request_completed","correlationId":"conformance-registration-correlation","method":"POST","path":"/v1/agent-learner/registrations","statusCode":400,"durationMs":1.814572,"outcome":"completed"}
+# {"timestamp":"2026-09-25T08:49:58.695Z","service":"api-gateway","event":"http_request_completed","correlationId":"conformance-lifecycle-correlation","method":"POST","path":"/v1/agent-learner/interactions","statusCode":400,"durationMs":1.430494,"outcome":"completed"}
+# Subtest: the reusable protocol conformance suite passes through the real gateway boundary
+ok 3 - the reusable protocol conformance suite passes through the real gateway boundary
+  ---
+  duration_ms: 23.214214
+  type: 'test'
+  ...
+# {"timestamp":"2026-09-25T08:49:58.705Z","service":"api-gateway","event":"http_request_completed","correlationId":"f7975229-bf46-46e2-b13d-b52a190be6d8","method":"POST","path":"/v1/auth/tokens","statusCode":200,"durationMs":4.303625,"outcome":"completed"}
+# {"timestamp":"2026-09-25T08:49:58.708Z","service":"api-gateway","event":"http_request_completed","correlationId":"ca6992fd-da25-4c80-bb12-e228eb77cbc8","method":"POST","path":"/v1/agent-learner/registrations","statusCode":401,"durationMs":0.826377,"outcome":"completed"}
+# {"timestamp":"2026-09-25T08:49:58.710Z","service":"api-gateway","event":"http_request_completed","correlationId":"failure-correlation","method":"POST","path":"/v1/agent-learner/registrations","statusCode":403,"durationMs":1.462682,"outcome":"completed"}
+# {"timestamp":"2026-09-25T08:49:58.712Z","service":"api-gateway","event":"http_request_completed","correlationId":"failure-correlation","method":"POST","path":"/v1/agent-learner/registrations","statusCode":400,"durationMs":0.907274,"outcome":"completed"}
+# {"timestamp":"2026-09-25T08:49:58.714Z","service":"api-gateway","event":"http_request_completed","correlationId":"e591055f-546e-4f6a-b710-a5d4e5af5e8d","method":"POST","path":"/v1/agent-learner/registrations","statusCode":400,"durationMs":0.994803,"outcome":"completed"}
+# {"timestamp":"2026-09-25T08:49:58.715Z","service":"api-gateway","event":"http_request_completed","correlationId":"failure-correlation","method":"POST","path":"/v1/agent-learner/registrations","statusCode":400,"durationMs":0.953111,"outcome":"completed"}
+# {"timestamp":"2026-09-25T08:49:58.717Z","service":"api-gateway","event":"http_request_completed","correlationId":"failure-correlation","method":"POST","path":"/v1/agent-learner/registrations","statusCode":400,"durationMs":0.993199,"outcome":"completed"}
+# {"timestamp":"2026-09-25T08:49:58.719Z","service":"api-gateway","event":"http_request_completed","correlationId":"malformed-lifecycle-correlation","method":"POST","path":"/v1/agent-learner/interactions","statusCode":400,"durationMs":0.839189,"outcome":"completed"}
+# Subtest: authentication, identity, version, timeout, evidence, and payload failures fail closed before mutation
+ok 4 - authentication, identity, version, timeout, evidence, and payload failures fail closed before mutation
+  ---
+  duration_ms: 23.05353
+  type: 'test'
+  ...
+# {"timestamp":"2026-09-25T08:49:58.727Z","service":"api-gateway","event":"http_request_completed","correlationId":"31f4819a-8239-4c4d-b927-ad969c47d155","method":"POST","path":"/v1/auth/tokens","statusCode":200,"durationMs":3.786396,"outcome":"completed"}
+# {"timestamp":"2026-09-25T08:49:58.731Z","service":"api-gateway","event":"http_request_completed","correlationId":"failed-registration-correlation","method":"POST","path":"/v1/agent-learner/registrations","statusCode":422,"durationMs":2.753974,"outcome":"completed"}
+# {"timestamp":"2026-09-25T08:49:58.732Z","service":"api-gateway","event":"http_request_completed","correlationId":"failed-registration-correlation","method":"POST","path":"/v1/agent-learner/registrations","statusCode":422,"durationMs":0.6638,"outcome":"completed"}
+# {"timestamp":"2026-09-25T08:49:58.733Z","service":"api-gateway","event":"http_request_completed","correlationId":"failed-registration-correlation","method":"POST","path":"/v1/agent-learner/registrations","statusCode":409,"durationMs":0.785166,"outcome":"completed"}
+# Subtest: protocol registration idempotency replays failed upstream results and conflicts on changed content
+ok 5 - protocol registration idempotency replays failed upstream results and conflicts on changed content
+  ---
+  duration_ms: 14.173192
+  type: 'test'
+  ...
+# {"timestamp":"2026-09-25T08:49:58.739Z","service":"api-gateway","event":"http_request_completed","correlationId":"748d7b2a-319e-4dba-995a-0ddc07e3f647","method":"POST","path":"/v1/auth/tokens","statusCode":200,"durationMs":2.304428,"outcome":"completed"}
+# {"timestamp":"2026-09-25T08:49:58.762Z","service":"api-gateway","event":"upstream_failed","correlationId":"timeout-registration-correlation"}
+# {"timestamp":"2026-09-25T08:49:58.762Z","service":"api-gateway","event":"http_request_completed","correlationId":"timeout-registration-correlation","method":"POST","path":"/v1/agent-learner/registrations","statusCode":504,"durationMs":22.219326,"outcome":"completed"}
+# {"timestamp":"2026-09-25T08:49:58.765Z","service":"api-gateway","event":"http_request_completed","correlationId":"timeout-registration-correlation","method":"POST","path":"/v1/agent-learner/registrations","statusCode":504,"durationMs":0.867772,"outcome":"completed"}
+# Subtest: gateway enforces the protocol timeout on upstream registration and replays the timeout result
+ok 6 - gateway enforces the protocol timeout on upstream registration and replays the timeout result
+  ---
+  duration_ms: 31.241375
+  type: 'test'
+  ...
+# Subtest: gateway log allowlist never serializes credentials or raw errors
+ok 7 - gateway log allowlist never serializes credentials or raw errors
+  ---
+  duration_ms: 1.461275
+  type: 'test'
+  ...
+1..7
+# tests 7
+# suites 0
+# pass 7
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 454.701037
