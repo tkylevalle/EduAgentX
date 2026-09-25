@@ -1,0 +1,13 @@
+{
+  "result": "PASS",
+  "checks": [
+    "invalid_token_401",
+    "malformed_json_400"
+  ],
+  "secret_markers_found": false,
+  "correlation_ids": [
+    "redaction-invalid-token-3f2ee3385db14e54b21266ab92cbbe4b",
+    "redaction-malformed-json-3f2ee3385db14e54b21266ab92cbbe4b"
+  ],
+  "scope": "Gateway rejection paths; not full redaction coverage"
+}
