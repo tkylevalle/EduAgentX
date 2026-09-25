@@ -126,7 +126,10 @@ async function startGatewayStub(requests, { tokenDelayMs = 0 } = {}) {
     requests.push({ path: req.url, headers: req.headers, body });
     if (req.method === 'POST' && req.url === '/v1/auth/tokens') {
       if (tokenDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, tokenDelayMs));
-      return sendJson(res, 200, { accessToken: 'gateway-token' });
+      return sendJson(res, 200, {
+        accessToken: 'gateway-token',
+        expiresIn: 900,
+      });
     }
     if (req.method === 'POST' && req.url === '/v1/agent-learner/registrations') {
       return sendJson(res, 201, {
