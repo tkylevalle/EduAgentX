@@ -1,0 +1,197 @@
+#1 [internal] load local bake definitions
+#1 reading from stdin 2.32kB done
+#1 DONE 0.0s
+
+#2 [assurance-console internal] load build definition from Dockerfile
+#2 transferring dockerfile: 179B done
+#2 DONE 0.0s
+
+#3 [agent-registry internal] load build definition from Dockerfile
+#3 transferring dockerfile: 284B done
+#3 DONE 0.0s
+
+#4 [synthetic-agent-learner internal] load build definition from Dockerfile
+#4 transferring dockerfile: 610B done
+#4 DONE 0.0s
+
+#5 [api-gateway internal] load build definition from Dockerfile
+#5 transferring dockerfile: 461B done
+#5 DONE 0.0s
+
+#6 [api-gateway internal] load metadata for docker.io/library/node:20-alpine
+#6 DONE 2.0s
+
+#7 [agent-registry internal] load .dockerignore
+#7 transferring context: 64B done
+#7 DONE 0.1s
+
+#8 [assurance-console internal] load .dockerignore
+#8 transferring context: 64B done
+#8 DONE 0.1s
+
+#9 [api-gateway internal] load .dockerignore
+#9 transferring context: 146B done
+#9 DONE 0.1s
+
+#10 [api-gateway 1/5] FROM docker.io/library/node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293
+#10 DONE 0.0s
+
+#11 [agent-registry internal] load build context
+#11 transferring context: 16.79kB done
+#11 DONE 0.0s
+
+#12 [assurance-console internal] load build context
+#12 transferring context: 62B done
+#12 DONE 0.0s
+
+#13 [synthetic-agent-learner internal] load build context
+#13 transferring context: 858B done
+#13 DONE 0.0s
+
+#14 [api-gateway internal] load build context
+#14 transferring context: 26.76kB done
+#14 DONE 0.0s
+
+#15 [agent-registry 3/5] COPY package.json ./
+#15 CACHED
+
+#16 [agent-registry 4/5] RUN npm install --omit=dev
+#16 CACHED
+
+#17 [synthetic-agent-learner 3/7] COPY services/synthetic-agent-learner/package.json ./services/synthetic-agent-learner/
+#17 CACHED
+
+#18 [synthetic-agent-learner 6/7] COPY services/external-agent-protocol ./services/external-agent-protocol
+#18 CACHED
+
+#19 [synthetic-agent-learner 4/7] RUN cd services/synthetic-agent-learner && npm install --omit=dev
+#19 CACHED
+
+#20 [synthetic-agent-learner 5/7] COPY services/synthetic-agent-learner/index.js services/synthetic-agent-learner/gateway-client.js services/synthetic-agent-learner/learner.js services/synthetic-agent-learner/profiles.js ./services/synthetic-agent-learner/
+#20 CACHED
+
+#21 [api-gateway 3/7] COPY services/api-gateway/package.json ./services/api-gateway/
+#21 CACHED
+
+#22 [synthetic-agent-learner 7/7] WORKDIR /app/services/synthetic-agent-learner
+#22 CACHED
+
+#23 [api-gateway 4/7] RUN cd services/api-gateway && npm install --omit=dev
+#23 CACHED
+
+#24 [assurance-console 2/5] WORKDIR /app
+#24 CACHED
+
+#25 [assurance-console 4/5] RUN npm install --omit=dev
+#25 CACHED
+
+#26 [assurance-console 3/5] COPY package.json ./
+#26 CACHED
+
+#27 [assurance-console 5/5] COPY index.js ./
+#27 CACHED
+
+#28 [assurance-console] exporting to image
+#28 exporting layers done
+#28 writing image sha256:79733b49add1e0515a8d9dd8bb09bd0b629c38199751650b53387a5b63390a6c done
+#28 naming to docker.io/library/eduagentx-evidence-20260925t082904z-10499-assurance-console done
+#28 DONE 0.1s
+
+#29 [synthetic-agent-learner] exporting to image
+#29 exporting layers done
+#29 writing image sha256:a15c6e70e9bfdfc8a7bec6d4c039765dd852e08c0a99d4804d73fe96a2d80d02 done
+#29 naming to docker.io/library/eduagentx-evidence-20260925t082904z-10499-synthetic-agent-learner done
+#29 DONE 0.1s
+
+#30 [api-gateway 5/7] COPY services/api-gateway/index.js services/api-gateway/auth.js services/api-gateway/telemetry.js ./services/api-gateway/
+#30 DONE 0.1s
+
+#31 [agent-registry 5/5] COPY index.js app.js domain.js postgres-repository.js registry-service.js schema.sql telemetry.js dependency-health.js ./
+#31 DONE 0.2s
+
+#32 [api-gateway 6/7] COPY services/external-agent-protocol ./services/external-agent-protocol
+#32 DONE 0.1s
+
+#33 [agent-registry] exporting to image
+#33 exporting layers 0.0s done
+#33 writing image sha256:982c48fd0010ae704b97d52d95ca477d924b3f240537c2f8af26890af6242feb done
+#33 naming to docker.io/library/eduagentx-evidence-20260925t082904z-10499-agent-registry done
+#33 DONE 0.1s
+
+#34 [assurance-console] resolving provenance for metadata file
+#34 DONE 0.0s
+
+#35 [synthetic-agent-learner] resolving provenance for metadata file
+#35 DONE 0.0s
+
+#36 [api-gateway 7/7] WORKDIR /app/services/api-gateway
+#36 DONE 0.0s
+
+#37 [agent-registry] resolving provenance for metadata file
+#37 DONE 0.0s
+
+#38 [api-gateway] exporting to image
+#38 exporting layers 0.0s done
+#38 writing image sha256:40eb9d7246da1dd5880b900b0b7eaf7faf9bdf40a049ac3a02953b6f47d36591
+#38 writing image sha256:40eb9d7246da1dd5880b900b0b7eaf7faf9bdf40a049ac3a02953b6f47d36591 done
+#38 naming to docker.io/library/eduagentx-evidence-20260925t082904z-10499-api-gateway done
+#38 DONE 0.1s
+
+#39 [api-gateway] resolving provenance for metadata file
+#39 DONE 0.0s
+ eduagentx-evidence-20260925t082904z-10499-assurance-console  Built
+ eduagentx-evidence-20260925t082904z-10499-synthetic-agent-learner  Built
+ eduagentx-evidence-20260925t082904z-10499-agent-registry  Built
+ eduagentx-evidence-20260925t082904z-10499-api-gateway  Built
+ Network eduagentx-evidence-20260925t082904z-10499_eduagentx-net  Creating
+ Network eduagentx-evidence-20260925t082904z-10499_eduagentx-net  Created
+ Volume eduagentx-evidence-20260925t082904z-10499_redis-data  Creating
+ Volume eduagentx-evidence-20260925t082904z-10499_redis-data  Created
+ Volume eduagentx-evidence-20260925t082904z-10499_postgres-data  Creating
+ Volume eduagentx-evidence-20260925t082904z-10499_postgres-data  Created
+ Container eduagentx-evidence-20260925t082904z-10499-postgres-1  Creating
+ Container eduagentx-evidence-20260925t082904z-10499-redis-1  Creating
+ Container eduagentx-evidence-20260925t082904z-10499-redis-1  Created
+ Container eduagentx-evidence-20260925t082904z-10499-postgres-1  Created
+ Container eduagentx-evidence-20260925t082904z-10499-agent-registry-1  Creating
+ Container eduagentx-evidence-20260925t082904z-10499-agent-registry-1  Created
+ Container eduagentx-evidence-20260925t082904z-10499-api-gateway-1  Creating
+ Container eduagentx-evidence-20260925t082904z-10499-api-gateway-1  Created
+ Container eduagentx-evidence-20260925t082904z-10499-synthetic-agent-learner-1  Creating
+ Container eduagentx-evidence-20260925t082904z-10499-assurance-console-1  Creating
+ Container eduagentx-evidence-20260925t082904z-10499-assurance-console-1  Created
+ Container eduagentx-evidence-20260925t082904z-10499-synthetic-agent-learner-1  Created
+ Container eduagentx-evidence-20260925t082904z-10499-postgres-1  Starting
+ Container eduagentx-evidence-20260925t082904z-10499-redis-1  Starting
+ Container eduagentx-evidence-20260925t082904z-10499-redis-1  Started
+ Container eduagentx-evidence-20260925t082904z-10499-postgres-1  Started
+ Container eduagentx-evidence-20260925t082904z-10499-postgres-1  Waiting
+ Container eduagentx-evidence-20260925t082904z-10499-redis-1  Waiting
+ Container eduagentx-evidence-20260925t082904z-10499-postgres-1  Healthy
+ Container eduagentx-evidence-20260925t082904z-10499-redis-1  Healthy
+ Container eduagentx-evidence-20260925t082904z-10499-agent-registry-1  Starting
+ Container eduagentx-evidence-20260925t082904z-10499-agent-registry-1  Started
+ Container eduagentx-evidence-20260925t082904z-10499-agent-registry-1  Waiting
+ Container eduagentx-evidence-20260925t082904z-10499-agent-registry-1  Healthy
+ Container eduagentx-evidence-20260925t082904z-10499-api-gateway-1  Starting
+ Container eduagentx-evidence-20260925t082904z-10499-api-gateway-1  Started
+ Container eduagentx-evidence-20260925t082904z-10499-api-gateway-1  Waiting
+ Container eduagentx-evidence-20260925t082904z-10499-api-gateway-1  Waiting
+ Container eduagentx-evidence-20260925t082904z-10499-api-gateway-1  Healthy
+ Container eduagentx-evidence-20260925t082904z-10499-synthetic-agent-learner-1  Starting
+ Container eduagentx-evidence-20260925t082904z-10499-api-gateway-1  Healthy
+ Container eduagentx-evidence-20260925t082904z-10499-assurance-console-1  Starting
+ Container eduagentx-evidence-20260925t082904z-10499-assurance-console-1  Started
+ Container eduagentx-evidence-20260925t082904z-10499-synthetic-agent-learner-1  Started
+ Container eduagentx-evidence-20260925t082904z-10499-redis-1  Waiting
+ Container eduagentx-evidence-20260925t082904z-10499-synthetic-agent-learner-1  Waiting
+ Container eduagentx-evidence-20260925t082904z-10499-agent-registry-1  Waiting
+ Container eduagentx-evidence-20260925t082904z-10499-api-gateway-1  Waiting
+ Container eduagentx-evidence-20260925t082904z-10499-assurance-console-1  Waiting
+ Container eduagentx-evidence-20260925t082904z-10499-postgres-1  Waiting
+ Container eduagentx-evidence-20260925t082904z-10499-postgres-1  Healthy
+ Container eduagentx-evidence-20260925t082904z-10499-agent-registry-1  Healthy
+ Container eduagentx-evidence-20260925t082904z-10499-api-gateway-1  Healthy
+ Container eduagentx-evidence-20260925t082904z-10499-redis-1  Healthy
+ Container eduagentx-evidence-20260925t082904z-10499-assurance-console-1  Healthy
+ Container eduagentx-evidence-20260925t082904z-10499-synthetic-agent-learner-1  Healthy

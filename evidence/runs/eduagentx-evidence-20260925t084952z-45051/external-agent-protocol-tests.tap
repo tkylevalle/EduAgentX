@@ -1,0 +1,52 @@
+TAP version 13
+# Subtest: the conformance suite exercises valid and fail-closed messages through one adapter seam
+ok 1 - the conformance suite exercises valid and fail-closed messages through one adapter seam
+  ---
+  duration_ms: 2.940221
+  type: 'test'
+  ...
+# Subtest: registration messages accept opaque provider metadata and normalize protocol evidence
+ok 2 - registration messages accept opaque provider metadata and normalize protocol evidence
+  ---
+  duration_ms: 2.29826
+  type: 'test'
+  ...
+# Subtest: lifecycle messages use the same versioned envelope for every evidence mode
+ok 3 - lifecycle messages use the same versioned envelope for every evidence mode
+  ---
+  duration_ms: 0.670659
+  type: 'test'
+  ...
+# Subtest: protocol validation rejects unsupported versions, unsafe evidence labels, and malformed lifecycle payloads
+ok 4 - protocol validation rejects unsupported versions, unsafe evidence labels, and malformed lifecycle payloads
+  ---
+  duration_ms: 0.806872
+  type: 'test'
+  ...
+# Subtest: response metadata carries the evidence label and correlation without exposing payload data
+ok 5 - response metadata carries the evidence label and correlation without exposing payload data
+  ---
+  duration_ms: 0.344708
+  type: 'test'
+  ...
+# Subtest: lifecycle messages reject a missing adapter response
+ok 6 - lifecycle messages reject a missing adapter response
+  ---
+  duration_ms: 0.275964
+  type: 'test'
+  ...
+# Subtest: lifecycle messages require the Gateway-authorized agentLearnerKey identity
+ok 7 - lifecycle messages require the Gateway-authorized agentLearnerKey identity
+  ---
+  duration_ms: 4.124188
+  type: 'test'
+  ...
+1..7
+# tests 7
+# suites 0
+# pass 7
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 96.775837

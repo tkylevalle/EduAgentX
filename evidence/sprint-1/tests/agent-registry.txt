@@ -1,0 +1,68 @@
+
+up to date, audited 94 packages in 977ms
+
+17 packages are looking for funding
+  run `npm fund` for details
+
+1 moderate severity vulnerability
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+TAP version 13
+# {"timestamp":"2026-09-25T05:09:23.232Z","event":"http_request_completed","service":"agent-registry","correlationId":"invalid-correlation","method":"POST","path":"/v1/registrations","statusCode":400,"durationMs":9.881}
+# {"timestamp":"2026-09-25T05:09:23.237Z","event":"http_request_completed","service":"agent-registry","correlationId":"after-invalid-correlation","method":"GET","path":"/v1/registrations","statusCode":404,"durationMs":0.765}
+# {"timestamp":"2026-09-25T05:09:23.240Z","event":"http_request_completed","service":"agent-registry","correlationId":"created-correlation","method":"POST","path":"/v1/registrations","statusCode":201,"durationMs":1.513}
+# {"timestamp":"2026-09-25T05:09:23.241Z","event":"http_request_completed","service":"agent-registry","correlationId":"retry-correlation","method":"POST","path":"/v1/registrations","statusCode":200,"durationMs":0.672}
+# {"timestamp":"2026-09-25T05:09:23.243Z","event":"http_request_completed","service":"agent-registry","correlationId":"changed-correlation","method":"POST","path":"/v1/registrations","statusCode":200,"durationMs":0.761}
+# {"timestamp":"2026-09-25T05:09:23.244Z","event":"http_request_completed","service":"agent-registry","correlationId":"reverted-correlation","method":"POST","path":"/v1/registrations","statusCode":200,"durationMs":0.647}
+# {"timestamp":"2026-09-25T05:09:23.246Z","event":"http_request_completed","service":"agent-registry","correlationId":"repeated-revert-correlation","method":"POST","path":"/v1/registrations","statusCode":200,"durationMs":0.535}
+# {"timestamp":"2026-09-25T05:09:23.247Z","event":"http_request_completed","service":"agent-registry","correlationId":"retrieve-correlation","method":"GET","path":"/v1/registrations/:agentLearnerId","statusCode":200,"durationMs":0.956}
+# {"timestamp":"2026-09-25T05:09:23.249Z","event":"http_request_completed","service":"agent-registry","correlationId":"trace-correlation","method":"GET","path":"/v1/registration-traces/latest","statusCode":200,"durationMs":0.711}
+# Subtest: registration contract covers valid, invalid, repeated, changed, retrieval, and trace flows
+ok 1 - registration contract covers valid, invalid, repeated, changed, retrieval, and trace flows
+  ---
+  duration_ms: 49.671998
+  type: 'test'
+  ...
+# {"timestamp":"2026-09-25T05:09:23.255Z","event":"http_request_completed","service":"agent-registry","correlationId":"missing-correlation","method":"GET","path":"/v1/registrations/:agentLearnerId","statusCode":404,"durationMs":0.674}
+# Subtest: retrieval returns a versioned not-found contract
+ok 2 - retrieval returns a versioned not-found contract
+  ---
+  duration_ms: 5.005903
+  type: 'test'
+  ...
+# Subtest: valid registration input normalizes the model and tool manifest
+ok 3 - valid registration input normalizes the model and tool manifest
+  ---
+  duration_ms: 14.359533
+  type: 'test'
+  ...
+# Subtest: configuration fingerprint is stable across object and manifest ordering
+ok 4 - configuration fingerprint is stable across object and manifest ordering
+  ---
+  duration_ms: 1.859704
+  type: 'test'
+  ...
+# Subtest: material configuration input changes the fingerprint
+ok 5 - material configuration input changes the fingerprint
+  ---
+  duration_ms: 0.648234
+  type: 'test'
+  ...
+# Subtest: invalid registration input identifies missing fields and rejects caller fingerprints
+ok 6 - invalid registration input identifies missing fields and rejects caller fingerprints
+  ---
+  duration_ms: 0.560988
+  type: 'test'
+  ...
+1..6
+# tests 6
+# suites 0
+# pass 6
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 220.366085

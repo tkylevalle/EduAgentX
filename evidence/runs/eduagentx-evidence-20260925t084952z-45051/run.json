@@ -1,0 +1,231 @@
+{
+  "schemaVersion": 1,
+  "source_sha256": "f52eb2920bb2fa4fcd13f227820b54947892755e16851197656c0d36a02e4fb6",
+  "timestamp": "20260925T084952Z",
+  "project": "eduagentx-evidence-20260925t084952z-45051",
+  "checks": {
+    "component_tests": true,
+    "fresh_rejection_no_partial": true,
+    "fresh_registration": true,
+    "idempotent_retry": true,
+    "rejection_unchanged": true,
+    "restart_identity_preserved": true,
+    "latency": true,
+    "redis_health_failure": true,
+    "postgres_health_failure": true,
+    "dependency_recovery": true,
+    "redaction": true,
+    "correlation": true,
+    "cleanup": true
+  },
+  "latency_ms": [
+    35.67053299957479,
+    62.077237000266905,
+    28.696519999812153,
+    40.21696600011637,
+    24.966632000086975,
+    33.631063000029826,
+    27.46383399971819,
+    20.988041999771667,
+    41.6918999999325,
+    27.46725199995126,
+    41.24183199974141,
+    27.68238999942696,
+    29.06950400029018,
+    35.45031600060611,
+    21.197819000008167,
+    26.26722099921608,
+    23.843800999202358,
+    73.28806699933921,
+    23.90459300022485,
+    52.63176200060116
+  ],
+  "failure": null,
+  "measurement": {
+    "requested_samples": 20,
+    "concurrency": 1,
+    "warmup": 0,
+    "percentile": "nearest_rank",
+    "scope": "new registration through Gateway; restart/auth/precondition excluded",
+    "environment": "simulation; Gateway recreated per sample; database remains running"
+  },
+  "versions": {
+    "platform": "Linux-6.18.3+kali+2-amd64-x86_64-with-glibc2.42",
+    "python": "3.13.5",
+    "docker": "Docker version 28.5.2+dfsg4, build 9cc6dea35e9a963f281434761c656fba4ac43aed",
+    "node": "v24.19.0",
+    "npm": "11.16.0",
+    "openssl": "OpenSSL 3.0.17 1 Jul 2025 (Library: OpenSSL 3.0.17 1 Jul 2025)",
+    "compose": "Docker Compose version 2.40.3-3",
+    "api": "v1",
+    "protocol": "ExternalAgentLearner 1.0.0"
+  },
+  "git_commit": "1feacb40126cba306da33aebb7b08b0b15681b4c",
+  "component_versions": {
+    "external-agent-protocol": {
+      "version": "1.0.0",
+      "name": "@eduagentx/external-agent-protocol"
+    },
+    "agent-registry": {
+      "version": "0.1.0",
+      "name": "eduagentx-agent-registry",
+      "dependencies": {
+        "express": {
+          "version": "4.22.3",
+          "resolved": "https://registry.npmjs.org/express/-/express-4.22.3.tgz",
+          "overridden": false
+        },
+        "pg": {
+          "version": "8.23.0",
+          "resolved": "https://registry.npmjs.org/pg/-/pg-8.23.0.tgz",
+          "overridden": false
+        },
+        "redis": {
+          "version": "4.7.1",
+          "resolved": "https://registry.npmjs.org/redis/-/redis-4.7.1.tgz",
+          "overridden": false
+        },
+        "uuid": {
+          "version": "9.0.1",
+          "resolved": "https://registry.npmjs.org/uuid/-/uuid-9.0.1.tgz",
+          "overridden": false
+        }
+      }
+    },
+    "api-gateway": {
+      "version": "0.1.0",
+      "name": "eduagentx-api-gateway",
+      "dependencies": {
+        "express": {
+          "version": "4.22.3",
+          "resolved": "https://registry.npmjs.org/express/-/express-4.22.3.tgz",
+          "overridden": false
+        },
+        "jsonwebtoken": {
+          "version": "9.0.3",
+          "resolved": "https://registry.npmjs.org/jsonwebtoken/-/jsonwebtoken-9.0.3.tgz",
+          "overridden": false
+        },
+        "node-fetch": {
+          "version": "2.7.0",
+          "resolved": "https://registry.npmjs.org/node-fetch/-/node-fetch-2.7.0.tgz",
+          "overridden": false
+        },
+        "uuid": {
+          "version": "9.0.1",
+          "resolved": "https://registry.npmjs.org/uuid/-/uuid-9.0.1.tgz",
+          "overridden": false
+        }
+      }
+    },
+    "assurance-console": {
+      "version": "0.1.0",
+      "name": "eduagentx-assurance-console",
+      "dependencies": {
+        "express": {
+          "version": "4.22.3",
+          "resolved": "https://registry.npmjs.org/express/-/express-4.22.3.tgz",
+          "overridden": false
+        },
+        "node-fetch": {
+          "version": "2.7.0",
+          "resolved": "https://registry.npmjs.org/node-fetch/-/node-fetch-2.7.0.tgz",
+          "overridden": false
+        }
+      }
+    },
+    "synthetic-agent-learner": {
+      "version": "0.1.0",
+      "name": "eduagentx-synthetic-agent-learner",
+      "dependencies": {
+        "express": {
+          "version": "4.22.3",
+          "resolved": "https://registry.npmjs.org/express/-/express-4.22.3.tgz",
+          "overridden": false
+        },
+        "node-fetch": {
+          "version": "2.7.0",
+          "resolved": "https://registry.npmjs.org/node-fetch/-/node-fetch-2.7.0.tgz",
+          "overridden": false
+        }
+      }
+    }
+  },
+  "compose_configuration_sha256": "d9cc95072b27125191e978be51cc1b08affb30a5f4dbb046250c0917c2b28633",
+  "container_versions": {
+    "agent-registry": {
+      "version": "0.1.0",
+      "name": "eduagentx-agent-registry",
+      "dependencies": {
+        "express": {
+          "version": "4.22.3",
+          "resolved": "https://registry.npmjs.org/express/-/express-4.22.3.tgz",
+          "overridden": false
+        },
+        "pg": {
+          "version": "8.23.0",
+          "resolved": "https://registry.npmjs.org/pg/-/pg-8.23.0.tgz",
+          "overridden": false
+        },
+        "redis": {
+          "version": "4.7.1",
+          "resolved": "https://registry.npmjs.org/redis/-/redis-4.7.1.tgz",
+          "overridden": false
+        },
+        "uuid": {
+          "version": "9.0.1",
+          "resolved": "https://registry.npmjs.org/uuid/-/uuid-9.0.1.tgz",
+          "overridden": false
+        }
+      }
+    },
+    "api-gateway": {
+      "version": "0.1.0",
+      "name": "eduagentx-api-gateway",
+      "dependencies": {
+        "express": {
+          "version": "4.22.3",
+          "resolved": "https://registry.npmjs.org/express/-/express-4.22.3.tgz",
+          "overridden": false
+        },
+        "jsonwebtoken": {
+          "version": "9.0.3",
+          "resolved": "https://registry.npmjs.org/jsonwebtoken/-/jsonwebtoken-9.0.3.tgz",
+          "overridden": false
+        },
+        "node-fetch": {
+          "version": "2.7.0",
+          "resolved": "https://registry.npmjs.org/node-fetch/-/node-fetch-2.7.0.tgz",
+          "overridden": false
+        },
+        "uuid": {
+          "version": "9.0.1",
+          "resolved": "https://registry.npmjs.org/uuid/-/uuid-9.0.1.tgz",
+          "overridden": false
+        }
+      }
+    }
+  },
+  "p95_ms": 62.077237000266905,
+  "target_met": true,
+  "source_unchanged": true,
+  "artifacts": {
+    "assurance-console-install.txt": "edf7bd089a3c928ad4484628f34ff18bad7b1c2ae9dad4ec84213d943651b1ff",
+    "compose-build.txt": "b3f8ef045bbe4f4009aeb89364ff80e535a0c469c2e07c4d985b43a362d08e62",
+    "agent-registry-tests.tap": "6726c9639c53e21511492b56d89002d44f96573404dceeecbd6b21b8fd96f763",
+    "api-gateway-install.txt": "4c2a0edc189edd72682ff8adda87e72f27972256071a3d6d6047b99e6aa11b40",
+    "key-setup.txt": "7a29d9abc964fc3c9eea1a91a9c0dc4c1b85dc821fe0bda1377d2c640d2acf01",
+    "first-registration.json": "6d306cab1b54b6d584406b5dbe457867cf392154bcc82f39acc51738a4c2c085",
+    "external-agent-protocol-tests.tap": "c72cbf4c7660b0925088678fffa03be7d9bf7bda06a157f09e686425e619a1b2",
+    "api-gateway-tests.tap": "82908c707faebe9f11e52d2fead600bb008d935de1b0b702c033e1d30b29e266",
+    "gate-unit-tests.txt": "baf49b59538192f3e136ca0404cac516ecb8dd2fe5ba1416604056f3080fa49c",
+    "demonstration.json": "9b4de29403d8ff66623a2ced10ffe4a06fe4ade76af529ad2aab3e94d8134d99",
+    "external-agent-protocol-install.txt": "cb418be4e38f07cf936c67caea2ea0cebfa85be72e846c1fbfc1853cd8fd7c84",
+    "synthetic-agent-learner-install.txt": "5cbc297210023694851e10cbce5a00424df069327200a73b4f550739150d1db8",
+    "telemetry.jsonl": "b99657677c30af22c0d046a7b7f517953b426f703c928044f19a6f22d1783744",
+    "assurance-console-tests.tap": "c2b83e5ad0b08b19fe62103bdf4fa8194cc33b451c6c645701254e2ff52b753d",
+    "synthetic-agent-learner-tests.tap": "2a323b7185546c0f20b67751a0f5b63fc5c487c14504861c01601c3043bc16aa",
+    "images.json": "4b66d232edef3b003be68f90f5a33c274f2330818c95b7f5dae3d430027ab109",
+    "agent-registry-install.txt": "00821f51095b26af0b75456257e15ad2094f0fef4e7662b930b9ef44b5baa861"
+  }
+}
