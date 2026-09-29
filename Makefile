@@ -1,18 +1,17 @@
-.PHONY: up down reset smoke logs
+.PHONY: up down reset smoke logs test
 
-# copies .env if it's missing, builds, starts everything, waits for health
+# copies .env if missing, builds, starts everything, waits for health
 up:
 	@if [ ! -f .env ]; then cp .env.example .env; echo "Created .env from .env.example"; fi
 	@./scripts/generate-dev-keys.sh
 	docker compose up --build -d
 	@echo "Waiting for services to become healthy..."
 	@./scripts/wait-for-healthy.sh
-	@echo "Platform is up. Gateway: http://localhost:$${GATEWAY_PORT:-8080}  Console: http://localhost:$${CONSOLE_PORT:-4173}"
+	@echo "Platform is up."
 
 down:
 	docker compose down
 
-# tears down containers AND volumes, then boots clean
 reset:
 	docker compose down -v
 	$(MAKE) up
@@ -22,3 +21,8 @@ smoke:
 
 logs:
 	docker compose logs -f
+
+# runs the full Sprint 1 test suite
+test:
+	@echo "Running Sprint 1 tests..."
+	@node scripts/run-unit-tests.js
