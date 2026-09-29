@@ -1,0 +1,243 @@
+#1 [internal] load local bake definitions
+#1 reading from stdin 2.52kB done
+#1 DONE 0.0s
+
+#2 [assurance-console internal] load build definition from Dockerfile
+#2 transferring dockerfile: 409B done
+#2 DONE 0.0s
+
+#3 [synthetic-agent-learner internal] load build definition from Dockerfile
+#3 transferring dockerfile: 433B done
+#3 DONE 0.1s
+
+#4 [agent-registry internal] load build definition from Dockerfile
+#4 transferring dockerfile: 397B done
+#4 DONE 0.1s
+
+#5 [api-gateway internal] load build definition from Dockerfile
+#5 transferring dockerfile: 385B done
+#5 DONE 0.1s
+
+#6 [api-gateway internal] load metadata for docker.io/library/node:24-alpine
+#6 DONE 1.7s
+
+#7 [synthetic-agent-learner internal] load .dockerignore
+#7 transferring context: 301B done
+#7 DONE 0.0s
+
+#8 [api-gateway internal] load build context
+#8 transferring context: 63.49kB 0.0s done
+#8 DONE 0.0s
+
+#9 [agent-registry 1/6] FROM docker.io/library/node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1
+#9 resolve docker.io/library/node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 0.0s done
+#9 DONE 0.0s
+
+#10 [assurance-console internal] load build context
+#10 transferring context: 37.79kB 0.0s done
+#10 DONE 0.1s
+
+#11 [agent-registry internal] load build context
+#11 transferring context: 90.52kB 0.0s done
+#11 DONE 0.1s
+
+#12 [synthetic-agent-learner internal] load build context
+#12 transferring context: 49.52kB 0.0s done
+#12 DONE 0.1s
+
+#13 [assurance-console 3/6] COPY services/assurance-console/package.json services/assurance-console/package-lock.json ./
+#13 CACHED
+
+#14 [assurance-console 4/6] RUN npm ci --omit=dev --ignore-scripts
+#14 CACHED
+
+#15 [assurance-console 2/6] WORKDIR /app/services/assurance-console
+#15 CACHED
+
+#16 [assurance-console 5/6] COPY packages /app/packages
+#16 CACHED
+
+#17 [assurance-console 6/6] COPY services/assurance-console ./
+#17 CACHED
+
+#18 [api-gateway 4/6] RUN npm ci --omit=dev --ignore-scripts
+#18 CACHED
+
+#19 [api-gateway 5/6] COPY packages /app/packages
+#19 CACHED
+
+#20 [api-gateway 3/6] COPY services/api-gateway/package.json services/api-gateway/package-lock.json ./
+#20 CACHED
+
+#21 [api-gateway 2/6] WORKDIR /app/services/api-gateway
+#21 CACHED
+
+#22 [api-gateway 6/6] COPY services/api-gateway ./
+#22 CACHED
+
+#23 [agent-registry 5/6] COPY packages /app/packages
+#23 CACHED
+
+#24 [agent-registry 2/6] WORKDIR /app/services/agent-registry
+#24 CACHED
+
+#25 [agent-registry 3/6] COPY services/agent-registry/package.json services/agent-registry/package-lock.json ./
+#25 CACHED
+
+#26 [agent-registry 4/6] RUN npm ci --omit=dev --ignore-scripts
+#26 CACHED
+
+#27 [synthetic-agent-learner 5/6] COPY packages /app/packages
+#27 CACHED
+
+#28 [synthetic-agent-learner 3/6] COPY services/synthetic-agent-learner/package.json services/synthetic-agent-learner/package-lock.json ./
+#28 CACHED
+
+#29 [synthetic-agent-learner 2/6] WORKDIR /app/services/synthetic-agent-learner
+#29 CACHED
+
+#30 [synthetic-agent-learner 4/6] RUN npm ci --omit=dev --ignore-scripts
+#30 CACHED
+
+#31 [agent-registry 6/6] COPY services/agent-registry ./
+#31 CACHED
+
+#32 [synthetic-agent-learner 6/6] COPY services/synthetic-agent-learner ./
+#32 CACHED
+
+#33 [agent-registry] exporting to image
+#33 exporting layers done
+#33 exporting manifest sha256:390b235c7d2c848c48793c5fdfcc19a4e6aa1d11532b2f98acf0fd520738d820
+#33 exporting manifest sha256:390b235c7d2c848c48793c5fdfcc19a4e6aa1d11532b2f98acf0fd520738d820 0.1s done
+#33 exporting config sha256:86818d8c3ad794a4722c0c938bf8e8b9e256e38e68b28b1a3c31b94fc21824f7
+#33 exporting config sha256:86818d8c3ad794a4722c0c938bf8e8b9e256e38e68b28b1a3c31b94fc21824f7 0.1s done
+#33 exporting attestation manifest sha256:781660b97a29cc8354db832e100cb90b636e6d192399f0981682719839419c80
+#33 exporting attestation manifest sha256:781660b97a29cc8354db832e100cb90b636e6d192399f0981682719839419c80 0.2s done
+#33 exporting manifest list sha256:aadfdf3cf3cab565d564d437c7313712d238667a8a2d56649a69e101bc98ad9f
+#33 ...
+
+#34 [assurance-console] exporting to image
+#34 exporting layers done
+#34 exporting manifest sha256:26395bdb722adb577658aa5c952943bee35f50ec645c9813d08c11449360ecab 0.1s done
+#34 exporting config sha256:3e64ca2ef0ede3dc071948737326eb38c47136f545f3d8c20d54c42decbade17 0.1s done
+#34 exporting attestation manifest sha256:cfa05af49ea77ba95d73a54f59df854b6433eac676f5b6a504be080bc02bd2dc 0.2s done
+#34 exporting manifest list sha256:2cc32cb46f24382578ad6fa6a7d947bd4c8ed0f0186f25fc6d1943beeb51c8e1 0.1s done
+#34 naming to docker.io/library/eduagentx-evidence-20260929t125615z-10084-assurance-console:latest 0.1s done
+#34 unpacking to docker.io/library/eduagentx-evidence-20260929t125615z-10084-assurance-console:latest 0.0s done
+#34 DONE 0.7s
+
+#35 [api-gateway] exporting to image
+#35 exporting layers done
+#35 exporting manifest sha256:4ef7eff5552e0ad6207f3817d27d540c231fe9ae145923e5ce114464a4007152 0.1s done
+#35 exporting config sha256:611626928faf1f5f7d2e7e7eed74fa747b1a28bbef029140b94c4849c181e1f6 0.1s done
+#35 exporting attestation manifest sha256:5fd06ef5ef18a34de93f77e7bee0924ac126494732f63b7509ac52e91ca1af26 0.2s done
+#35 exporting manifest list sha256:b378db4410079edd07abff18349b0a1e848fb2130ca396072ec46260f4bba9b9 0.1s done
+#35 naming to docker.io/library/eduagentx-evidence-20260929t125615z-10084-api-gateway:latest 0.0s done
+#35 unpacking to docker.io/library/eduagentx-evidence-20260929t125615z-10084-api-gateway:latest 0.0s done
+#35 DONE 0.7s
+
+#33 [agent-registry] exporting to image
+#33 exporting manifest list sha256:aadfdf3cf3cab565d564d437c7313712d238667a8a2d56649a69e101bc98ad9f 0.1s done
+#33 naming to docker.io/library/eduagentx-evidence-20260929t125615z-10084-agent-registry:latest 0.0s done
+#33 unpacking to docker.io/library/eduagentx-evidence-20260929t125615z-10084-agent-registry:latest 0.0s done
+#33 DONE 0.7s
+
+#36 [synthetic-agent-learner] exporting to image
+#36 exporting layers done
+#36 exporting manifest sha256:793348bbe06b0325ed80e50ea021bcdc25a89384d2f5e10144c7ab294645d6a9 0.1s done
+#36 exporting config sha256:042ee27f79c0204c74332ad7ef01d67a72c201425c644981bdfcf8e9ec4f0453 0.1s done
+#36 exporting attestation manifest sha256:3fdce725ce49f61fd95a30775dde4c3e90f9e7e6a759d150dc45b488081ce097 0.2s done
+#36 exporting manifest list sha256:663a5ae3ae4515249ebe09efa79fb88a7ef6599650da2d1541a232dbf3c0d5ca 0.1s done
+#36 naming to docker.io/library/eduagentx-evidence-20260929t125615z-10084-synthetic-agent-learner:latest 0.0s done
+#36 unpacking to docker.io/library/eduagentx-evidence-20260929t125615z-10084-synthetic-agent-learner:latest 0.0s done
+#36 DONE 0.7s
+
+#37 [assurance-console] resolving provenance for metadata file
+#37 DONE 0.2s
+
+#38 [synthetic-agent-learner] resolving provenance for metadata file
+#38 DONE 0.1s
+
+#39 [api-gateway] resolving provenance for metadata file
+#39 DONE 0.2s
+
+#40 [agent-registry] resolving provenance for metadata file
+#40 DONE 0.0s
+ Image eduagentx-evidence-20260929t125615z-10084-api-gateway Building 
+ Image eduagentx-evidence-20260929t125615z-10084-assurance-console Building 
+ Image eduagentx-evidence-20260929t125615z-10084-synthetic-agent-learner Building 
+ Image eduagentx-evidence-20260929t125615z-10084-agent-registry Building 
+ Image eduagentx-evidence-20260929t125615z-10084-synthetic-agent-learner Built 
+ Image eduagentx-evidence-20260929t125615z-10084-assurance-console Built 
+ Image eduagentx-evidence-20260929t125615z-10084-agent-registry Built 
+ Image eduagentx-evidence-20260929t125615z-10084-api-gateway Built 
+ Network eduagentx-evidence-20260929t125615z-10084_eduagentx-net Creating 
+ Network eduagentx-evidence-20260929t125615z-10084_eduagentx-net Created 
+ Volume eduagentx-evidence-20260929t125615z-10084_postgres-data Creating 
+ Volume eduagentx-evidence-20260929t125615z-10084_postgres-data Created 
+ Volume eduagentx-evidence-20260929t125615z-10084_redis-data Creating 
+ Volume eduagentx-evidence-20260929t125615z-10084_redis-data Created 
+ Container eduagentx-evidence-20260929t125615z-10084-postgres-1 Creating 
+ Container eduagentx-evidence-20260929t125615z-10084-health-prober-1 Creating 
+ Container eduagentx-evidence-20260929t125615z-10084-prometheus-1 Creating 
+ Container eduagentx-evidence-20260929t125615z-10084-redis-1 Creating 
+ Container eduagentx-evidence-20260929t125615z-10084-health-prober-1 Created 
+ Container eduagentx-evidence-20260929t125615z-10084-redis-1 Created 
+ Container eduagentx-evidence-20260929t125615z-10084-postgres-1 Created 
+ Container eduagentx-evidence-20260929t125615z-10084-agent-registry-1 Creating 
+ Container eduagentx-evidence-20260929t125615z-10084-prometheus-1 Created 
+ Container eduagentx-evidence-20260929t125615z-10084-grafana-1 Creating 
+ Container eduagentx-evidence-20260929t125615z-10084-agent-registry-1 Created 
+ Container eduagentx-evidence-20260929t125615z-10084-api-gateway-1 Creating 
+ Container eduagentx-evidence-20260929t125615z-10084-grafana-1 Created 
+ Container eduagentx-evidence-20260929t125615z-10084-api-gateway-1 Created 
+ Container eduagentx-evidence-20260929t125615z-10084-assurance-console-1 Creating 
+ Container eduagentx-evidence-20260929t125615z-10084-synthetic-agent-learner-1 Creating 
+ Container eduagentx-evidence-20260929t125615z-10084-assurance-console-1 Created 
+ Container eduagentx-evidence-20260929t125615z-10084-synthetic-agent-learner-1 Created 
+ Container eduagentx-evidence-20260929t125615z-10084-health-prober-1 Starting 
+ Container eduagentx-evidence-20260929t125615z-10084-prometheus-1 Starting 
+ Container eduagentx-evidence-20260929t125615z-10084-redis-1 Starting 
+ Container eduagentx-evidence-20260929t125615z-10084-postgres-1 Starting 
+ Container eduagentx-evidence-20260929t125615z-10084-health-prober-1 Started 
+ Container eduagentx-evidence-20260929t125615z-10084-redis-1 Started 
+ Container eduagentx-evidence-20260929t125615z-10084-prometheus-1 Started 
+ Container eduagentx-evidence-20260929t125615z-10084-grafana-1 Starting 
+ Container eduagentx-evidence-20260929t125615z-10084-postgres-1 Started 
+ Container eduagentx-evidence-20260929t125615z-10084-postgres-1 Waiting 
+ Container eduagentx-evidence-20260929t125615z-10084-redis-1 Waiting 
+ Container eduagentx-evidence-20260929t125615z-10084-grafana-1 Started 
+ Container eduagentx-evidence-20260929t125615z-10084-postgres-1 Healthy 
+ Container eduagentx-evidence-20260929t125615z-10084-redis-1 Healthy 
+ Container eduagentx-evidence-20260929t125615z-10084-agent-registry-1 Starting 
+ Container eduagentx-evidence-20260929t125615z-10084-agent-registry-1 Started 
+ Container eduagentx-evidence-20260929t125615z-10084-agent-registry-1 Waiting 
+ Container eduagentx-evidence-20260929t125615z-10084-agent-registry-1 Healthy 
+ Container eduagentx-evidence-20260929t125615z-10084-api-gateway-1 Starting 
+ Container eduagentx-evidence-20260929t125615z-10084-api-gateway-1 Started 
+ Container eduagentx-evidence-20260929t125615z-10084-api-gateway-1 Waiting 
+ Container eduagentx-evidence-20260929t125615z-10084-api-gateway-1 Waiting 
+ Container eduagentx-evidence-20260929t125615z-10084-api-gateway-1 Healthy 
+ Container eduagentx-evidence-20260929t125615z-10084-api-gateway-1 Healthy 
+ Container eduagentx-evidence-20260929t125615z-10084-assurance-console-1 Starting 
+ Container eduagentx-evidence-20260929t125615z-10084-synthetic-agent-learner-1 Starting 
+ Container eduagentx-evidence-20260929t125615z-10084-assurance-console-1 Started 
+ Container eduagentx-evidence-20260929t125615z-10084-synthetic-agent-learner-1 Started 
+ Container eduagentx-evidence-20260929t125615z-10084-grafana-1 Waiting 
+ Container eduagentx-evidence-20260929t125615z-10084-redis-1 Waiting 
+ Container eduagentx-evidence-20260929t125615z-10084-prometheus-1 Waiting 
+ Container eduagentx-evidence-20260929t125615z-10084-synthetic-agent-learner-1 Waiting 
+ Container eduagentx-evidence-20260929t125615z-10084-postgres-1 Waiting 
+ Container eduagentx-evidence-20260929t125615z-10084-agent-registry-1 Waiting 
+ Container eduagentx-evidence-20260929t125615z-10084-health-prober-1 Waiting 
+ Container eduagentx-evidence-20260929t125615z-10084-assurance-console-1 Waiting 
+ Container eduagentx-evidence-20260929t125615z-10084-api-gateway-1 Waiting 
+ Container eduagentx-evidence-20260929t125615z-10084-grafana-1 Healthy 
+ Container eduagentx-evidence-20260929t125615z-10084-api-gateway-1 Healthy 
+ Container eduagentx-evidence-20260929t125615z-10084-agent-registry-1 Healthy 
+ Container eduagentx-evidence-20260929t125615z-10084-prometheus-1 Healthy 
+ Container eduagentx-evidence-20260929t125615z-10084-redis-1 Healthy 
+ Container eduagentx-evidence-20260929t125615z-10084-postgres-1 Healthy 
+ Container eduagentx-evidence-20260929t125615z-10084-health-prober-1 Healthy 
+ Container eduagentx-evidence-20260929t125615z-10084-synthetic-agent-learner-1 Healthy 
+ Container eduagentx-evidence-20260929t125615z-10084-assurance-console-1 Healthy 

@@ -1,0 +1,21 @@
+{
+  "id": "skill_07",
+  "name": "Temporal Sequence Anomaly Detection",
+  "description": "Identify points or subsequences in a time series that deviate significantly from expected patterns.",
+  "difficulty": 7,
+  "input_format": "Time-ordered sequence of values or events with timestamps",
+  "output_format": "List of anomalous points with score, type, and explanation",
+  "steps": [
+    "Compute rolling mean and std",
+    "Flag point anomalies beyond 3-sigma",
+    "Detect contextual anomalies via sliding window",
+    "Identify collective anomalies via subsequence matching",
+    "Return ranked anomaly list"
+  ],
+  "example": {
+    "input": "CPU: [20,22,21,85,22,20,19,21]",
+    "output": "Anomaly at t=4, value=85, type=point, score=6.2 sigma",
+    "explanation": "85 is 6.2 std above rolling mean"
+  },
+  "source": "openclaw"
+}

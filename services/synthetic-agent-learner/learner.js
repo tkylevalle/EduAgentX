@@ -5,7 +5,7 @@ const {
   createRegistrationMessage,
   canonicalEvidence,
   protocolResponseMetadata,
-} = require('../external-agent-protocol');
+} = require('../../packages/external-agent-protocol');
 const { getSyntheticProfile, listSyntheticProfiles } = require('./profiles');
 
 const DEFAULT_REGISTRATION = Object.freeze({

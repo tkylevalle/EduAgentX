@@ -1,0 +1,21 @@
+{
+  "id": "skill_05",
+  "name": "Counterfactual Reasoning",
+  "description": "Given a factual scenario and a hypothetical change, reason about what would have been different.",
+  "difficulty": 8,
+  "input_format": "Factual world state, events that occurred, counterfactual antecedent",
+  "output_format": "Counterfactual world state with explanation of changes",
+  "steps": [
+    "Identify intervention point in causal graph",
+    "Remove or alter specified event",
+    "Re-propagate effects forward",
+    "Compare counterfactual to factual world",
+    "Enumerate differences with causal justification"
+  ],
+  "example": {
+    "input": "It rained so match cancelled so fans disappointed. What if no rain?",
+    "output": "Match proceeds, fans happy. Cancellation and disappointment would not occur.",
+    "explanation": "Rain is root cause; removing it breaks the causal chain"
+  },
+  "source": "openclaw"
+}

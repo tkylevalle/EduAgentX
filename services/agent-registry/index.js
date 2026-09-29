@@ -1,4 +1,4 @@
-const telemetry = require('./telemetry');
+const telemetry = require('../../packages/telemetry');
 const { checkDependencies, bounded } = require('./dependency-health');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -9,6 +9,7 @@ const { createClient } = require('redis');
 const { createApp } = require('./app');
 const { PostgresRegistryRepository } = require('./postgres-repository');
 const { createRegistryService } = require('./registry-service');
+const { createStreamWorker } = require('./stream-worker');
 
 const PORT = Number(process.env.PORT || 4001);
 const SERVICE_NAME = process.env.SERVICE_NAME || 'agent-registry';
@@ -28,23 +29,14 @@ async function start() {
 
   const postgresRepository = new PostgresRegistryRepository({ pool });
   const repository = {};
-  for (const method of ['register', 'getById', 'getByKey', 'getLatestTrace']) {
+  for (const method of ['register', 'getById', 'getByKey', 'getLatestTrace', 'deliveryStatus']) {
     repository[method] = (...args) => telemetry.observe(SERVICE_NAME, 'postgres', method,
       () => postgresRepository[method](...args));
   }
   repository.health = () => checkDependencies(postgresRepository, redisClient);
-  const eventPublisher = {
-    publish: (event) => telemetry.observe(SERVICE_NAME, 'redis', 'xadd', () => bounded(() => redisClient.xAdd(EVENT_STREAM, '*', {
-      eventType: event.eventType,
-      eventId: event.eventId,
-      agentLearnerId: event.agentLearnerId,
-      configurationVersion: String(event.configurationVersion),
-      fingerprint: event.configurationFingerprint,
-      previousFingerprint: event.previousFingerprint || '',
-      correlationId: event.correlationId,
-      occurredAt: event.occurredAt,
-    })), event.correlationId),
-  };
+  const worker = createStreamWorker({ pool, redis: redisClient, stream: EVENT_STREAM });
+  worker.start();
+  const eventPublisher = { publish: (event) => worker.publish(event.eventId) };
   const service = createRegistryService({ repository, eventPublisher });
   const app = createApp({ service });
   const server = app.listen(PORT, () => {
@@ -52,6 +44,7 @@ async function start() {
   });
 
   const shutdown = async () => {
+    worker.stop();
     server.close();
     if (redisReady) await redisClient.quit().catch(() => {});
     await pool.end().catch(() => {});

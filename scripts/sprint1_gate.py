@@ -4,19 +4,27 @@ import hashlib
 import re
 from pathlib import Path
 
+# Every technical check the evidence run must record as True.
+REQUIRED_CHECKS = [
+    'component_tests', 'fresh_rejection_no_partial', 'fresh_registration', 'idempotent_retry',
+    'rejection_unchanged', 'restart_identity_preserved', 'postgres_health_failure', 'redis_health_failure',
+    'dependency_recovery', 'redaction', 'correlation', 'latency', 'cleanup', 'security_integration',
+    'consumer_recovery', 'poison_out_of_order', 'durable_idempotency', 'outbox_recovery',
+    'service_owned_permissions', 'monitoring', 'synthetic_console',
+]
+MIN_LATENCY_SAMPLES = 20
+MAX_P95_MS = 3000
+
+
 def evaluate(report, prerequisite=None, review=None, evidence_directory=None):
     errors = []
-    required = ['component_tests', 'fresh_rejection_no_partial', 'fresh_registration',
-                'idempotent_retry', 'rejection_unchanged', 'restart_identity_preserved',
-                'postgres_health_failure', 'redis_health_failure', 'dependency_recovery',
-                'redaction', 'correlation', 'latency', 'cleanup']
-    for name in required:
+    for name in REQUIRED_CHECKS:
         if report.get('checks', {}).get(name) is not True:
             errors.append('missing/failed: ' + name)
     values = report.get('latency_ms', [])
-    if len(values) < 20 or any(type(v) not in (float, int) or not math.isfinite(v) or v < 0 for v in values):
+    if len(values) < MIN_LATENCY_SAMPLES or any(type(v) not in (float, int) or not math.isfinite(v) or v < 0 for v in values):
         errors.append('invalid/missing latency measurements')
-    elif sorted(values)[math.ceil(.95 * len(values)) - 1] > 3000:
+    elif sorted(values)[math.ceil(.95 * len(values)) - 1] > MAX_P95_MS:
         errors.append('registration p95 exceeds 3000 ms')
     if report.get('measurement', {}).get('requested_samples') != len(values):
         errors.append('incomplete measurement series')
@@ -44,7 +52,7 @@ def evaluate(report, prerequisite=None, review=None, evidence_directory=None):
         ('Issue 7', prerequisite, ['postgres_redis_integration', 'durable_idempotency',
           'consumer_recovery', 'poison_out_of_order', 'service_owned_permissions']),
         ('review/reproduction', review, ['clean_checkout_reproduced', 'independent_reproduction',
-          'backup_handoff', 'accepted']),
+          'backup_handoff', 'independent_trust_review', 'accepted']),
     ]:
         if not isinstance(record, dict) or record.get('source_sha256') != fingerprint:
             blockers.append(label + ': absent or different source version')

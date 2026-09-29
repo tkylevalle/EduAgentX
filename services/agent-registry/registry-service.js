@@ -1,21 +1,12 @@
-const telemetry = require('./telemetry');
 const { randomUUID } = require('node:crypto');
 
+const telemetry = require('../../packages/telemetry');
 const {
   computeConfigurationFingerprint,
   isUuid,
   validateRegistrationRequest,
 } = require('./domain');
-
-class RegistryError extends Error {
-  constructor(statusCode, code, message, details) {
-    super(message);
-    this.name = 'RegistryError';
-    this.statusCode = statusCode;
-    this.code = code;
-    this.details = details;
-  }
-}
+const { RegistryError } = require('./errors');
 
 function createRegistryService({
   repository,
@@ -26,17 +17,13 @@ function createRegistryService({
     throw new TypeError('A registry repository is required');
   }
 
-  async function publishAssuranceEvent(result) {
-    if (!result.assurance || typeof eventPublisher.publish !== 'function') return 'not_configured';
+  // The event is already committed to the outbox. Publishing now only makes
+  // delivery faster; the stream worker retries anything this call misses.
+  async function notifyEventPublisher(assurance) {
     try {
-      await eventPublisher.publish(result.assurance);
-      return 'published';
-    } catch (error) {
-      // PostgreSQL has already committed the append-only assurance event. A
-      // later stream consumer can reconcile the durable event without making
-      // the caller retry a mutation that already succeeded.
-      telemetry.log('agent-registry', 'publication_pending', { correlationId: result.assurance.correlationId });
-      return 'pending';
+      await eventPublisher.publish(assurance);
+    } catch {
+      telemetry.log('agent-registry', 'publication_pending', { correlationId: assurance.correlationId });
     }
   }
 
@@ -48,26 +35,17 @@ function createRegistryService({
     }
 
     const normalized = validation.value;
-    const result = await repository.register({
+    const { replayed, ...result } = await repository.register({
       ...normalized,
       configurationFingerprint: computeConfigurationFingerprint(normalized),
       correlationId,
+      requestKey: options.requestKey,
+      requestFingerprint: options.requestFingerprint,
+      messageId: options.messageId,
     });
-    const publicationStatus = await publishAssuranceEvent(result);
-
-    return {
-      ...result,
-      httpStatus: result.outcome === 'registered' ? 201 : 200,
-      status: result.outcome === 'registered'
-        ? 'created'
-        : result.outcome === 'unchanged'
-          ? 'already_registered'
-          : 'updated',
-      assurance: result.assurance
-        ? { ...result.assurance, publicationStatus }
-        : result.assurance,
-      correlationId,
-    };
+    // A replay returns the stored response; its event was published before.
+    if (!replayed) await notifyEventPublisher(result.assurance);
+    return result;
   }
 
   async function getById(agentLearnerId, options = {}) {
@@ -105,7 +83,8 @@ function createRegistryService({
     if (typeof repository.health === 'function') return await repository.health();
   }
 
-  return { getById, getByKey, getLatestTrace, health, register };
+  return { getById, getByKey, getLatestTrace, health, register,
+    deliveryStatus: () => repository.deliveryStatus() };
 }
 
 module.exports = { RegistryError, createRegistryService };

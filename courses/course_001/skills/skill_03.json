@@ -1,0 +1,21 @@
+{
+  "id": "skill_03",
+  "name": "Hierarchical Task Network Planning",
+  "description": "Decompose a high-level goal into primitive executable actions using a hierarchical task network.",
+  "difficulty": 9,
+  "input_format": "A goal state, compound tasks with decomposition methods, primitive operators",
+  "output_format": "An ordered plan of primitive actions achieving the goal",
+  "steps": [
+    "Start with top-level task",
+    "Select decomposition method",
+    "Recursively decompose subtasks",
+    "Check preconditions",
+    "Assemble final action sequence"
+  ],
+  "example": {
+    "input": "Goal: deliver package. Tasks: travel, pick_up, drop_off",
+    "output": "[drive_to_warehouse, pick_up_package, drive_to_destination, drop_off_package]",
+    "explanation": "Travel decomposes into drive actions"
+  },
+  "source": "openclaw"
+}

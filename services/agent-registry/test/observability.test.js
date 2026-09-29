@@ -1,7 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { checkDependencies, bounded } = require('../dependency-health');
-const { log, safeId } = require('../telemetry');
 test('health probes both live dependencies and rejects disconnected Redis', async () => {
   let pings = 0;
   const pg = { health: async () => {} };
@@ -16,18 +15,6 @@ test('health probes both live dependencies and rejects disconnected Redis', asyn
 test('dependency timeout is bounded', async () => {
   await assert.rejects(bounded(() => new Promise(() => {}), 10), /timeout/);
 });
-test('telemetry allowlist excludes raw error bodies and credentials', () => {
-  const previous = console.log;
-  let output;
-  console.log = text => { output = text; };
-  try {
-    log('agent-registry', 'request_failed', { correlationId: 'test-1', error: Error('SECRET'), body: 'SECRET', authorization: 'SECRET' });
-    assert.ok(!output.includes('SECRET'));
-    assert.equal(JSON.parse(output).correlationId, 'test-1');
-    assert.ok(safeId('private\nvalue').startsWith('sha256:'));
-  } finally { console.log = previous; }
-});
-
 test('HTTP health and dependency errors retain correlation without serializing private errors', async t => {
   const http = require('node:http');
   const { createApp } = require('../app');

@@ -12,9 +12,9 @@ fi
 
 GATEWAY_PORT="${GATEWAY_PORT:-8080}"
 AGENT_CLIENT_ID="${AGENT_CLIENT_ID:-synthetic-agent-learner-dev}"
-AGENT_CLIENT_SECRET="${AGENT_CLIENT_SECRET:-changeme_local_only_agent_secret}"
+AGENT_CLIENT_SECRET="${AGENT_CLIENT_SECRET:?AGENT_CLIENT_SECRET is not set. Run make up to create .env}"
 ADMIN_CLIENT_ID="${ADMIN_CLIENT_ID:-capstone-admin-dev}"
-ADMIN_CLIENT_SECRET="${ADMIN_CLIENT_SECRET:-changeme_local_only_admin_secret}"
+ADMIN_CLIENT_SECRET="${ADMIN_CLIENT_SECRET:?ADMIN_CLIENT_SECRET is not set. Run make up to create .env}"
 AGENT_LEARNER_KEY="${AGENT_LEARNER_KEY:-$AGENT_CLIENT_ID}"
 REGISTRATION_BODY="{\"agentLearnerKey\":\"${AGENT_LEARNER_KEY}\",\"model\":{\"provider\":\"synthetic\",\"version\":\"1.0.0\"},\"systemPromptHash\":\"sha256:smoke-prompt-v1\",\"approvedToolManifest\":[{\"name\":\"knowledge.lookup\",\"version\":\"1.0.0\",\"permissions\":[\"read\"]}],\"policyConfigurationHash\":\"sha256:smoke-policy-v1\",\"adapterVersion\":\"1.0.0\"}"
 BASE_URL="http://localhost:${GATEWAY_PORT}"

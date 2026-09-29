@@ -1,0 +1,21 @@
+{
+  "id": "skill_02",
+  "name": "Constraint Satisfaction Problem Solving",
+  "description": "Solve problems with multiple variables, domains, and constraints using systematic search and pruning.",
+  "difficulty": 9,
+  "input_format": "Variables with domains and a list of constraints",
+  "output_format": "A valid assignment satisfying all constraints or UNSAT",
+  "steps": [
+    "Parse variables and domains",
+    "Apply arc consistency AC-3",
+    "Use backtracking with forward checking",
+    "Apply MRV heuristic",
+    "Return solution or UNSAT"
+  ],
+  "example": {
+    "input": "X in {1,2,3}, Y in {1,2,3}, X != Y, X + Y = 4",
+    "output": "X=1,Y=3 or X=3,Y=1",
+    "explanation": "Arc consistency eliminates X=2,Y=2"
+  },
+  "source": "openclaw"
+}

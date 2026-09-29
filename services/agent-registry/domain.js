@@ -190,6 +190,26 @@ function computeConfigurationFingerprint(input) {
   return `sha256:${digest}`;
 }
 
+const STATUS_BY_OUTCOME = {
+  registered: 'created',
+  unchanged: 'already_registered',
+  configuration_changed: 'updated',
+};
+
+// The complete registration response. It is stored with the request key, so a
+// retry replays exactly this object. The assurance event is already committed
+// to the transactional outbox; the stream worker delivers it.
+function registrationResult({ outcome, registration, assurance, correlationId }) {
+  return {
+    outcome,
+    httpStatus: outcome === 'registered' ? 201 : 200,
+    status: STATUS_BY_OUTCOME[outcome],
+    registration,
+    assurance: { ...assurance, publicationStatus: 'queued' },
+    correlationId,
+  };
+}
+
 function isUuid(value) {
   return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
@@ -201,5 +221,6 @@ module.exports = {
   fingerprintPayload,
   isUuid,
   normalizeRegistrationRequest,
+  registrationResult,
   validateRegistrationRequest,
 };

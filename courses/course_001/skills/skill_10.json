@@ -1,0 +1,21 @@
+{
+  "id": "skill_10",
+  "name": "Dynamic Resource Allocation Under Uncertainty",
+  "description": "Allocate limited resources across tasks with uncertain durations to maximise expected utility.",
+  "difficulty": 10,
+  "input_format": "Tasks with priority weights, duration estimates, deadlines, total budget",
+  "output_format": "Allocation plan with expected utility and risk assessment",
+  "steps": [
+    "Model duration as probability distribution",
+    "Compute expected completion time per resource fraction",
+    "Calculate utility per task",
+    "Use greedy allocation",
+    "Report allocation and deadline probabilities"
+  ],
+  "example": {
+    "input": "A(priority=10,mean=5h,deadline=6h), B(priority=6,mean=3h,deadline=8h). Budget=1",
+    "output": "Allocate 0.7 to A, 0.3 to B. Expected utility=14.2",
+    "explanation": "A has higher priority and tighter deadline"
+  },
+  "source": "openclaw"
+}

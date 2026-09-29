@@ -92,50 +92,12 @@ do not establish completion of Issue 8 or approval of the Sprint 1 Gate.
 
 Sprint Gate status remains pending.
 
-## Evidence checker
+## Evidence checker (retired)
 
-Run: python3 scripts/check-sprint-evidence.py
+`scripts/check-sprint-evidence.py` validated this pack: five component-test
+reports and both registration p95 measurements. The same checks, and more,
+now run in `scripts/run-sprint1.py` (see `docs/sprint-1/runbook.md`).
+The retired checker and its measurement scripts are in git history at
+commit 6272a60.
 
-Validates five component-test reports and independently recalculates
-both registration p95 measurements.
-
-Negative checks passed in temporary copies:
-- missing report rejected;
-- failed test rejected;
-- incomplete measurements rejected;
-- p95 above 3000 ms rejected despite floor_pass=true.
-
-This checker is not the complete Sprint Gate.
-Remaining acceptance work listed above still applies.
-
-## Evidence checker
-
-Run: python3 scripts/check-sprint-evidence.py
-
-Validates five component-test reports and independently recalculates
-both registration p95 measurements.
-
-Negative checks passed in temporary copies:
-- missing report rejected;
-- failed test rejected;
-- incomplete measurements rejected;
-- p95 above 3000 ms rejected despite floor_pass=true.
-
-This checker is not the complete Sprint Gate.
-Remaining acceptance work listed above still applies.
-
-## Evidence checker
-
-Run: python3 scripts/check-sprint-evidence.py
-
-Validates five component-test reports and independently recalculates
-both registration p95 measurements.
-
-Negative checks passed in temporary copies:
-- missing report rejected;
-- failed test rejected;
-- incomplete measurements rejected;
-- p95 above 3000 ms rejected despite floor_pass=true.
-
-This checker is not the complete Sprint Gate.
-Remaining acceptance work listed above still applies.
+This pack is historical. Current evidence is in `evidence/runs/`.

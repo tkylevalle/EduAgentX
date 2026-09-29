@@ -1,4 +1,4 @@
-const telemetry = require('./telemetry');
+const telemetry = require('../../packages/telemetry');
 // auth.js - real authN/authZ for the API Gateway (Sprint 1, work package
 // "API Gateway, authentication, and contracts").
 //
@@ -31,7 +31,7 @@ function readKeyOrThrow(path, label) {
   }
   if (!fs.existsSync(path)) {
     throw new Error(
-      `${label} not found at ${path}. Run ./scripts/generate-dev-keys.sh (or 'make up', which does this for you).`
+      `${label} not found at ${path}. Run 'node scripts/generate-test-keys.js' (or 'make up', which does this for you).`
     );
   }
   return fs.readFileSync(path, 'utf8');

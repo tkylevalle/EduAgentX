@@ -1,12 +1,15 @@
+# Every image builds from the repository root. Keep the context small and
+# free of secrets: images copy only packages/ and their own service folder.
 .git
-.gitignore
 .env
 keys
 tmp
-.impeccable
-.scratch
-**/node_modules
-**/*.log
+artifacts
 evidence
+docs
+.impeccable
+**/node_modules
+**/test
+**/*.log
 **/__pycache__
 *.zip

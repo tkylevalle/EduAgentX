@@ -1,0 +1,234 @@
+{
+  "schemaVersion": 1,
+  "source_sha256": "a53a9c771fd53c9a08f0a82acdf552fb763d9651f15664d4652e7784d01f8a37",
+  "timestamp": "20260929T125615Z",
+  "project": "eduagentx-evidence-20260929t125615z-10084",
+  "checks": {
+    "component_tests": true,
+    "synthetic_console": true,
+    "fresh_rejection_no_partial": true,
+    "fresh_registration": true,
+    "idempotent_retry": true,
+    "rejection_unchanged": true,
+    "restart_identity_preserved": true,
+    "latency": true,
+    "redis_health_failure": true,
+    "postgres_health_failure": true,
+    "dependency_recovery": true,
+    "security_integration": true,
+    "consumer_recovery": true,
+    "poison_out_of_order": true,
+    "durable_idempotency": true,
+    "outbox_recovery": true,
+    "service_owned_permissions": true,
+    "monitoring": true,
+    "redaction": true,
+    "correlation": true,
+    "cleanup": true
+  },
+  "latency_ms": [
+    18.787800101563334,
+    38.827399956062436,
+    18.825799925252795,
+    20.63739998266101,
+    17.061900114640594,
+    43.79919986240566,
+    25.666199857369065,
+    22.234000032767653,
+    30.903599923476577,
+    37.886499892920256,
+    29.801699798554182,
+    18.018199829384685,
+    43.95919991657138,
+    20.030800020322204,
+    20.313499961048365,
+    20.014399895444512,
+    36.390400025993586,
+    19.788300152868032,
+    22.80799997970462,
+    21.466900128871202
+  ],
+  "failure": null,
+  "measurement": {
+    "requested_samples": 20,
+    "concurrency": 1,
+    "warmup": 0,
+    "percentile": "nearest_rank",
+    "scope": "new registration through Gateway; restart/auth/precondition excluded",
+    "environment": "simulation; Gateway recreated per sample; database remains running"
+  },
+  "versions": {
+    "platform": "Windows-10-10.0.26200-SP0",
+    "python": "3.10.11",
+    "docker": "Docker version 29.5.2, build 79eb04c",
+    "node": "v24.15.0",
+    "npm": "11.14.1",
+    "compose": "Docker Compose version v5.1.3",
+    "api": "v1",
+    "protocol": "ExternalAgentLearner 1.0.0"
+  },
+  "git_commit": "ffe36994d5deea14873fb1ad375512bac790ca0b",
+  "component_versions": {
+    "external-agent-protocol": {
+      "version": "1.0.0",
+      "name": "@eduagentx/external-agent-protocol"
+    },
+    "telemetry": {
+      "version": "1.0.0",
+      "name": "@eduagentx/telemetry"
+    },
+    "agent-registry": {
+      "version": "0.1.0",
+      "name": "eduagentx-agent-registry",
+      "dependencies": {
+        "express": {
+          "version": "4.22.3",
+          "resolved": "https://registry.npmjs.org/express/-/express-4.22.3.tgz",
+          "overridden": false
+        },
+        "pg": {
+          "version": "8.23.0",
+          "resolved": "https://registry.npmjs.org/pg/-/pg-8.23.0.tgz",
+          "overridden": false
+        },
+        "redis": {
+          "version": "4.7.1",
+          "resolved": "https://registry.npmjs.org/redis/-/redis-4.7.1.tgz",
+          "overridden": false
+        }
+      }
+    },
+    "api-gateway": {
+      "version": "0.1.0",
+      "name": "eduagentx-api-gateway",
+      "dependencies": {
+        "express": {
+          "version": "4.22.3",
+          "resolved": "https://registry.npmjs.org/express/-/express-4.22.3.tgz",
+          "overridden": false
+        },
+        "jsonwebtoken": {
+          "version": "9.0.3",
+          "resolved": "https://registry.npmjs.org/jsonwebtoken/-/jsonwebtoken-9.0.3.tgz",
+          "overridden": false
+        },
+        "node-fetch": {
+          "version": "2.7.0",
+          "resolved": "https://registry.npmjs.org/node-fetch/-/node-fetch-2.7.0.tgz",
+          "overridden": false
+        }
+      }
+    },
+    "assurance-console": {
+      "version": "0.1.0",
+      "name": "eduagentx-assurance-console",
+      "dependencies": {
+        "express": {
+          "version": "4.22.3",
+          "resolved": "https://registry.npmjs.org/express/-/express-4.22.3.tgz",
+          "overridden": false
+        },
+        "node-fetch": {
+          "version": "2.7.0",
+          "resolved": "https://registry.npmjs.org/node-fetch/-/node-fetch-2.7.0.tgz",
+          "overridden": false
+        }
+      }
+    },
+    "synthetic-agent-learner": {
+      "version": "0.1.0",
+      "name": "eduagentx-synthetic-agent-learner",
+      "dependencies": {
+        "express": {
+          "version": "4.22.3",
+          "resolved": "https://registry.npmjs.org/express/-/express-4.22.3.tgz",
+          "overridden": false
+        },
+        "node-fetch": {
+          "version": "2.7.0",
+          "resolved": "https://registry.npmjs.org/node-fetch/-/node-fetch-2.7.0.tgz",
+          "overridden": false
+        }
+      }
+    }
+  },
+  "compose_configuration_sha256": "f59314837b5d7ca6b63e16db777afea6413e4ca110c4f98530bbcb59c0fe2eaf",
+  "container_versions": {
+    "agent-registry": {
+      "version": "0.1.0",
+      "name": "eduagentx-agent-registry",
+      "dependencies": {
+        "express": {
+          "version": "4.22.3",
+          "resolved": "https://registry.npmjs.org/express/-/express-4.22.3.tgz",
+          "overridden": false
+        },
+        "pg": {
+          "version": "8.23.0",
+          "resolved": "https://registry.npmjs.org/pg/-/pg-8.23.0.tgz",
+          "overridden": false
+        },
+        "redis": {
+          "version": "4.7.1",
+          "resolved": "https://registry.npmjs.org/redis/-/redis-4.7.1.tgz",
+          "overridden": false
+        }
+      }
+    },
+    "api-gateway": {
+      "version": "0.1.0",
+      "name": "eduagentx-api-gateway",
+      "dependencies": {
+        "express": {
+          "version": "4.22.3",
+          "resolved": "https://registry.npmjs.org/express/-/express-4.22.3.tgz",
+          "overridden": false
+        },
+        "jsonwebtoken": {
+          "version": "9.0.3",
+          "resolved": "https://registry.npmjs.org/jsonwebtoken/-/jsonwebtoken-9.0.3.tgz",
+          "overridden": false
+        },
+        "node-fetch": {
+          "version": "2.7.0",
+          "resolved": "https://registry.npmjs.org/node-fetch/-/node-fetch-2.7.0.tgz",
+          "overridden": false
+        }
+      }
+    }
+  },
+  "p95_ms": 43.79919986240566,
+  "target_met": true,
+  "recovery_ms": {
+    "redis": 875.0,
+    "postgres": 2937.9999998491257
+  },
+  "source_unchanged": true,
+  "artifacts": {
+    "agent-registry-install.txt": "5087acc2dc82fee4808b5393b55a3644efa27d61711e9b6a06eca66996d1508b",
+    "agent-registry-tests.tap": "3e35db2a4e18e6b461918f04851891a12eb24f2564423c6f7bfa0e3f4f7abda3",
+    "api-gateway-install.txt": "017ee7396d4d3c5e29dd48c88642f2bd69ec87e3956e3f21b6505367e6c062a5",
+    "api-gateway-tests.tap": "d7cdb8155be6063e555f07a4f91a9fb9cf1252429e6299d0294db90caff0e0ae",
+    "assurance-console-install.txt": "17a47d7bb139807aae1b52421502693de322cabbfa48ccb71c8e26c7755673e3",
+    "assurance-console-tests.tap": "41cf6c8fb54374668cab8a7c4b86ef81120eab7095b0a0f79aabfdecd87ad968",
+    "compose-build.txt": "f272fe97f0512463f1cb39b327aec76742a0bfa7dbf1382c7eb6663505e19f9e",
+    "compose-logs.txt": "f6d8b76956f4cbc44ec383ad5bd00d2ebc73857364b8061f07272f123f74764e",
+    "demonstration.json": "05204b5bb768b382c77130ed3b2425f2ed7f7bb7ae92a6e44e5f5472160f8e12",
+    "external-agent-protocol-install.txt": "5eece54d7010eac2dc3c427398408baedf6e6312193acbf0918167b332694731",
+    "external-agent-protocol-tests.tap": "d713b0a7780a086b5ec0d231beff98f2fa111973f7708a8bebec6d2dcd90893e",
+    "first-registration.json": "f79a524aaa6a21df9568573d54ad21ffbfa35409921f61a94abc47c81276397b",
+    "gate-unit-tests.txt": "67a1a4ec3ac20114c4940b8ccb9ab8a397b48a4e9c042547eefe5eb0576c6971",
+    "images.json": "b47a5583a8c773376cb993458aa5b7f1fe6e69c37ae61266b10fadeddd213db2",
+    "key-setup.txt": "8dd321bfdc4d3206eed9c7b56f0de6b6e634e16331948a0f48afbd10ce473cfd",
+    "monitoring.json": "9e7701a38bdee3417d06a712bc979bddbe02605428a8eadcd7099a868576f47f",
+    "persistence.json": "2ccda2724875e7a7d8d647514e160cc0173b67002d740991286fa6e0c6988dfc",
+    "security-integration.json": "2f7c9f57b49bc4d330dea65f370afb363d9d8813f460040f5218c2939da3d8c8",
+    "security-integration.txt": "03daabaf228b8eb62728b3d33870e4c9a80487990a03821db0a29e49451a86f6",
+    "synthetic-agent-learner-install.txt": "c8418c584197c3ca90136cc9bd97d6b450efe0ee7eb9cb8a155a9d181464cdb9",
+    "synthetic-agent-learner-tests.tap": "3d1ba711bf0f0e70c72287a1ab950867bea8a778241bb666f744b848ffc7c5b9",
+    "synthetic-console.json": "cb18ee47f40d520e90fddc457a20f83ffeb77b0b6b036e2fd64c544aea918c4f",
+    "telemetry-install.txt": "66bbab60494f904c9b228335cdbd7a52c63e6e9e4dcd3ca26e7cab0a7a84a615",
+    "telemetry-tests.tap": "a870eb5d0dd083c4018a1601a62f7ee18b6deb18c3896082db53059b9ced8a81",
+    "telemetry.jsonl": "56151759c26b22148855e005b9c888eff2fc82dfbc5f33bb1b998c4e193dcf9a"
+  }
+}

@@ -1,15 +1,14 @@
-const telemetry = require('./telemetry');
 // api-gateway (Sprint 1)
 //
 // The gateway is the only public lifecycle boundary. Agent Learners use the
 // versioned ExternalAgentLearner envelope; owning services receive only the
 // validated payload after authentication, identity, and correlation checks.
 
-const crypto = require('node:crypto');
+const { createHash, randomUUID } = require('node:crypto');
 const express = require('express');
 const fetch = require('node-fetch');
-const { randomUUID } = require('crypto');
 
+const telemetry = require('../../packages/telemetry');
 const {
   EVIDENCE_ENVIRONMENTS,
   EVIDENCE_LABELS,
@@ -21,8 +20,9 @@ const {
   SUPPORTED_PROTOCOL_VERSIONS,
   protocolResponseMetadata,
   validateProtocolMessage,
-} = require('../external-agent-protocol');
-const { issueToken, requireRole } = require('./auth');
+} = require('../../packages/external-agent-protocol');
+const { authHealth, issueToken, requireRole } = require('./auth');
+const { createRateLimit } = require('./rate-limit');
 
 const PORT = process.env.PORT || 4000;
 const SERVICE_NAME = process.env.SERVICE_NAME || 'api-gateway';
@@ -31,6 +31,7 @@ const MAX_PROTOCOL_IDEMPOTENCY_ENTRIES = 1000;
 function createApp({
   agentRegistryUrl = process.env.AGENT_REGISTRY_URL || 'http://agent-registry:4001',
   protocolIdempotencyStore = new Map(),
+  rateLimit,
 } = {}) {
   const app = express();
   // Every request gets a correlation id, either passed in or generated here.
@@ -41,19 +42,19 @@ function createApp({
   });
 
   app.use(telemetry.middleware('api-gateway'));
+  app.use(createRateLimit(rateLimit));
 
   app.use(express.json({ limit: '64kb' }));
 
   app.get('/health', async (req, res) => {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 3000);
+    const timer = setTimeout(() => controller.abort(), 2000);
     try {
       const response = await fetch(`${agentRegistryUrl}/health`, {
         signal: controller.signal, headers: { 'x-correlation-id': req.correlationId },
       });
       const upstream = await response.json();
       if (!response.ok) throw new Error('dependency unavailable');
-      const { authHealth } = require('./auth');
       if (!authHealth()) throw new Error('auth unavailable');
       res.status(200).json({ status: 'ok', service: SERVICE_NAME,
         dependencies: { registry: 'ok', authentication: 'ok',
@@ -61,7 +62,7 @@ function createApp({
           redis: upstream.dependencies?.redis || 'unknown' } });
     } catch (error) {
       telemetry.log(SERVICE_NAME, 'health_failed', { correlationId: req.correlationId });
-      res.status(503).json({ status: 'unhealthy', service: SERVICE_NAME });
+      res.status(503).json({ status: 'unhealthy', service: SERVICE_NAME, error: 'dependency_unavailable' });
     } finally { clearTimeout(timer); }
   });
 
@@ -124,10 +125,14 @@ function createApp({
   // The existing direct registration route remains available for the Agent
   // Registry contract. New adapters should use the envelope route below.
   app.post('/v1/registrations', requireRole('agent'), requireAgentIdentity, async (req, res) => {
+    const key = req.header('idempotency-key');
     await proxyJson(req, res, `${agentRegistryUrl}/v1/registrations`, {
       method: 'POST',
       body: req.body || {},
-      headers: { 'x-agent-subject': req.auth.subject },
+      headers: { 'x-agent-subject': req.auth.subject, ...(key ? {
+        'idempotency-key': `direct:${key}`,
+        'x-request-fingerprint': createHash('sha256').update(JSON.stringify(req.body)).digest('hex'),
+      } : {}) },
     });
   });
 
@@ -153,7 +158,8 @@ function createApp({
         body: message.payload,
         correlationId: message.correlationId,
         timeoutMs: message.timeoutMs,
-        headers: { 'x-agent-subject': req.auth.subject },
+        headers: { 'x-agent-subject': req.auth.subject, 'idempotency-key': message.idempotencyKey,
+          'x-request-fingerprint': protocolFingerprint(req.auth.subject, message), 'x-message-id': message.messageId },
       });
       const body = decorateProtocolResponse(message, upstream.body);
       rememberProtocolIdempotency(
@@ -226,6 +232,10 @@ function createApp({
     await proxyJson(req, res, `${agentRegistryUrl}/v1/registration-traces/latest`);
   });
 
+  app.get('/v1/admin/event-delivery', requireRole('admin'), async (req, res) => {
+    await proxyJson(req, res, `${agentRegistryUrl}/v1/event-delivery`);
+  });
+
   app.use((error, req, res, next) => {
     if (res.headersSent) return next(error);
     if (error instanceof ProtocolValidationError) return protocolError(req, res, error);
@@ -258,12 +268,7 @@ function requireAgentIdentity(req, res, next) {
 }
 
 function identityMismatch(req, res, message) {
-  const body = {
-    apiVersion: 'v1',
-    error: 'identity_mismatch',
-    message: 'agentLearnerKey must match the authenticated Agent Learner identity',
-    correlationId: req.correlationId,
-  };
+  const body = identityMismatchBody(req.correlationId);
   return res.status(403).json(message ? decorateProtocolResponse(message, body) : body);
 }
 
@@ -347,6 +352,9 @@ function readProtocolIdempotency(store, subject, message) {
 }
 
 function rememberProtocolIdempotency(store, subject, message, response) {
+  // Conflicts belong to the original durable key; transient failures may hide
+  // a successful commit and must remain retryable against the owning service.
+  if (response.status === 409 || response.status >= 500) return;
   const key = protocolIdempotencyKey(subject, message.idempotencyKey);
   store.set(key, { ...response, fingerprint: protocolFingerprint(subject, message) });
   while (store.size > MAX_PROTOCOL_IDEMPOTENCY_ENTRIES) {
@@ -359,7 +367,7 @@ function protocolIdempotencyKey(subject, idempotencyKey) {
 }
 
 function protocolFingerprint(subject, message) {
-  return crypto.createHash('sha256')
+  return createHash('sha256')
     .update(JSON.stringify({ subject, ...message }))
     .digest('hex');
 }
@@ -374,8 +382,9 @@ async function proxyJson(req, res, url, options = {}) {
 }
 
 async function forwardJson(req, url, options = {}) {
-  const controller = Number.isInteger(options.timeoutMs) ? new AbortController() : null;
-  const timeout = controller ? setTimeout(() => controller.abort(), options.timeoutMs) : null;
+  const timeoutMs = Number.isInteger(options.timeoutMs) ? options.timeoutMs : 5000;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const upstream = await fetch(url, {
       method: options.method || 'GET',
@@ -385,7 +394,7 @@ async function forwardJson(req, url, options = {}) {
         ...(options.headers || {}),
       },
       ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
-      ...(controller ? { signal: controller.signal } : {}),
+      signal: controller.signal,
     });
     const raw = await upstream.text();
     let body = {};
@@ -400,14 +409,14 @@ async function forwardJson(req, url, options = {}) {
     }
     return { status: upstream.status, body };
   } catch (error) {
-    if (error.name === 'AbortError' && controller) {
+    if (error.name === 'AbortError') {
       const timeoutError = new Error(`upstream request exceeded timeoutMs (${options.timeoutMs})`);
       timeoutError.code = 'upstream_timeout';
       throw timeoutError;
     }
     throw error;
   } finally {
-    if (timeout) clearTimeout(timeout);
+    clearTimeout(timeout);
   }
 }
 
@@ -429,7 +438,7 @@ function proxyFailure(req, res, error, message, protocolIdempotencyStore, subjec
 
 function protocolCorrelationId(req) {
   const candidate = typeof req.body?.correlationId === 'string' ? req.body.correlationId.trim() : '';
-  return candidate && candidate.length <= 256 ? candidate : req.correlationId;
+  return /^[\x20-\x7e]{1,256}$/.test(candidate) ? candidate : req.correlationId;
 }
 
 function safeEvidenceFromInput(value) {

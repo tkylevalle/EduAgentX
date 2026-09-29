@@ -1,5 +1,8 @@
 const { randomUUID } = require('node:crypto');
 
+const { registrationResult } = require('./domain');
+const { RegistryError } = require('./errors');
+
 const EVENT_REGISTERED = 'agent_learner.registered';
 const EVENT_REPLAYED = 'agent_learner.registration_replayed';
 const EVENT_CHANGED = 'agent_learner.configuration_changed';
@@ -21,6 +24,21 @@ class PostgresRegistryRepository {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
+
+      // Serialize by identity before checking the durable request key or mutating state.
+      await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [input.agentLearnerKey]);
+      if (input.requestKey) {
+        const existing = await client.query(
+          'SELECT fingerprint, result FROM agent_registry.registration_requests WHERE subject=$1 AND request_key=$2',
+          [input.agentLearnerKey, input.requestKey]);
+        if (existing.rows[0]) {
+          if (existing.rows[0].fingerprint !== input.requestFingerprint) {
+            throw new RegistryError(409, 'idempotency_conflict', 'Request key was already used for different content');
+          }
+          await client.query('COMMIT');
+          return { ...existing.rows[0].result, replayed: true };
+        }
+      }
 
       const learnerInsert = await client.query(
         `INSERT INTO agent_registry.agent_learners
@@ -44,9 +62,8 @@ class PostgresRegistryRepository {
           correlationId: input.correlationId,
           input,
         });
-        await client.query('COMMIT');
         const registration = await this.loadRegistration(client, learner.id, event);
-        return { outcome: 'unchanged', registration, assurance: mapAssurance(event) };
+        return await this.commitRegistration(client, input, { outcome: 'unchanged', registration, assurance: mapAssurance(event) });
       }
 
       const configurationVersion = (current?.configuration_version || 0) + 1;
@@ -93,19 +110,40 @@ class PostgresRegistryRepository {
         input,
       });
 
-      await client.query('COMMIT');
       const registration = await this.loadRegistration(client, updatedLearner.id, event);
-      return {
+      return await this.commitRegistration(client, input, {
         outcome: configurationVersion === 1 ? 'registered' : 'configuration_changed',
         registration,
         assurance: mapAssurance(event),
-      };
+      });
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {});
       throw error;
     } finally {
       client.release();
     }
+  }
+
+  async commitRegistration(client, input, result) {
+    result = registrationResult({ ...result, correlationId: input.correlationId });
+    if (input.requestKey) {
+      await client.query(`INSERT INTO agent_registry.registration_requests (subject, request_key, fingerprint, result)
+        VALUES ($1,$2,$3,$4::jsonb)`,
+      [input.agentLearnerKey, input.requestKey, input.requestFingerprint, JSON.stringify(result)]);
+    }
+    await client.query('COMMIT');
+    return result;
+  }
+
+  async deliveryStatus() {
+    const result = await this.pool.query(`SELECT
+      (SELECT count(*)::integer FROM agent_registry.event_outbox) AS total,
+      (SELECT count(*)::integer FROM agent_registry.event_outbox WHERE published_at IS NULL) AS pending,
+      (SELECT count(*)::integer FROM agent_registry.event_outbox WHERE published_at IS NULL AND attempts>=3) AS exhausted,
+      (SELECT count(*)::integer FROM agent_registry.event_inbox WHERE status='applied') AS applied,
+      (SELECT count(*)::integer FROM agent_registry.event_inbox WHERE status='waiting') AS waiting,
+      (SELECT count(*)::integer FROM agent_registry.event_inbox WHERE status='quarantined') AS quarantined`);
+    return result.rows[0];
   }
 
   async getById(agentLearnerId) {
@@ -127,23 +165,15 @@ class PostgresRegistryRepository {
   }
 
   async getLatestTrace() {
-    const eventResult = await this.pool.query(
-      `SELECT id, agent_learner_id, configuration_id, event_type,
-              configuration_version, fingerprint, previous_fingerprint,
-              correlation_id, payload, occurred_at
-       FROM agent_registry.assurance_events
-       ORDER BY occurred_at DESC, id DESC
-       LIMIT 1`
-    );
-    const event = eventResult.rows[0];
-    if (!event) return null;
-    const registration = await this.getById(event.agent_learner_id);
-    if (!registration) return null;
-    return {
-      outcome: outcomeForEvent(event.event_type),
-      registration,
-      assurance: mapAssurance(event),
-    };
+    return this.readSnapshot(async (client) => {
+      const result = await client.query(`SELECT id, agent_learner_id, configuration_id, event_type,
+        configuration_version, fingerprint, previous_fingerprint, correlation_id, payload, occurred_at
+        FROM agent_registry.assurance_events ORDER BY occurred_at DESC, id DESC LIMIT 1`);
+      const event = result.rows[0];
+      if (!event) return null;
+      const registration = await this.loadRegistration(client, event.agent_learner_id, event);
+      return { outcome: outcomeForEvent(event.event_type), registration, assurance: mapAssurance(event) };
+    });
   }
 
   async findLearnerForUpdate(client, agentLearnerKey) {
@@ -195,14 +225,37 @@ class PostgresRegistryRepository {
         JSON.stringify(eventPayload(event.input)),
       ]
     );
-    return result.rows[0];
+    const row = result.rows[0];
+    const sequenceResult = await client.query(
+      'SELECT COALESCE(MAX(sequence),0)+1 AS sequence FROM agent_registry.event_outbox WHERE aggregate_id=$1',
+      [event.learnerId]);
+    const envelope = {
+      schemaVersion: '1.0.0', ...mapAssurance(row), aggregateId: event.learnerId,
+      sequence: sequenceResult.rows[0].sequence, causationId: event.input.messageId || event.correlationId,
+    };
+    await client.query(`INSERT INTO agent_registry.event_outbox (event_id, aggregate_id, sequence, envelope)
+      VALUES ($1,$2,$3,$4::jsonb)`, [row.id, event.learnerId, envelope.sequence, JSON.stringify(envelope)]);
+    return row;
   }
 
   async loadRegistrationByQuery(query, values) {
-    const learnerResult = await this.pool.query(query, values);
-    const learner = learnerResult.rows[0];
-    if (!learner) return null;
-    return this.loadRegistration(this.pool, learner.id);
+    return this.readSnapshot(async (client) => {
+      const learner = (await client.query(query, values)).rows[0];
+      return learner ? await this.loadRegistration(client, learner.id) : null;
+    });
+  }
+
+  async readSnapshot(read) {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+      const result = await read(client);
+      await client.query('COMMIT');
+      return result;
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    } finally { client.release(); }
   }
 
   async loadRegistration(clientOrPool, learnerId, latestEvent) {

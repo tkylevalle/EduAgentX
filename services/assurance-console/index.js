@@ -2,11 +2,13 @@ const { randomUUID } = require('node:crypto');
 const express = require('express');
 const fetch = require('node-fetch');
 
+const telemetry = require('../../packages/telemetry');
+
 const PORT = Number(process.env.PORT || 4100);
 const SERVICE_NAME = process.env.SERVICE_NAME || 'assurance-console';
 const API_GATEWAY_URL = process.env.API_GATEWAY_URL || 'http://api-gateway:4000';
 const ADMIN_CLIENT_ID = process.env.ADMIN_CLIENT_ID || 'capstone-admin-dev';
-const ADMIN_CLIENT_SECRET = process.env.ADMIN_CLIENT_SECRET || 'changeme_local_only_admin_secret';
+const ADMIN_CLIENT_SECRET = process.env.ADMIN_CLIENT_SECRET;
 
 const app = express();
 
@@ -22,7 +24,7 @@ app.get('/api/registration-trace', async (req, res) => {
     }
     return res.status(200).json({ apiVersion: 'v1', status: 'available', trace });
   } catch (error) {
-    console.error(`[${SERVICE_NAME}] trace read failed`, error);
+    telemetry.log(SERVICE_NAME, 'trace_read_failed', { outcome: 'error' });
     return res.status(503).json({ apiVersion: 'v1', error: 'trace_unavailable', message: 'Registration trace is unavailable' });
   }
 });
@@ -124,6 +126,10 @@ function escapeHtml(value) {
 }
 
 if (require.main === module) {
+  if (!ADMIN_CLIENT_SECRET) {
+    console.error(`[${SERVICE_NAME}] ADMIN_CLIENT_SECRET is required`);
+    process.exit(1);
+  }
   app.listen(PORT, () => {
     console.log(`[${SERVICE_NAME}] listening on ${PORT}`);
   });

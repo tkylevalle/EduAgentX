@@ -29,6 +29,7 @@ Independent reviewer / capability backup:
   "clean_checkout_reproduced": false,
   "independent_reproduction": false,
   "backup_handoff": false,
+  "independent_trust_review": false,
   "accepted": false
 }
 ```
@@ -36,3 +37,5 @@ Independent reviewer / capability backup:
 The evidence reference should include the actual runtime/image versions, observed
 result, date, known limitations, independent reproducer and the backup's handoff
 acknowledgement. Ownership labels alone are not review approval.
+
+`independent_trust_review` attests that a named third reviewer, neither capability Primary nor an implementation author, reviewed the authentication/authorization boundary. Name that person and document independence in the referenced record. An automated agent review is not a substitute for this team acceptance.

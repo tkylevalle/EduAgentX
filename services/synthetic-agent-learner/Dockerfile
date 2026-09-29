@@ -1,15 +1,14 @@
-FROM node:20-alpine
-
-WORKDIR /app
-
-COPY services/synthetic-agent-learner/package.json ./services/synthetic-agent-learner/
-RUN cd services/synthetic-agent-learner && npm install --omit=dev
-
-COPY services/synthetic-agent-learner/index.js services/synthetic-agent-learner/gateway-client.js services/synthetic-agent-learner/learner.js services/synthetic-agent-learner/profiles.js ./services/synthetic-agent-learner/
-COPY services/external-agent-protocol ./services/external-agent-protocol
-
-EXPOSE 4200
+# Build context is the repository root so the service can use packages/.
+FROM node:24-alpine
 
 WORKDIR /app/services/synthetic-agent-learner
+
+COPY services/synthetic-agent-learner/package.json services/synthetic-agent-learner/package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts
+
+COPY packages /app/packages
+COPY services/synthetic-agent-learner ./
+
+EXPOSE 4200
 
 CMD ["node", "index.js"]

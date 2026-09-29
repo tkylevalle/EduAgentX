@@ -8,8 +8,8 @@ Review outcome: PENDING. Independent reproduction and backup handoff: NOT RECORD
 
 ## One command
 
-From the repository root, with Docker Engine running, Compose v2, Node >=20,
-npm, Python >=3.9 and OpenSSL installed:
+From the repository root, with Docker Engine running, Compose v2, Node 24 LTS,
+npm and Python >=3.9 installed:
 
 ```sh
 python3 scripts/run-sprint1.py
@@ -36,7 +36,7 @@ Each invocation creates `evidence/runs/eduagentx-evidence-<UTC timestamp>-<pid>/
   dependency versions, container image information, measured samples, p95, separate
   <=2000 ms target, required check results and evidence-file checksums.
 - `gate.json`: `FAIL`, `BLOCKED` or `PASS`, with concrete reasons.
-- `*-tests.tap`: five component-test suites; missing summaries, failures, skipped,
+- `*-tests.tap`: one suite per package and service; missing summaries, failures, skipped,
   cancelled or TODO tests fail the run.
 - `gate-unit-tests.txt`: negative readiness-check tests.
 - `first-registration.json` and `demonstration.json`: real public responses and
@@ -48,17 +48,19 @@ Exit 1 / FAIL means a mandatory measured check failed or evidence is incomplete.
 Exit 2 / BLOCKED means the run's technical checks passed but required Issue 7 or
 review evidence is absent. Exit 0 / PASS requires all checks and matching external
 attestations. BLOCKED must not be relabelled as accepted to satisfy a deadline.
-The earlier `check-sprint-evidence.py` remains a historical partial-report checker.
+The earlier `check-sprint-evidence.py` partial-report checker was retired; it is in git history at commit 6272a60.
 
-The source hash covers services, scripts, database initialization, docs/contracts,
-Compose, Makefile and `.env.example`, excluding generated keys/dependencies/cache.
+The source hash covers `packages`, `services`, `scripts`, `db`, `docs`, `monitoring`,
+`courses`, `.github`, `docker-compose.yml`, `.env.example`, `Makefile`, `.dockerignore`
+and `.gitattributes`, excluding generated keys, dependencies and caches. It does not
+cover `README.md`, `CONTEXT.md` or `evidence/`.
 Old `evidence/sprint-1` measurements remain historical; they do not prove this build.
 
 ## Demonstration and measurements
 
 The real Gateway verifies authentication and identity. Each sample uses a new
 configured test client, a precondition GET returning 404, and a registration
-returning 201 / version 1 / a distinct Agent Learner ID / published assurance.
+returning 201 / version 1 / a distinct Agent Learner ID / a transactionally queued assurance event.
 For the first client, invalid protocol before creation leaves GET at 404; exact
 retry preserves both the original response and authoritative registration/history;
 invalid payload after creation leaves authoritative state unchanged. Registry
@@ -74,7 +76,7 @@ The normal runner cannot use fewer than 20 samples.
 The runner stops Redis and PostgreSQL separately in its isolated project, expects
 public health 503, checks a failed registration during PostgreSQL outage, restores
 the dependency, and requires health 200. An unavailable database must never yield
-a success response. It does not claim durable stream recovery is implemented.
+a success response. The persistence suite verifies an outbox retry after Redis loss, pending consumer recovery, duplicate suppression, sequence-gap handling, poison quarantine and restricted database permissions.
 
 ## Telemetry and redaction
 
@@ -103,8 +105,10 @@ log, reverse proxy or future application field.
 - PostgreSQL down: pool connection/query limits bound errors; an idle-pool error
   handler prevents an unhandled error from terminating the Registry. Restore the
   dependency, wait for health, then retry with the intended request identity.
-- Redis down: readiness becomes unhealthy. Publication failures remain `pending`;
-  the existing code has no implemented replay worker. Do not claim durable delivery.
+- Redis down: readiness becomes unhealthy. Registrations still commit, and the
+  response reports the assurance event as `queued`. The outbox dispatcher in
+  `services/agent-registry/stream-worker.js` resends it after Redis recovers, up
+  to 3 attempts. After that, it records a delivery incident for operator review.
 - Ctrl-C: the runner attempts to delete only its temporary project.
 - Power loss/kill -9: cleanup cannot run. Find the exact project name in `run.json`
   if saved, the `evidence/runs/` directory or `docker compose ls -a`. Never use a
@@ -131,10 +135,10 @@ need to stop that project, subject to available RAM/CPU.
 ## Required external acceptance
 
 Issue 8 is blocked by Issue 7, which depends on persistence/transport work in #6.
-The supplied baseline still has in-memory Gateway protocol idempotency, no Redis
-consumer-group recovery/poison-event pipeline, and no demonstrated service-owned
-DB permission isolation. This package does not implement those other work packages.
-Their owners must provide actual integration evidence, not guessed PASS flags.
+The code now has durable Registry idempotency, a Redis consumer group with poison
+quarantine, and a restricted `registry_owner` database role, and the gate tests
+them. The gate still needs the Issue 7 owners' acceptance record. Owners must
+provide actual integration evidence, not guessed PASS flags.
 
 Copy the JSON shapes from `review-records.md` into files under `evidence/reviews/`
 only when their checks have really been completed. References must identify the
@@ -154,3 +158,11 @@ This verifies saved artifact checksums and returns nonzero if files are missing 
 changed, any required check/measurement failed, or external acceptance is missing.
 Retain the resulting review outcome with the PR. For changed source or runtime,
 create a new run; do not reuse an earlier approval.
+
+## Local platform and existing volumes
+
+Run `make up` from Git Bash or a Unix shell. It generates missing credentials, preserves existing `.env` values, starts PostgreSQL/Redis, and reruns the idempotent Registry role migration before starting applications. The migration transfers existing Registry tables and sequences to `registry_owner`; it does not erase data. `make reset` deliberately deletes the local project volumes and must only be used when that reset is intended. If existing credentials are lost, restore them from your local configuration; generating a new `.env` cannot change an initialized PostgreSQL password.
+
+Ports bind to 127.0.0.1. The Console is a local-only read-only demonstration UI using server admin credentials. Do not proxy it onto a public network. Grafana credentials are generated locally in `.env`. The blackbox exporter probes the four implemented HTTP services; Prometheus scrapes its metrics, and Grafana marks observations older than 15 seconds UNKNOWN. Health is operational evidence, not sprint acceptance.
+
+`python3 scripts/run-sprint1.py --technical-only` is the CI command. It returns success when technical checks pass while preserving `gate.json` as BLOCKED if human acceptance is absent. `make test` remains the strict sprint gate. Numbers in the historical `evidence/sprint-1` notes came from retired scripts that measured different workloads; they cannot replace this runner.

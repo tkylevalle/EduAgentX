@@ -1,6 +1,7 @@
 const express = require('express');
 
-const { canonicalEvidence } = require('../external-agent-protocol');
+const telemetry = require('../../packages/telemetry');
+const { canonicalEvidence } = require('../../packages/external-agent-protocol');
 const { GatewayProtocolClient } = require('./gateway-client');
 const {
   DEFAULT_REGISTRATION,
@@ -12,7 +13,7 @@ const PORT = Number(process.env.PORT || 4200);
 const SERVICE_NAME = process.env.SERVICE_NAME || 'synthetic-agent-learner';
 const GATEWAY_URL = process.env.API_GATEWAY_URL || 'http://api-gateway:4000';
 const AGENT_CLIENT_ID = process.env.AGENT_CLIENT_ID || 'synthetic-agent-learner-dev';
-const AGENT_CLIENT_SECRET = process.env.AGENT_CLIENT_SECRET || 'changeme_local_only_agent_secret';
+const AGENT_CLIENT_SECRET = process.env.AGENT_CLIENT_SECRET;
 
 function createApp({ learner = createDefaultLearner() } = {}) {
   const app = express();
@@ -67,7 +68,7 @@ function createApp({ learner = createDefaultLearner() } = {}) {
         correlationId: req.correlationId,
       });
     }
-    console.error(`[${SERVICE_NAME}] unhandled request error`, error);
+    telemetry.log(SERVICE_NAME, 'request_failed', { correlationId: req.correlationId, statusCode: 500, outcome: 'error' });
     return res.status(500).json({
       apiVersion: 'v1',
       error: 'internal_error',
@@ -95,6 +96,10 @@ function statusForOutcome(outcome) {
 }
 
 if (require.main === module) {
+  if (!AGENT_CLIENT_SECRET) {
+    console.error(`[${SERVICE_NAME}] AGENT_CLIENT_SECRET is required`);
+    process.exit(1);
+  }
   createApp().listen(PORT, () => {
     console.log(`[${SERVICE_NAME}] listening on ${PORT}`);
   });

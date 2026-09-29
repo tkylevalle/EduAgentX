@@ -1,7 +1,8 @@
-const telemetry = require('./telemetry');
+const { randomUUID } = require('node:crypto');
 const express = require('express');
 
-const { RegistryError } = require('./registry-service');
+const telemetry = require('../../packages/telemetry');
+const { RegistryError } = require('./errors');
 
 const API_VERSION = 'v1';
 
@@ -11,7 +12,7 @@ function createApp({ service }) {
   const app = express();
 
   app.use((req, res, next) => {
-    req.correlationId = req.header('x-correlation-id') || require('node:crypto').randomUUID();
+    req.correlationId = req.header('x-correlation-id') || randomUUID();
     res.setHeader('x-correlation-id', req.correlationId);
     next();
   });
@@ -32,7 +33,9 @@ function createApp({ service }) {
 
   app.post('/v1/registrations', async (req, res, next) => {
     try {
-      const result = await service.register(req.body, { correlationId: req.correlationId });
+      const result = await service.register(req.body, { correlationId: req.correlationId,
+        requestKey: req.header('idempotency-key'), requestFingerprint: req.header('x-request-fingerprint'),
+        messageId: req.header('x-message-id') });
       res.status(result.httpStatus).json({
         apiVersion: API_VERSION,
         outcome: result.outcome,
@@ -70,6 +73,11 @@ function createApp({ service }) {
     } catch (error) {
       next(error);
     }
+  });
+
+  app.get('/v1/event-delivery', async (req, res, next) => {
+    try { res.json({ apiVersion: API_VERSION, delivery: await service.deliveryStatus(), correlationId: req.correlationId }); }
+    catch (error) { next(error); }
   });
 
   app.get('/v1/registration-traces/latest', async (req, res, next) => {

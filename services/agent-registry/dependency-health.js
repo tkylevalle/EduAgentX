@@ -1,4 +1,4 @@
-const telemetry = require('./telemetry');
+const telemetry = require('../../packages/telemetry');
 function bounded(fn, milliseconds = 2000) {
   let timer;
   return Promise.race([
