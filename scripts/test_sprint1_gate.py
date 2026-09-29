@@ -31,6 +31,16 @@ class GateTests(unittest.TestCase):
         self.assertEqual(evaluate(self.report,p,r,self.root)['status'],'PASS')
         p['source_sha256']='different'
         self.assertEqual(evaluate(self.report,p,r,self.root)['status'],'BLOCKED')
+    def test_named_waivers_unblock_but_stay_visible(self):
+        base={'source_sha256':'a'*64,'reviewer':'test-reviewer','evidence_reference':'test-only'}
+        p={**base, **dict.fromkeys(['postgres_redis_integration','durable_idempotency','consumer_recovery','poison_out_of_order','service_owned_permissions'],True)}
+        r={**base,'clean_checkout_reproduced':True,'accepted':True,'waived_by':'test-owner',
+           'waivers':{'independent_reproduction':'no time','backup_handoff':'no time','independent_trust_review':'no time'}}
+        result=evaluate(self.report,p,r,self.root)
+        self.assertEqual(result['status'],'PASS')
+        self.assertEqual(len(result['waivers']),3)
+        for broken in [{'waived_by':''}, {'waivers':{'independent_reproduction':' '}}, {'accepted':False,'waivers':{'accepted':'no time'}}]:
+            self.assertEqual(evaluate(self.report,p,{**r,**broken},self.root)['status'],'BLOCKED')
     def test_missing_or_changed_artifact_fails(self):
         (self.root/'test.txt').write_text('changed')
         self.assertEqual(evaluate(self.report,evidence_directory=self.root)['status'],'FAIL')

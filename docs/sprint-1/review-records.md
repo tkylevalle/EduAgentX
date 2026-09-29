@@ -38,4 +38,9 @@ The evidence reference should include the actual runtime/image versions, observe
 result, date, known limitations, independent reproducer and the backup's handoff
 acknowledgement. Ownership labels alone are not review approval.
 
+A named person may waive a check that was not done, except `accepted`. Leave
+the flag `false`, add `"waived_by": "<name> (<date>)"` and a `"waivers"` object
+that maps the flag to the reason. The gate then passes, and `gate.json` lists
+every waiver. Never set a flag to `true` for work that did not happen.
+
 `independent_trust_review` attests that a named third reviewer, neither capability Primary nor an implementation author, reviewed the authentication/authorization boundary. Name that person and document independence in the referenced record. An automated agent review is not a substitute for this team acceptance.

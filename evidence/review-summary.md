@@ -28,7 +28,15 @@ No commit or push was created. The local branch is `sprint1-docker-platform`, wi
 | Diff whitespace check against origin/main | Passed |
 | Isolated Compose cleanup | Passed; existing project data preserved |
 
-The strict runner exited 2 with `technical_checks: PASS` and `status: BLOCKED`. It requires owner acceptance, an independent trust-boundary reviewer who is neither Primary nor an author, second-environment reproduction and a capability backup handoff. Those are real team actions and were not fabricated. Technical CI uses an explicit mode that can pass while the release record remains BLOCKED.
+The strict runner exited 2 with `technical_checks: PASS` and `status: BLOCKED`, because the human acceptance records were absent.
+
+On 2026-09-29 Neeraj Santosh accepted Sprint 1 and re-evaluated the saved run with the records in [`reviews/`](reviews/). The [gate record](runs/eduagentx-evidence-20260929t125615z-10084/gate.json) is now **PASS with three named waivers**:
+
+- Independent reproduction by a second team member: not done, waived for schedule.
+- Capability backup handoff: not done, waived for schedule.
+- Independent human trust-boundary review: not done, waived for schedule.
+
+The clean-checkout reproduction was done: a clean checkout of `3de067a` has the tested source fingerprint, and [CI run 36572328914](https://github.com/tkylevalle/EduAgentX/actions/runs/36572328914) passed on it. The Issue 7 record is accepted from the automated persistence checks; the Issue 7 owners did not sign it. The waiver support in `scripts/sprint1_gate.py` was added after the measured run; the measured source is unchanged.
 
 The [run record](runs/eduagentx-evidence-20260929t125615z-10084/run.json) contains measurements, checks and artifact hashes. The [gate record](runs/eduagentx-evidence-20260929t125615z-10084/gate.json) lists the remaining acceptance blockers. [Review findings](../docs/sprint-1/review-findings.md) separates Standards, Spec and defect findings and describes the fixes.
 
