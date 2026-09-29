@@ -1,0 +1,43 @@
+{
+  "apiVersion": "v1",
+  "outcome": "registered",
+  "status": "created",
+  "registration": {
+    "agentLearnerId": "cd545a10-93d9-4790-b14a-fc873a3735df",
+    "agentLearnerKey": "evidence-000",
+    "status": "active",
+    "configurationVersion": 1,
+    "configurationFingerprint": "sha256:4480f8e598437f286c4cab722070237a14a186829faa426a325168496a2d8ebc",
+    "createdAt": "2026-09-25T08:30:09.403Z",
+    "updatedAt": "2026-09-25T08:30:09.403Z"
+  },
+  "assurance": {
+    "eventId": "b9827db3-ca58-44b9-b1ae-0315b369473c",
+    "eventType": "agent_learner.registered",
+    "agentLearnerId": "cd545a10-93d9-4790-b14a-fc873a3735df",
+    "configurationVersion": 1,
+    "configurationFingerprint": "sha256:4480f8e598437f286c4cab722070237a14a186829faa426a325168496a2d8ebc",
+    "previousFingerprint": null,
+    "correlationId": "new-registration-000",
+    "occurredAt": "2026-09-25T08:30:09.403Z",
+    "publicationStatus": "published"
+  },
+  "correlationId": "new-registration-000",
+  "protocol": {
+    "protocol": "ExternalAgentLearner",
+    "protocolVersion": "1.0.0",
+    "messageType": "registration",
+    "messageId": "new-registration-000",
+    "correlationId": "new-registration-000",
+    "evidence": {
+      "mode": "synthetic",
+      "environment": "simulation",
+      "label": "SIMULATION: Synthetic Agent Learner"
+    }
+  },
+  "evidence": {
+    "mode": "synthetic",
+    "environment": "simulation",
+    "label": "SIMULATION: Synthetic Agent Learner"
+  }
+}

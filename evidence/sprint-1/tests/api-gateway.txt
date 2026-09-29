@@ -1,0 +1,81 @@
+
+up to date, audited 88 packages in 4s
+
+17 packages are looking for funding
+  run `npm fund` for details
+
+1 moderate severity vulnerability
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+TAP version 13
+# {"timestamp":"2026-09-25T05:09:28.152Z","event":"http_request_completed","service":"api-gateway","correlationId":"fa5e7504-eae0-4fa4-bfaa-b2dc3f0568e8","method":"POST","path":"/v1/auth/tokens","statusCode":200,"durationMs":15.526}
+# {"timestamp":"2026-09-25T05:09:28.160Z","event":"http_request_completed","service":"api-gateway","correlationId":"bbf65202-7963-43d3-a24b-b0dff5a21d70","method":"GET","path":"/v1/agent-learner/protocol","statusCode":200,"durationMs":2.763}
+# {"timestamp":"2026-09-25T05:09:28.170Z","event":"http_request_completed","service":"api-gateway","correlationId":"gateway-registration-correlation","method":"POST","path":"/v1/agent-learner/registrations","statusCode":201,"durationMs":7.382}
+# Subtest: the gateway exposes the versioned protocol and routes provider-neutral registration to the registry
+ok 1 - the gateway exposes the versioned protocol and routes provider-neutral registration to the registry
+  ---
+  duration_ms: 166.372449
+  type: 'test'
+  ...
+# {"timestamp":"2026-09-25T05:09:28.179Z","event":"http_request_completed","service":"api-gateway","correlationId":"fa7e8d8c-7d5d-423e-ac54-30e8a8d32814","method":"POST","path":"/v1/auth/tokens","statusCode":200,"durationMs":2.159}
+# {"timestamp":"2026-09-25T05:09:28.184Z","event":"http_request_completed","service":"api-gateway","correlationId":"conformance-registration-correlation","method":"POST","path":"/v1/agent-learner/registrations","statusCode":201,"durationMs":2.995}
+# {"timestamp":"2026-09-25T05:09:28.186Z","event":"http_request_completed","service":"api-gateway","correlationId":"conformance-lifecycle-correlation","method":"POST","path":"/v1/agent-learner/interactions","statusCode":202,"durationMs":1.079}
+# {"timestamp":"2026-09-25T05:09:28.188Z","event":"http_request_completed","service":"api-gateway","correlationId":"conformance-registration-correlation","method":"POST","path":"/v1/agent-learner/registrations","statusCode":400,"durationMs":1.076}
+# {"timestamp":"2026-09-25T05:09:28.190Z","event":"http_request_completed","service":"api-gateway","correlationId":"conformance-lifecycle-correlation","method":"POST","path":"/v1/agent-learner/interactions","statusCode":400,"durationMs":0.764}
+# Subtest: the reusable protocol conformance suite passes through the real gateway boundary
+ok 2 - the reusable protocol conformance suite passes through the real gateway boundary
+  ---
+  duration_ms: 17.535643
+  type: 'test'
+  ...
+# {"timestamp":"2026-09-25T05:09:28.196Z","event":"http_request_completed","service":"api-gateway","correlationId":"1cefc168-4db1-470e-bd63-6bbbf17bc41a","method":"POST","path":"/v1/auth/tokens","statusCode":200,"durationMs":2.449}
+# {"timestamp":"2026-09-25T05:09:28.198Z","event":"http_request_completed","service":"api-gateway","correlationId":"1744cb2a-5287-410c-97e6-3c362703ba45","method":"POST","path":"/v1/agent-learner/registrations","statusCode":401,"durationMs":0.561}
+# {"timestamp":"2026-09-25T05:09:28.199Z","event":"http_request_completed","service":"api-gateway","correlationId":"failure-correlation","method":"POST","path":"/v1/agent-learner/registrations","statusCode":403,"durationMs":0.944}
+# {"timestamp":"2026-09-25T05:09:28.201Z","event":"http_request_completed","service":"api-gateway","correlationId":"failure-correlation","method":"POST","path":"/v1/agent-learner/registrations","statusCode":400,"durationMs":0.677}
+# {"timestamp":"2026-09-25T05:09:28.203Z","event":"http_request_completed","service":"api-gateway","correlationId":"618c5241-f812-42c3-8486-3aa2b55f3da9","method":"POST","path":"/v1/agent-learner/registrations","statusCode":400,"durationMs":1.045}
+# {"timestamp":"2026-09-25T05:09:28.206Z","event":"http_request_completed","service":"api-gateway","correlationId":"failure-correlation","method":"POST","path":"/v1/agent-learner/registrations","statusCode":400,"durationMs":0.766}
+# {"timestamp":"2026-09-25T05:09:28.207Z","event":"http_request_completed","service":"api-gateway","correlationId":"failure-correlation","method":"POST","path":"/v1/agent-learner/registrations","statusCode":400,"durationMs":0.768}
+# {"timestamp":"2026-09-25T05:09:28.209Z","event":"http_request_completed","service":"api-gateway","correlationId":"malformed-lifecycle-correlation","method":"POST","path":"/v1/agent-learner/interactions","statusCode":400,"durationMs":0.813}
+# Subtest: authentication, identity, version, timeout, evidence, and payload failures fail closed before mutation
+ok 3 - authentication, identity, version, timeout, evidence, and payload failures fail closed before mutation
+  ---
+  duration_ms: 19.144856
+  type: 'test'
+  ...
+# {"timestamp":"2026-09-25T05:09:28.215Z","event":"http_request_completed","service":"api-gateway","correlationId":"059b21c3-9dab-4d8d-8bce-a4a7fb222bd4","method":"POST","path":"/v1/auth/tokens","statusCode":200,"durationMs":2.348}
+# {"timestamp":"2026-09-25T05:09:28.218Z","event":"http_request_completed","service":"api-gateway","correlationId":"failed-registration-correlation","method":"POST","path":"/v1/agent-learner/registrations","statusCode":422,"durationMs":2.508}
+# {"timestamp":"2026-09-25T05:09:28.220Z","event":"http_request_completed","service":"api-gateway","correlationId":"failed-registration-correlation","method":"POST","path":"/v1/agent-learner/registrations","statusCode":422,"durationMs":0.676}
+# {"timestamp":"2026-09-25T05:09:28.221Z","event":"http_request_completed","service":"api-gateway","correlationId":"failed-registration-correlation","method":"POST","path":"/v1/agent-learner/registrations","statusCode":409,"durationMs":0.755}
+# Subtest: protocol registration idempotency replays failed upstream results and conflicts on changed content
+ok 4 - protocol registration idempotency replays failed upstream results and conflicts on changed content
+  ---
+  duration_ms: 12.127162
+  type: 'test'
+  ...
+# {"timestamp":"2026-09-25T05:09:28.227Z","event":"http_request_completed","service":"api-gateway","correlationId":"6cf17358-d443-4b08-aa56-9bc967015d8f","method":"POST","path":"/v1/auth/tokens","statusCode":200,"durationMs":2.259}
+# [api-gateway] proxy error Error: upstream request exceeded timeoutMs (20)
+#     at forwardJson (/home/moblbm/EduAgentX/services/api-gateway/index.js:413:28)
+#     at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+#     at async /home/moblbm/EduAgentX/services/api-gateway/index.js:160:24 {
+#   code: 'upstream_timeout'
+# }
+# {"timestamp":"2026-09-25T05:09:28.251Z","event":"http_request_completed","service":"api-gateway","correlationId":"timeout-registration-correlation","method":"POST","path":"/v1/agent-learner/registrations","statusCode":504,"durationMs":23.022}
+# {"timestamp":"2026-09-25T05:09:28.253Z","event":"http_request_completed","service":"api-gateway","correlationId":"timeout-registration-correlation","method":"POST","path":"/v1/agent-learner/registrations","statusCode":504,"durationMs":0.716}
+# Subtest: gateway enforces the protocol timeout on upstream registration and replays the timeout result
+ok 5 - gateway enforces the protocol timeout on upstream registration and replays the timeout result
+  ---
+  duration_ms: 32.186186
+  type: 'test'
+  ...
+1..5
+# tests 5
+# suites 0
+# pass 5
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 437.004413

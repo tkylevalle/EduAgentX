@@ -1,3 +1,5 @@
+const telemetry = require('./telemetry');
+const { checkDependencies, bounded } = require('./dependency-health');
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -12,9 +14,10 @@ const PORT = Number(process.env.PORT || 4001);
 const SERVICE_NAME = process.env.SERVICE_NAME || 'agent-registry';
 const EVENT_STREAM = process.env.AGENT_REGISTRY_EVENT_STREAM || 'agent-registry.assurance';
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-const redisClient = createClient({ url: process.env.REDIS_URL });
-redisClient.on('error', (error) => console.error(`[${SERVICE_NAME}] redis error`, error));
+const pool = new Pool({ connectionString: process.env.DATABASE_URL, connectionTimeoutMillis: 2000, query_timeout: 2000, statement_timeout: 2000 });
+pool.on('error', () => telemetry.log(SERVICE_NAME, 'postgres_connection_error'));
+const redisClient = createClient({ url: process.env.REDIS_URL, disableOfflineQueue: true, socket: { connectTimeout: 2000 } });
+redisClient.on('error', (error) => telemetry.log(SERVICE_NAME, 'redis_connection_error'));
 
 let redisReady = false;
 
@@ -24,18 +27,14 @@ async function start() {
   redisReady = true;
 
   const postgresRepository = new PostgresRegistryRepository({ pool });
-  const repository = {
-    register: postgresRepository.register.bind(postgresRepository),
-    getById: postgresRepository.getById.bind(postgresRepository),
-    getByKey: postgresRepository.getByKey.bind(postgresRepository),
-    getLatestTrace: postgresRepository.getLatestTrace.bind(postgresRepository),
-    health: async () => {
-      await postgresRepository.health();
-      if (!redisReady) throw new Error('redis not ready');
-    },
-  };
+  const repository = {};
+  for (const method of ['register', 'getById', 'getByKey', 'getLatestTrace']) {
+    repository[method] = (...args) => telemetry.observe(SERVICE_NAME, 'postgres', method,
+      () => postgresRepository[method](...args));
+  }
+  repository.health = () => checkDependencies(postgresRepository, redisClient);
   const eventPublisher = {
-    publish: (event) => redisClient.xAdd(EVENT_STREAM, '*', {
+    publish: (event) => telemetry.observe(SERVICE_NAME, 'redis', 'xadd', () => bounded(() => redisClient.xAdd(EVENT_STREAM, '*', {
       eventType: event.eventType,
       eventId: event.eventId,
       agentLearnerId: event.agentLearnerId,
@@ -44,7 +43,7 @@ async function start() {
       previousFingerprint: event.previousFingerprint || '',
       correlationId: event.correlationId,
       occurredAt: event.occurredAt,
-    }),
+    })), event.correlationId),
   };
   const service = createRegistryService({ repository, eventPublisher });
   const app = createApp({ service });
@@ -64,7 +63,7 @@ async function start() {
 
 if (require.main === module) {
   start().catch((error) => {
-    console.error(`[${SERVICE_NAME}] failed to start`, error);
+    telemetry.log(SERVICE_NAME, 'startup_failed');
     process.exit(1);
   });
 }

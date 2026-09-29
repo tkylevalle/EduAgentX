@@ -1,3 +1,4 @@
+const telemetry = require('./telemetry');
 const { randomUUID } = require('node:crypto');
 
 const {
@@ -34,7 +35,7 @@ function createRegistryService({
       // PostgreSQL has already committed the append-only assurance event. A
       // later stream consumer can reconcile the durable event without making
       // the caller retry a mutation that already succeeded.
-      console.error('[agent-registry] assurance event publication failed', error);
+      telemetry.log('agent-registry', 'publication_pending', { correlationId: result.assurance.correlationId });
       return 'pending';
     }
   }
@@ -101,7 +102,7 @@ function createRegistryService({
   }
 
   async function health() {
-    if (typeof repository.health === 'function') await repository.health();
+    if (typeof repository.health === 'function') return await repository.health();
   }
 
   return { getById, getByKey, getLatestTrace, health, register };

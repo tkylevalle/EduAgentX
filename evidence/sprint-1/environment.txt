@@ -1,0 +1,62 @@
+Measured environment recorded at: 2026-09-25T03:59:51Z
+ba7f728f3f1098396c842c9163846704af9c83b6
+Docker version 28.5.2+dfsg4, build 9cc6dea35e9a963f281434761c656fba4ac43aed
+Docker Compose version 2.40.3-3
+Linux 6.18.3+kali+2-amd64 x86_64 GNU/Linux
+Architecture:                            x86_64
+CPU op-mode(s):                          32-bit, 64-bit
+Address sizes:                           39 bits physical, 48 bits virtual
+Byte Order:                              Little Endian
+CPU(s):                                  8
+On-line CPU(s) list:                     0-7
+Vendor ID:                               GenuineIntel
+Model name:                              Intel(R) Core(TM) i5-8350U CPU @ 1.70GHz
+CPU family:                              6
+Model:                                   142
+Thread(s) per core:                      2
+Core(s) per socket:                      4
+Socket(s):                               1
+Stepping:                                10
+Microcode version:                       0xf6
+CPU(s) scaling MHz:                      88%
+CPU max MHz:                             3600.0000
+CPU min MHz:                             400.0000
+BogoMIPS:                                3799.90
+Flags:                                   fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush dts acpi mmx fxsr sse sse2 ss ht tm pbe syscall nx pdpe1gb rdtscp lm constant_tsc art arch_perfmon pebs bts rep_good nopl xtopology nonstop_tsc cpuid aperfmperf pni pclmulqdq dtes64 monitor ds_cpl smx est tm2 ssse3 sdbg fma cx16 xtpr pdcm pcid sse4_1 sse4_2 x2apic movbe popcnt tsc_deadline_timer aes xsave avx f16c rdrand lahf_lm abm 3dnowprefetch cpuid_fault epb pti ssbd ibrs ibpb stibp fsgsbase tsc_adjust sgx bmi1 avx2 smep bmi2 erms invpcid mpx rdseed adx smap clflushopt intel_pt xsaveopt xsavec xgetbv1 xsaves dtherm ida arat pln pts hwp hwp_notify hwp_act_window hwp_epp md_clear flush_l1d arch_capabilities
+L1d cache:                               128 KiB (4 instances)
+L1i cache:                               128 KiB (4 instances)
+L2 cache:                                1 MiB (4 instances)
+L3 cache:                                6 MiB (1 instance)
+NUMA node(s):                            1
+NUMA node0 CPU(s):                       0-7
+Vulnerability Gather data sampling:      Mitigation; Microcode
+Vulnerability Ghostwrite:                Not affected
+Vulnerability Indirect target selection: Not affected
+Vulnerability Itlb multihit:             KVM: Mitigation: VMX unsupported
+Vulnerability L1tf:                      Mitigation; PTE Inversion
+Vulnerability Mds:                       Mitigation; Clear CPU buffers; SMT vulnerable
+Vulnerability Meltdown:                  Mitigation; PTI
+Vulnerability Mmio stale data:           Mitigation; Clear CPU buffers; SMT vulnerable
+Vulnerability Old microcode:             Not affected
+Vulnerability Reg file data sampling:    Not affected
+Vulnerability Retbleed:                  Mitigation; IBRS
+Vulnerability Spec rstack overflow:      Not affected
+Vulnerability Spec store bypass:         Mitigation; Speculative Store Bypass disabled via prctl
+Vulnerability Spectre v1:                Mitigation; usercopy/swapgs barriers and __user pointer sanitization
+Vulnerability Spectre v2:                Mitigation; IBRS; IBPB conditional; STIBP conditional; RSB filling; PBRSB-eIBRS Not affected; BHI Not affected
+Vulnerability Srbds:                     Mitigation; Microcode
+Vulnerability Tsa:                       Not affected
+Vulnerability Tsx async abort:           Mitigation; TSX disabled
+Vulnerability Vmscape:                   Mitigation; IBPB before exit to userspace
+               total        used        free      shared  buff/cache   available
+Mem:            15Gi       3.9Gi       3.0Gi       504Mi       9.2Gi        11Gi
+Swap:           15Gi          0B        15Gi
+CONTAINER                           REPOSITORY                          TAG                 PLATFORM            IMAGE ID            SIZE                CREATED
+eduagentx-agent-registry            eduagentx-agent-registry            latest              linux/amd64         564bd463f1df        148MB               23 minutes ago
+eduagentx-api-gateway               eduagentx-api-gateway               latest              linux/amd64         93f892091d60        147MB               23 minutes ago
+eduagentx-assurance-console         eduagentx-assurance-console         latest              linux/amd64         e56dbf773f0f        145MB               52 minutes ago
+eduagentx-postgres                  postgres                            16-alpine           linux/amd64         81bd698b4594        294MB               292 years ago
+eduagentx-redis                     redis                               7-alpine            linux/amd64         f84b0c467801        39.1MB              292 years ago
+eduagentx-synthetic-agent-learner   eduagentx-synthetic-agent-learner   latest              linux/amd64         5094c2efc155        145MB               52 minutes ago
+ M .env
+?? evidence/

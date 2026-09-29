@@ -25,6 +25,7 @@ class GatewayProtocolClient {
     this.fetch = fetchImpl;
     this.requestTimeoutMs = requestTimeoutMs;
     this.accessToken = null;
+    this.accessTokenExpiresAt = 0;
   }
 
   async register(message) {
@@ -70,7 +71,10 @@ class GatewayProtocolClient {
   }
 
   async getAccessToken(correlationId, timeoutMs) {
-    if (this.accessToken) return this.accessToken;
+    if (this.accessToken && Date.now() < this.accessTokenExpiresAt) {
+      return this.accessToken;
+    }
+    const tokenRequestedAt = Date.now();
     const controller = new AbortController();
     const timeout = setTimeout(
       () => controller.abort(),
@@ -96,6 +100,11 @@ class GatewayProtocolClient {
         );
       }
       this.accessToken = parsed.body.accessToken;
+      const expiresIn = Number(parsed.body.expiresIn);
+      const cacheLifetimeMs = Number.isFinite(expiresIn) && expiresIn > 0
+        ? Math.max(0, expiresIn * 1000 - 30_000)
+        : 0;
+      this.accessTokenExpiresAt = tokenRequestedAt + cacheLifetimeMs;
       return this.accessToken;
     } catch (error) {
       if (error.name === 'AbortError') {

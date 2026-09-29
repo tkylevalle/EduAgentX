@@ -1,3 +1,4 @@
+const telemetry = require('./telemetry');
 const express = require('express');
 
 const { RegistryError } = require('./registry-service');
@@ -14,14 +15,18 @@ function createApp({ service }) {
     res.setHeader('x-correlation-id', req.correlationId);
     next();
   });
+
+  app.use(telemetry.middleware('agent-registry'));
+
   app.use(express.json({ limit: '64kb' }));
 
   app.get('/health', async (req, res, next) => {
     try {
-      if (typeof service.health === 'function') await service.health();
-      res.status(200).json({ apiVersion: API_VERSION, status: 'ok', service: 'agent-registry' });
+      const dependencies = typeof service.health === 'function' ? await service.health() : {};
+      res.status(200).json({ apiVersion: API_VERSION, status: 'ok', service: 'agent-registry', dependencies });
     } catch (error) {
-      next(error);
+      telemetry.log('agent-registry', 'health_failed', { correlationId: req.correlationId });
+      res.status(503).json({ status: 'unhealthy', service: 'agent-registry' });
     }
   });
 
@@ -113,7 +118,7 @@ function createApp({ service }) {
       });
     }
 
-    console.error('[agent-registry] unhandled request error', error);
+    telemetry.log('agent-registry', 'request_failed', { correlationId: req.correlationId });
     return res.status(500).json({
       apiVersion: API_VERSION,
       error: 'internal_error',

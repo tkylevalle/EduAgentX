@@ -7,3 +7,6 @@ tmp
 .scratch
 **/node_modules
 **/*.log
+evidence
+**/__pycache__
+*.zip
