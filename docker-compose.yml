@@ -17,6 +17,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
       REGISTRY_DB_PASSWORD: ${REGISTRY_DB_PASSWORD:?Run node scripts/setup-dev.js}
+      CURRICULUM_DB_PASSWORD: ${CURRICULUM_DB_PASSWORD:?Run node scripts/setup-dev.js}
     ports:
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
@@ -96,6 +97,32 @@ services:
           cpus: '0.1'
           memory: 64M
 
+  curriculum-engine:
+    build:
+      context: .
+      dockerfile: services/curriculum-engine/Dockerfile
+    container_name: eduagentx-curriculum-engine
+    environment:
+      PORT: 4002
+      DATABASE_URL: postgres://curriculum_owner:${CURRICULUM_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      CURRICULUM_INTERNAL_KEY: ${CURRICULUM_INTERNAL_KEY:?Run node scripts/setup-dev.js}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:4002/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    networks:
+      - eduagentx-net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+
   api-gateway:
     build:
       context: .
@@ -104,6 +131,8 @@ services:
     environment:
       PORT: 4000
       AGENT_REGISTRY_URL: http://agent-registry:4001
+      CURRICULUM_ENGINE_URL: http://curriculum-engine:4002
+      CURRICULUM_INTERNAL_KEY: ${CURRICULUM_INTERNAL_KEY:?Run node scripts/setup-dev.js}
       SERVICE_NAME: api-gateway
       JWT_ISSUER: ${JWT_ISSUER}
       JWT_AUDIENCE: ${JWT_AUDIENCE}
@@ -120,6 +149,8 @@ services:
       - "127.0.0.1:${GATEWAY_PORT:-8080}:4000"
     depends_on:
       agent-registry:
+        condition: service_healthy
+      curriculum-engine:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:4000/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]

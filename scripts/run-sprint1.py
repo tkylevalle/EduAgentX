@@ -46,8 +46,9 @@ COMPONENTS = discover_components()
 SOURCE_DIRECTORIES = ['packages', 'services', 'scripts', 'db', 'docs', 'monitoring', 'courses', '.github']
 SOURCE_FILES = ['docker-compose.yml', '.env.example', 'Makefile', '.dockerignore', '.gitattributes']
 # Fresh random values for each run; they must never appear in any log.
-GENERATED_SECRETS = ['POSTGRES_PASSWORD', 'REGISTRY_DB_PASSWORD', 'AGENT_CLIENT_SECRET',
-                     'ADMIN_CLIENT_SECRET', 'GRAFANA_ADMIN_PASSWORD']
+GENERATED_SECRETS = ['POSTGRES_PASSWORD', 'REGISTRY_DB_PASSWORD', 'CURRICULUM_DB_PASSWORD',
+                     'CURRICULUM_INTERNAL_KEY', 'AGENT_CLIENT_SECRET', 'ADMIN_CLIENT_SECRET',
+                     'GRAFANA_ADMIN_PASSWORD']
 PERSISTENCE_CHECKS = ['consumer_recovery', 'poison_out_of_order', 'durable_idempotency',
                       'outbox_recovery', 'service_owned_permissions']
 
