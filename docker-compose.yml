@@ -16,8 +16,9 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
+      REGISTRY_DB_PASSWORD: ${REGISTRY_DB_PASSWORD:?Run node scripts/setup-dev.js}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./db/init:/docker-entrypoint-initdb.d:ro
@@ -43,7 +44,7 @@ services:
     container_name: eduagentx-redis
     command: ["redis-server", "--appendonly", "yes"]
     ports:
-      - "${REDIS_PORT:-6379}:6379"
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
     volumes:
       - redis-data:/data
     healthcheck:
@@ -65,11 +66,12 @@ services:
 
   agent-registry:
     build:
-      context: ./services/agent-registry
+      context: .
+      dockerfile: services/agent-registry/Dockerfile
     container_name: eduagentx-agent-registry
     environment:
       PORT: 4001
-      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      DATABASE_URL: postgres://registry_owner:${REGISTRY_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://redis:6379
       SERVICE_NAME: agent-registry
     depends_on:
@@ -96,7 +98,8 @@ services:
 
   api-gateway:
     build:
-      context: ./services/api-gateway
+      context: .
+      dockerfile: services/api-gateway/Dockerfile
     container_name: eduagentx-api-gateway
     environment:
       PORT: 4000
@@ -114,7 +117,7 @@ services:
     volumes:
       - ./keys:/app/keys:ro
     ports:
-      - "${GATEWAY_PORT:-8080}:4000"
+      - "127.0.0.1:${GATEWAY_PORT:-8080}:4000"
     depends_on:
       agent-registry:
         condition: service_healthy
@@ -135,16 +138,52 @@ services:
           cpus: '0.1'
           memory: 64M
 
+  synthetic-agent-learner:
+    build:
+      context: .
+      dockerfile: services/synthetic-agent-learner/Dockerfile
+    container_name: eduagentx-synthetic-agent-learner
+    environment:
+      PORT: 4200
+      API_GATEWAY_URL: http://api-gateway:4000
+      SERVICE_NAME: synthetic-agent-learner
+      AGENT_CLIENT_ID: ${AGENT_CLIENT_ID}
+      AGENT_CLIENT_SECRET: ${AGENT_CLIENT_SECRET}
+    ports:
+      - "127.0.0.1:${SYNTHETIC_AGENT_PORT:-4200}:4200"
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:4200/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    networks:
+      - eduagentx-net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+
   assurance-console:
     build:
-      context: ./services/assurance-console
+      context: .
+      dockerfile: services/assurance-console/Dockerfile
     container_name: eduagentx-assurance-console
     environment:
       PORT: 4100
       API_GATEWAY_URL: http://api-gateway:4000
       SERVICE_NAME: assurance-console
+      ADMIN_CLIENT_ID: ${ADMIN_CLIENT_ID}
+      ADMIN_CLIENT_SECRET: ${ADMIN_CLIENT_SECRET}
     ports:
-      - "${CONSOLE_PORT:-4173}:4100"
+      - "127.0.0.1:${CONSOLE_PORT:-4173}:4100"
     depends_on:
       api-gateway:
         condition: service_healthy
@@ -165,13 +204,21 @@ services:
           cpus: '0.1'
           memory: 64M
 
+  health-prober:
+    image: prom/blackbox-exporter:v0.27.0
+    command: ['--config.file=/etc/blackbox/blackbox.yml']
+    volumes:
+      - ./monitoring/blackbox.yml:/etc/blackbox/blackbox.yml:ro
+    networks:
+      - eduagentx-net
+
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v3.5.0
     container_name: eduagentx-prometheus
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"
     networks:
       - eduagentx-net
     deploy:
@@ -184,16 +231,17 @@ services:
           memory: 64M
 
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:12.1.1
     container_name: eduagentx-grafana
     environment:
-      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Run node scripts/setup-dev.js}
       GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
     volumes:
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     depends_on:
       - prometheus
     networks:

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SERVICES=(eduagentx-postgres eduagentx-redis eduagentx-agent-registry eduagentx-api-gateway eduagentx-assurance-console)
+SERVICES=(eduagentx-postgres eduagentx-redis eduagentx-agent-registry eduagentx-api-gateway eduagentx-synthetic-agent-learner eduagentx-assurance-console)
 MAX_WAIT=120
 INTERVAL=3
 elapsed=0

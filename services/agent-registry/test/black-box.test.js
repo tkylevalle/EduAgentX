@@ -3,6 +3,7 @@ const http = require('node:http');
 const test = require('node:test');
 
 const { createApp } = require('../app');
+const { registrationResult } = require('../domain');
 const { createRegistryService } = require('../registry-service');
 
 class InMemoryRegistry {
@@ -76,7 +77,7 @@ class InMemoryRegistry {
   }
 
   result(outcome, learner, configuration, assurance, previous) {
-    return {
+    return registrationResult({
       outcome,
       registration: {
         agentLearnerId: learner.agentLearnerId,
@@ -91,7 +92,7 @@ class InMemoryRegistry {
       },
       assurance: { ...assurance, previousFingerprint: previous?.configurationFingerprint || assurance.previousFingerprint || null },
       correlationId: assurance.correlationId,
-    };
+    });
   }
 
   async getById(id) {

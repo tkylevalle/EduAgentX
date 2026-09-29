@@ -1,0 +1,86 @@
+TAP version 13
+# {"timestamp":"2026-09-25T08:49:54.130Z","service":"agent-registry","event":"http_request_completed","correlationId":"invalid-correlation","method":"POST","path":"/v1/registrations","statusCode":400,"durationMs":10.154012,"outcome":"completed"}
+# {"timestamp":"2026-09-25T08:49:54.134Z","service":"agent-registry","event":"http_request_completed","correlationId":"after-invalid-correlation","method":"GET","path":"/v1/registrations","statusCode":404,"durationMs":0.838499,"outcome":"completed"}
+# {"timestamp":"2026-09-25T08:49:54.137Z","service":"agent-registry","event":"http_request_completed","correlationId":"created-correlation","method":"POST","path":"/v1/registrations","statusCode":201,"durationMs":1.611512,"outcome":"completed"}
+# {"timestamp":"2026-09-25T08:49:54.140Z","service":"agent-registry","event":"http_request_completed","correlationId":"retry-correlation","method":"POST","path":"/v1/registrations","statusCode":200,"durationMs":1.326064,"outcome":"completed"}
+# {"timestamp":"2026-09-25T08:49:54.142Z","service":"agent-registry","event":"http_request_completed","correlationId":"changed-correlation","method":"POST","path":"/v1/registrations","statusCode":200,"durationMs":0.910854,"outcome":"completed"}
+# {"timestamp":"2026-09-25T08:49:54.144Z","service":"agent-registry","event":"http_request_completed","correlationId":"reverted-correlation","method":"POST","path":"/v1/registrations","statusCode":200,"durationMs":0.802333,"outcome":"completed"}
+# {"timestamp":"2026-09-25T08:49:54.145Z","service":"agent-registry","event":"http_request_completed","correlationId":"repeated-revert-correlation","method":"POST","path":"/v1/registrations","statusCode":200,"durationMs":0.625321,"outcome":"completed"}
+# {"timestamp":"2026-09-25T08:49:54.147Z","service":"agent-registry","event":"http_request_completed","correlationId":"retrieve-correlation","method":"GET","path":"/v1/registrations/:agentLearnerId","statusCode":200,"durationMs":1.140116,"outcome":"completed"}
+# {"timestamp":"2026-09-25T08:49:54.149Z","service":"agent-registry","event":"http_request_completed","correlationId":"trace-correlation","method":"GET","path":"/v1/registration-traces/latest","statusCode":200,"durationMs":0.713159,"outcome":"completed"}
+# Subtest: registration contract covers valid, invalid, repeated, changed, retrieval, and trace flows
+ok 1 - registration contract covers valid, invalid, repeated, changed, retrieval, and trace flows
+  ---
+  duration_ms: 51.238392
+  type: 'test'
+  ...
+# {"timestamp":"2026-09-25T08:49:54.155Z","service":"agent-registry","event":"http_request_completed","correlationId":"missing-correlation","method":"GET","path":"/v1/registrations/:agentLearnerId","statusCode":404,"durationMs":0.791311,"outcome":"completed"}
+# Subtest: retrieval returns a versioned not-found contract
+ok 2 - retrieval returns a versioned not-found contract
+  ---
+  duration_ms: 5.41399
+  type: 'test'
+  ...
+# Subtest: valid registration input normalizes the model and tool manifest
+ok 3 - valid registration input normalizes the model and tool manifest
+  ---
+  duration_ms: 15.133383
+  type: 'test'
+  ...
+# Subtest: configuration fingerprint is stable across object and manifest ordering
+ok 4 - configuration fingerprint is stable across object and manifest ordering
+  ---
+  duration_ms: 1.497391
+  type: 'test'
+  ...
+# Subtest: material configuration input changes the fingerprint
+ok 5 - material configuration input changes the fingerprint
+  ---
+  duration_ms: 0.532386
+  type: 'test'
+  ...
+# Subtest: invalid registration input identifies missing fields and rejects caller fingerprints
+ok 6 - invalid registration input identifies missing fields and rejects caller fingerprints
+  ---
+  duration_ms: 0.449265
+  type: 'test'
+  ...
+# {"timestamp":"2026-09-25T08:49:54.035Z","service":"agent-registry","event":"dependency_operation","durationMs":0.591198,"dependency":"postgres","operation":"health","outcome":"ok"}
+# {"timestamp":"2026-09-25T08:49:54.036Z","service":"agent-registry","event":"dependency_operation","durationMs":1.482528,"dependency":"redis","operation":"health","outcome":"ok"}
+# {"timestamp":"2026-09-25T08:49:54.037Z","service":"agent-registry","event":"dependency_operation","durationMs":0.312768,"dependency":"postgres","operation":"health","outcome":"ok"}
+# {"timestamp":"2026-09-25T08:49:54.037Z","service":"agent-registry","event":"dependency_operation","durationMs":0.340247,"dependency":"redis","operation":"health","outcome":"error"}
+# {"timestamp":"2026-09-25T08:49:54.038Z","service":"agent-registry","event":"dependency_operation","durationMs":0.226142,"dependency":"postgres","operation":"health","outcome":"error"}
+# {"timestamp":"2026-09-25T08:49:54.038Z","service":"agent-registry","event":"dependency_operation","durationMs":0.276074,"dependency":"redis","operation":"health","outcome":"ok"}
+# Subtest: health probes both live dependencies and rejects disconnected Redis
+ok 7 - health probes both live dependencies and rejects disconnected Redis
+  ---
+  duration_ms: 4.547851
+  type: 'test'
+  ...
+# Subtest: dependency timeout is bounded
+ok 8 - dependency timeout is bounded
+  ---
+  duration_ms: 11.338509
+  type: 'test'
+  ...
+# Subtest: telemetry allowlist excludes raw error bodies and credentials
+ok 9 - telemetry allowlist excludes raw error bodies and credentials
+  ---
+  duration_ms: 1.410511
+  type: 'test'
+  ...
+# Subtest: HTTP health and dependency errors retain correlation without serializing private errors
+ok 10 - HTTP health and dependency errors retain correlation without serializing private errors
+  ---
+  duration_ms: 143.109551
+  type: 'test'
+  ...
+1..10
+# tests 10
+# suites 0
+# pass 10
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 294.687063

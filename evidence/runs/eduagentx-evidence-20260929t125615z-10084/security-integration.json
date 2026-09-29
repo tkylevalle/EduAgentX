@@ -1,0 +1,69 @@
+{
+  "schemaVersion": "1.0.0",
+  "suite": "sprint1-security-integration",
+  "completedAt": "2026-09-29T12:59:54.089Z",
+  "gatewayBaseUrl": "http://127.0.0.1:18080",
+  "result": "passed",
+  "totals": {
+    "checks": 11,
+    "passed": 11,
+    "failed": 0
+  },
+  "checks": [
+    {
+      "name": "unauthenticated registration is rejected",
+      "status": "passed",
+      "durationMs": 1
+    },
+    {
+      "name": "invalid bearer token is rejected without echo",
+      "status": "passed",
+      "durationMs": 2
+    },
+    {
+      "name": "agent role cannot access admin evidence",
+      "status": "passed",
+      "durationMs": 1
+    },
+    {
+      "name": "invalid client secret is not reflected",
+      "status": "passed",
+      "durationMs": 1
+    },
+    {
+      "name": "malformed JSON is rejected with correlation",
+      "status": "passed",
+      "durationMs": 2
+    },
+    {
+      "name": "oversized JSON is rejected",
+      "status": "passed",
+      "durationMs": 24
+    },
+    {
+      "name": "provider-neutral registration succeeds through the Gateway",
+      "status": "passed",
+      "durationMs": 22
+    },
+    {
+      "name": "idempotent retry returns the exact original result",
+      "status": "passed",
+      "durationMs": 2
+    },
+    {
+      "name": "idempotency key reuse with changed content conflicts",
+      "status": "passed",
+      "durationMs": 1
+    },
+    {
+      "name": "private lifecycle response is redacted and cannot issue a credential",
+      "status": "passed",
+      "durationMs": 2
+    },
+    {
+      "name": "admin can retrieve correlated assurance evidence",
+      "status": "passed",
+      "durationMs": 9
+    }
+  ]
+}

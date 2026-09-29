@@ -1,0 +1,10 @@
+{
+  "name": "@eduagentx/telemetry",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Allowlist JSON logger with correlation context. Shared by all EduAgentX services.",
+  "main": "index.js",
+  "scripts": {
+    "test": "node --test"
+  }
+}

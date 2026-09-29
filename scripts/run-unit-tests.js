@@ -5,37 +5,36 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const root = path.resolve(__dirname, '..');
+const { listComponents, root } = require('./components');
+
 const resultsDirectory = process.env.SPRINT1_RESULTS_DIR
   ? path.resolve(process.env.SPRINT1_RESULTS_DIR)
   : path.join(root, 'artifacts', 'sprint1');
-const services = [
-  'agent-registry',
-  'api-gateway',
-  'assurance-console',
-  'external-agent-protocol',
-  'synthetic-agent-learner',
-];
 
 fs.mkdirSync(resultsDirectory, { recursive: true });
 const startedAt = new Date();
 const results = [];
 
-for (const service of services) {
-  console.log(`\n===== ${service} =====`);
-  const serviceDirectory = path.join(root, 'services', service);
+for (const { name, directory } of listComponents()) {
+  console.log(`\n===== ${name} =====`);
   const started = Date.now();
+  const testDirectory = path.join(directory, 'test');
+  const testFiles = fs.existsSync(testDirectory)
+    ? fs.readdirSync(testDirectory).filter((file) => file.endsWith('.test.js')).sort()
+      .map((file) => path.join('test', file))
+    : [];
   const execution = spawnSync(
     process.execPath,
-    ['--test', '--test-reporter=tap'],
-    { cwd: serviceDirectory, encoding: 'utf8', env: process.env }
+    ['--test', '--test-reporter=tap', ...testFiles],
+    { cwd: directory, encoding: 'utf8', env: process.env }
   );
   const output = `${execution.stdout || ''}${execution.stderr || ''}`;
   process.stdout.write(output);
   const parsed = parseTapSummary(output);
   results.push({
-    service,
-    status: execution.status === 0 ? 'passed' : 'failed',
+    component: name,
+    status: execution.status === 0 && parsed.tests > 0 && parsed.passed === parsed.tests && parsed.skipped === 0
+      ? 'passed' : 'failed',
     exitCode: execution.status,
     durationMs: Date.now() - started,
     ...parsed,
@@ -60,7 +59,7 @@ const summary = {
     skipped: sum('skipped'),
   },
   result: results.every((item) => item.status === 'passed') ? 'passed' : 'failed',
-  services: results,
+  components: results,
 };
 
 const outputPath = path.join(resultsDirectory, 'unit-tests.json');

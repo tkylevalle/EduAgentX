@@ -3,8 +3,8 @@ const http = require('node:http');
 const path = require('node:path');
 const test = require('node:test');
 
-const { createRegistrationMessage, createLifecycleMessage } = require('../../external-agent-protocol');
-const { runProtocolConformanceSuite } = require('../../external-agent-protocol/conformance');
+const { createRegistrationMessage, createLifecycleMessage } = require('../../../packages/external-agent-protocol');
+const { runProtocolConformanceSuite } = require('../../../packages/external-agent-protocol/conformance');
 
 process.env.JWT_ISSUER = 'eduagentx-api-gateway-test';
 process.env.JWT_AUDIENCE = 'eduagentx-platform-test';
@@ -251,7 +251,7 @@ test('protocol registration idempotency replays failed upstream results and conf
   assert.equal(registryRequests.filter((entry) => entry.url === '/v1/registrations').length, 1);
 });
 
-test('gateway enforces the protocol timeout on upstream registration and replays the timeout result', async (t) => {
+test('gateway bounds upstream requests and lets an ambiguous timeout retry reach the owner', async (t) => {
   const registryRequests = [];
   const registry = await startRegistryStub(registryRequests, { registrationDelayMs: 100 });
   process.env.AGENT_REGISTRY_URL = `http://127.0.0.1:${registry.address().port}`;
@@ -286,7 +286,7 @@ test('gateway enforces the protocol timeout on upstream registration and replays
   assert.equal(first.body.evidence.label, 'SIMULATION: Synthetic Agent Learner');
   assert.equal(retry.status, 504);
   assert.deepEqual(retry.body, first.body);
-  assert.equal(registryRequests.filter((entry) => entry.url === '/v1/registrations').length, 1);
+  assert.equal(registryRequests.filter((entry) => entry.url === '/v1/registrations').length, 2);
 });
 
 function registrationPayload(agentLearnerKey, provider) {

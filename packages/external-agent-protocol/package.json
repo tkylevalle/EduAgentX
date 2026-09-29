@@ -1,0 +1,10 @@
+{
+  "name": "@eduagentx/external-agent-protocol",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Provider-neutral External Agent Learner Protocol contract and conformance helpers.",
+  "main": "index.js",
+  "scripts": {
+    "test": "node --test"
+  }
+}

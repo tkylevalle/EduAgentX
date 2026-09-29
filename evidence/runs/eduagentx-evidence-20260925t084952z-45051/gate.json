@@ -1,0 +1,9 @@
+{
+  "status": "BLOCKED",
+  "technical_checks": "PASS",
+  "errors": [],
+  "blockers": [
+    "Issue 7: absent or different source version",
+    "review/reproduction: absent or different source version"
+  ]
+}

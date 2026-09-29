@@ -1,3 +1,4 @@
+const telemetry = require('../../packages/telemetry');
 // auth.js - real authN/authZ for the API Gateway (Sprint 1, work package
 // "API Gateway, authentication, and contracts").
 //
@@ -30,7 +31,7 @@ function readKeyOrThrow(path, label) {
   }
   if (!fs.existsSync(path)) {
     throw new Error(
-      `${label} not found at ${path}. Run ./scripts/generate-dev-keys.sh (or 'make up', which does this for you).`
+      `${label} not found at ${path}. Run 'node scripts/generate-test-keys.js' (or 'make up', which does this for you).`
     );
   }
   return fs.readFileSync(path, 'utf8');
@@ -125,7 +126,7 @@ function issueToken(req, res) {
       }
     );
   } catch (err) {
-    console.error('[api-gateway] token signing failed', err);
+    telemetry.log('api-gateway', 'token_signing_failed', { correlationId: req.correlationId });
     return res.status(500).json({
       error: 'token_issuance_failed',
       correlationId: req.correlationId,
@@ -185,4 +186,11 @@ function requireRole(...allowedRoles) {
   };
 }
 
-module.exports = { issueToken, requireRole };
+function authHealth() {
+  try {
+    const probe = jwt.sign({ probe: true }, privateKey(), { algorithm: 'RS256', expiresIn: 5 });
+    jwt.verify(probe, publicKey(), { algorithms: ['RS256'] });
+    return knownClients().some(c => c.role === 'agent') && knownClients().some(c => c.role === 'admin');
+  } catch { return false; }
+}
+module.exports = { issueToken, requireRole, authHealth };

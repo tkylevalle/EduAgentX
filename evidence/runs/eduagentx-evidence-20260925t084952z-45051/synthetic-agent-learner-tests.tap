@@ -1,0 +1,70 @@
+TAP version 13
+# Subtest: synthetic profiles are deterministic and expose the required safe scenarios
+ok 1 - synthetic profiles are deterministic and expose the required safe scenarios
+  ---
+  duration_ms: 2.012208
+  type: 'test'
+  ...
+# Subtest: a competent synthetic learner registers and sends lifecycle interaction through the gateway client
+ok 2 - a competent synthetic learner registers and sends lifecycle interaction through the gateway client
+  ---
+  duration_ms: 2.122999
+  type: 'test'
+  ...
+# Subtest: malformed and inconsistent synthetic responses fail closed without credential issuance
+ok 3 - malformed and inconsistent synthetic responses fail closed without credential issuance
+  ---
+  duration_ms: 0.715957
+  type: 'test'
+  ...
+# Subtest: timing-out and unavailable profiles return distinct safe outcomes after registration
+ok 4 - timing-out and unavailable profiles return distinct safe outcomes after registration
+  ---
+  duration_ms: 0.569701
+  type: 'test'
+  ...
+# Subtest: gateway or registration unavailability becomes a system-aborted public result
+ok 5 - gateway or registration unavailability becomes a system-aborted public result
+  ---
+  duration_ms: 0.508142
+  type: 'test'
+  ...
+# Subtest: the synthetic service drives registration and lifecycle interaction through the gateway HTTP client
+ok 6 - the synthetic service drives registration and lifecycle interaction through the gateway HTTP client
+  ---
+  duration_ms: 44.876717
+  type: 'test'
+  ...
+# Subtest: synthetic failure profiles retain safe public outcomes and never claim credentials
+ok 7 - synthetic failure profiles retain safe public outcomes and never claim credentials
+  ---
+  duration_ms: 23.91631
+  type: 'test'
+  ...
+# Subtest: Gateway authentication honors the protocol timeout before registration dispatch
+ok 8 - Gateway authentication honors the protocol timeout before registration dispatch
+  ---
+  duration_ms: 27.483689
+  type: 'test'
+  ...
+# Subtest: synthetic service attaches the request correlation to malformed JSON errors
+ok 9 - synthetic service attaches the request correlation to malformed JSON errors
+  ---
+  duration_ms: 4.734769
+  type: 'test'
+  ...
+# Subtest: reuses valid tokens and refreshes near-expiry or expired tokens
+ok 10 - reuses valid tokens and refreshes near-expiry or expired tokens
+  ---
+  duration_ms: 1.834009
+  type: 'test'
+  ...
+1..10
+# tests 10
+# suites 0
+# pass 10
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 367.413585

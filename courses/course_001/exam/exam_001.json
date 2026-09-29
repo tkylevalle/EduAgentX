@@ -49,7 +49,7 @@
     {
       "id": 7,
       "skill_ref": "skill_07",
-      "question": "Time series: [50,51,49,52,50,48,95,51,50]. Identify anomalies using 3-sigma rule.",
+      "question": "Use the first six observations [50,51,49,52,50,48] as a fixed baseline with population standard deviation. Apply the 3-sigma rule to subsequent values [95,51,50]. Identify anomalies by their one-based positions in the full series.",
       "expected_answer": "t=7, value=95 is anomalous — significantly above the normal cluster mean of ~50.",
       "difficulty": 7
     },
@@ -57,7 +57,7 @@
       "id": 8,
       "skill_ref": "skill_08",
       "question": "Solutions: X(quality=9,cost=8), Y(quality=6,cost=4), Z(quality=8,cost=7). Maximise quality, minimise cost. Find Pareto front.",
-      "expected_answer": "Pareto front: {X,Y}. Z is dominated by X.",
+      "expected_answer": "Pareto front: {X,Y,Z}. Each quality improvement costs more; none dominates another.",
       "difficulty": 9
     },
     {

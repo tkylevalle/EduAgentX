@@ -29,7 +29,7 @@ process.env.AGENT_CLIENT_SECRET = 'security-agent-secret';
 process.env.ADMIN_CLIENT_ID = 'security-admin';
 process.env.ADMIN_CLIENT_SECRET = 'security-admin-secret';
 
-const { createLifecycleMessage } = require('../../external-agent-protocol');
+const { createLifecycleMessage } = require('../../../packages/external-agent-protocol');
 const { createApp } = require('../index');
 
 test.after(() => fs.rmSync(keyDirectory, { recursive: true, force: true }));
@@ -167,6 +167,41 @@ test('dependency health failures time out and redact upstream details', async (t
   assert.ok(Date.now() - started < 2500, 'Gateway health must bound dependency wait time');
   assert.equal(response.body.error, 'dependency_unavailable');
   assert.doesNotMatch(JSON.stringify(response.body), new RegExp(escapeRegExp(protectedDetail)));
+});
+
+test('gateway rate limiting rejects excess requests and recovers after the window', async (t) => {
+  let time = 0;
+  const gateway = http.createServer(createApp({ rateLimit: { limit: 2, windowMs: 1000, now: () => time } }));
+  await listen(gateway);
+  t.after(() => gateway.close());
+  const headers = { authorization: `Bearer ${signToken()}`, 'x-correlation-id': 'rate-check' };
+  for (let i = 0; i < 2; i++) assert.equal((await request(gateway, 'GET', '/v1/agent-learner/protocol', undefined, headers)).status, 200);
+  const rejected = await request(gateway, 'GET', '/v1/agent-learner/protocol', undefined, headers);
+  assert.equal(rejected.status, 429);
+  assert.equal(rejected.body.correlationId, 'rate-check');
+  assert.equal(rejected.headers['retry-after'], '1');
+  time = 1001;
+  assert.equal((await request(gateway, 'GET', '/v1/agent-learner/protocol', undefined, headers)).status, 200);
+});
+
+test('unsafe body correlation IDs are rejected without crashing the gateway', async (t) => {
+  const gateway = http.createServer(createApp());
+  await listen(gateway);
+  t.after(() => gateway.close());
+  for (const correlationId of ['a\r\nb', 'a\u0000b', 'a\u2603b']) {
+    const message = {
+      protocol: 'ExternalAgentLearner', protocolVersion: '1.0.0', messageType: 'registration',
+      messageId: 'unsafe-correlation', correlationId, idempotencyKey: 'unsafe-correlation',
+      timeoutMs: 1000, evidence: { mode: 'synthetic' }, payload: registrationPayload(),
+    };
+    const response = await request(gateway, 'POST', '/v1/agent-learner/registrations', message,
+      { authorization: `Bearer ${signToken()}` });
+    assert.equal(response.status, 400);
+    assert.match(response.headers['x-correlation-id'], /^[\x20-\x7e]+$/);
+    assert.notEqual(response.body.correlationId, correlationId);
+  }
+  assert.equal((await request(gateway, 'GET', '/v1/agent-learner/protocol', undefined,
+    { authorization: `Bearer ${signToken()}` })).status, 200);
 });
 
 function signToken({

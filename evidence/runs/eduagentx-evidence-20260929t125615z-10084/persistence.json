@@ -1,0 +1,24 @@
+{
+  "before": {
+    "total": 22,
+    "pending": 0,
+    "exhausted": 0,
+    "applied": 22,
+    "waiting": 0,
+    "quarantined": 0
+  },
+  "recovered": {
+    "total": 25,
+    "pending": 0,
+    "exhausted": 0,
+    "applied": 25,
+    "waiting": 0,
+    "quarantined": 1
+  },
+  "recovery_ms": 2312.0000001508743,
+  "consumer_recovery": true,
+  "poison_out_of_order": true,
+  "durable_idempotency": true,
+  "outbox_recovery": true,
+  "service_owned_permissions": true
+}

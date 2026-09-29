@@ -1,11 +1,13 @@
-FROM node:20-alpine
+# Build context is the repository root so the service can use packages/.
+FROM node:24-alpine
 
-WORKDIR /app
+WORKDIR /app/services/api-gateway
 
-COPY package.json ./
-RUN npm install --omit=dev
+COPY services/api-gateway/package.json services/api-gateway/package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts
 
-COPY index.js auth.js ./
+COPY packages /app/packages
+COPY services/api-gateway ./
 
 EXPOSE 4000
 

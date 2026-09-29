@@ -1,0 +1,11 @@
+PASS unauthenticated registration is rejected
+PASS invalid bearer token is rejected without echo
+PASS agent role cannot access admin evidence
+PASS invalid client secret is not reflected
+PASS malformed JSON is rejected with correlation
+PASS oversized JSON is rejected
+PASS provider-neutral registration succeeds through the Gateway
+PASS idempotent retry returns the exact original result
+PASS idempotency key reuse with changed content conflicts
+PASS private lifecycle response is redacted and cannot issue a credential
+PASS admin can retrieve correlated assurance evidence

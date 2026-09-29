@@ -5,7 +5,8 @@
   "description": "Sprint 1 minimal Assurance Console shell. Real Monitoring/Governance views are owned by later work packages (Sprint 4).",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "test": "node --test"
   },
   "dependencies": {
     "express": "^4.19.2",

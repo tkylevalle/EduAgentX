@@ -13,7 +13,7 @@
   ],
   "example": {
     "input": "A(cost=10,time=5), B(cost=7,time=8), C(cost=9,time=6)",
-    "output": "Pareto front: {A,B}. C dominated by A.",
+    "output": "Pareto front: {A,B,C}. No candidate dominates another when minimizing both cost and time.",
     "explanation": "Trade-off is cost vs time"
   },
   "source": "openclaw"

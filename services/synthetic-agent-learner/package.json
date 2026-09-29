@@ -1,0 +1,14 @@
+{
+  "name": "eduagentx-synthetic-agent-learner",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Deterministic Synthetic Agent Learner adapter for the ExternalAgentLearner protocol.",
+  "scripts": {
+    "start": "node index.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "node-fetch": "^2.7.0"
+  }
+}

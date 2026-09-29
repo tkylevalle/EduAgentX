@@ -12,14 +12,14 @@ const resultsDirectory = process.env.SPRINT1_RESULTS_DIR
   ? path.resolve(process.env.SPRINT1_RESULTS_DIR)
   : path.join(root, 'artifacts', 'sprint1');
 const agentClientId = process.env.AGENT_CLIENT_ID || 'synthetic-agent-learner-dev';
-const agentClientSecret = process.env.AGENT_CLIENT_SECRET || 'changeme_local_only_agent_secret';
+const agentClientSecret = requiredEnv('AGENT_CLIENT_SECRET');
 const adminClientId = process.env.ADMIN_CLIENT_ID || 'capstone-admin-dev';
-const adminClientSecret = process.env.ADMIN_CLIENT_SECRET || 'changeme_local_only_admin_secret';
+const adminClientSecret = requiredEnv('ADMIN_CLIENT_SECRET');
 
 const checks = [];
 
 main().catch((error) => {
-  console.error(error);
+  console.error(`Security integration failed: ${error.message}`);
   writeResults('failed', error.message);
   process.exitCode = 1;
 });
@@ -261,6 +261,14 @@ function writeResults(result, fatalError) {
     checks,
   };
   fs.writeFileSync(path.join(resultsDirectory, 'security-integration.json'), `${JSON.stringify(report, null, 2)}\n`);
+}
+
+function requiredEnv(name) {
+  if (!process.env[name]) {
+    console.error(`${name} is not set. Run make up to create .env.`);
+    process.exit(1);
+  }
+  return process.env[name];
 }
 
 function loadEnv(filePath) {

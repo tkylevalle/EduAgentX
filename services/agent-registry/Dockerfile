@@ -1,11 +1,13 @@
-FROM node:20-alpine
+# Build context is the repository root so the service can use packages/.
+FROM node:24-alpine
 
-WORKDIR /app
+WORKDIR /app/services/agent-registry
 
-COPY package.json ./
-RUN npm install --omit=dev
+COPY services/agent-registry/package.json services/agent-registry/package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts
 
-COPY index.js ./
+COPY packages /app/packages
+COPY services/agent-registry ./
 
 EXPOSE 4001
 

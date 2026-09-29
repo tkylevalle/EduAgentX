@@ -1,0 +1,3 @@
+# Preserve exact captured bytes and their checksums across Windows/Linux checkout.
+# Tool-output whitespace is evidence, not source formatting.
+runs/** -text -whitespace

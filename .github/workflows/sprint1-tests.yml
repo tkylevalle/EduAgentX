@@ -14,21 +14,16 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
 
-      - name: Install test dependencies
-        run: bash ./scripts/install-test-dependencies.sh
-
-      - name: Create local test environment
-        run: cp .env.example .env
-
-      - name: Run Sprint 1 gate
-        run: make test
+      # The runner installs each component with npm ci before testing it.
+      - name: Run Sprint 1 technical checks and record release gate
+        run: python3 scripts/run-sprint1.py --technical-only
 
       - name: Upload Sprint 1 evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: sprint1-test-evidence
-          path: artifacts/sprint1
+          path: evidence/runs
           if-no-files-found: warn
