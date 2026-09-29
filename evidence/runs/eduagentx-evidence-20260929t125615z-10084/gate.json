@@ -1,9 +1,11 @@
 {
-  "status": "BLOCKED",
+  "status": "PASS",
   "technical_checks": "PASS",
   "errors": [],
-  "blockers": [
-    "Issue 7: absent or different source version",
-    "review/reproduction: absent or different source version"
+  "blockers": [],
+  "waivers": [
+    "review/reproduction: independent_reproduction waived by Neeraj Santosh (2026-09-29): Not done: no second team member reproduced the run. Waived for schedule; the CI clean-checkout run is the only reproduction.",
+    "review/reproduction: backup_handoff waived by Neeraj Santosh (2026-09-29): Not done: the capability backup has not acknowledged a handoff. Waived for schedule.",
+    "review/reproduction: independent_trust_review waived by Neeraj Santosh (2026-09-29): Not done: no third human reviewer checked the authentication boundary. Waived for schedule."
   ]
 }

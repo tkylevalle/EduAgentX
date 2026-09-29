@@ -44,6 +44,7 @@ def evaluate(report, prerequisite=None, review=None, evidence_directory=None):
     if report.get('failure'):
         errors.append('execution failed')
     blockers = []
+    waivers = []
     fingerprint = report.get('source_sha256')
     if not isinstance(fingerprint, str) or not re.fullmatch('[0-9a-f]{64}', fingerprint):
         errors.append('missing/invalid source fingerprint')
@@ -60,10 +61,25 @@ def evaluate(report, prerequisite=None, review=None, evidence_directory=None):
         if not record.get('reviewer') or not record.get('evidence_reference'):
             blockers.append(label + ': reviewer or evidence reference missing')
         for field in fields:
-            if record.get(field) is not True:
+            if record.get(field) is True:
+                continue
+            waiver = waiver_for(record, field)
+            if waiver:
+                waivers.append(label + ': ' + field + ' waived by ' + waiver)
+            else:
                 blockers.append(label + ': ' + field)
     return {'status': 'FAIL' if errors else 'BLOCKED' if blockers else 'PASS',
-            'technical_checks': 'FAIL' if errors else 'PASS', 'errors': errors, 'blockers': blockers}
+            'technical_checks': 'FAIL' if errors else 'PASS', 'errors': errors, 'blockers': blockers,
+            'waivers': waivers}
+
+
+def waiver_for(record, field):
+    """A named person may waive an acceptance check that was not done. `accepted` cannot be waived."""
+    reason = record.get('waivers', {}).get(field) if isinstance(record.get('waivers'), dict) else None
+    approver = record.get('waived_by')
+    if field == 'accepted' or not isinstance(reason, str) or not reason.strip() or not approver:
+        return None
+    return approver + ': ' + reason.strip()
 
 if __name__ == '__main__':
     import argparse

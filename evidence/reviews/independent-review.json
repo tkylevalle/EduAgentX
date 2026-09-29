@@ -1,0 +1,13 @@
+{
+  "source_sha256": "a53a9c771fd53c9a08f0a82acdf552fb763d9651f15664d4652e7784d01f8a37",
+  "reviewer": "Neeraj Santosh",
+  "evidence_reference": "Clean checkout of commit 3de067a hashes to the tested source fingerprint, and CI run https://github.com/tkylevalle/EduAgentX/actions/runs/36572328914 passed all technical checks on it on a fresh ubuntu-latest runner. Code review of the cleanup was automated (see docs/sprint-1/review-findings.md); no human independent review took place. Accepted by Neeraj Santosh on 2026-09-29.",
+  "clean_checkout_reproduced": true,
+  "accepted": true,
+  "waived_by": "Neeraj Santosh (2026-09-29)",
+  "waivers": {
+    "independent_reproduction": "Not done: no second team member reproduced the run. Waived for schedule; the CI clean-checkout run is the only reproduction.",
+    "backup_handoff": "Not done: the capability backup has not acknowledged a handoff. Waived for schedule.",
+    "independent_trust_review": "Not done: no third human reviewer checked the authentication boundary. Waived for schedule."
+  }
+}

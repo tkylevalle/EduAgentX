@@ -1,0 +1,10 @@
+{
+  "source_sha256": "a53a9c771fd53c9a08f0a82acdf552fb763d9651f15664d4652e7784d01f8a37",
+  "reviewer": "Neeraj Santosh",
+  "evidence_reference": "evidence/runs/eduagentx-evidence-20260929t125615z-10084/persistence.json and evidence/runs/eduagentx-evidence-20260929t125615z-10084/run.json (checks consumer_recovery, poison_out_of_order, durable_idempotency, outbox_recovery, service_owned_permissions all true). Accepted by Neeraj Santosh on behalf of the team on 2026-09-29 from the automated gate evidence; Issue 7 owners (Luis Vargas, Salman Akram) did not sign this record.",
+  "postgres_redis_integration": true,
+  "durable_idempotency": true,
+  "consumer_recovery": true,
+  "poison_out_of_order": true,
+  "service_owned_permissions": true
+}

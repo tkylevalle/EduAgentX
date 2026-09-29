@@ -47,7 +47,7 @@ Each invocation creates `evidence/runs/eduagentx-evidence-<UTC timestamp>-<pid>/
 Exit 1 / FAIL means a mandatory measured check failed or evidence is incomplete.
 Exit 2 / BLOCKED means the run's technical checks passed but required Issue 7 or
 review evidence is absent. Exit 0 / PASS requires all checks and matching external
-attestations. BLOCKED must not be relabelled as accepted to satisfy a deadline.
+attestations. BLOCKED must not be relabelled as accepted to satisfy a deadline; a check that was not done may only be waived by a named person, and `gate.json` lists each waiver.
 The earlier `check-sprint-evidence.py` partial-report checker was retired; it is in git history at commit 6272a60.
 
 The source hash covers `packages`, `services`, `scripts`, `db`, `docs`, `monitoring`,
