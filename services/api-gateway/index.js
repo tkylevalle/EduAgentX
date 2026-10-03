@@ -30,6 +30,8 @@ const MAX_PROTOCOL_IDEMPOTENCY_ENTRIES = 1000;
 
 function createApp({
   agentRegistryUrl = process.env.AGENT_REGISTRY_URL || 'http://agent-registry:4001',
+  curriculumEngineUrl = process.env.CURRICULUM_ENGINE_URL || 'http://curriculum-engine:4002',
+  curriculumInternalKey = process.env.CURRICULUM_INTERNAL_KEY,
   protocolIdempotencyStore = new Map(),
   rateLimit,
 } = {}) {
@@ -234,6 +236,28 @@ function createApp({
 
   app.get('/v1/admin/event-delivery', requireRole('admin'), async (req, res) => {
     await proxyJson(req, res, `${agentRegistryUrl}/v1/event-delivery`);
+  });
+
+  // Candidate package intake is admin-only. No Agent Learner route serves
+  // these artifacts; activation and delivery are owned by later work.
+  const curriculumHeaders = (req) => ({
+    'x-internal-service-key': curriculumInternalKey,
+    'x-actor-subject': req.auth.subject,
+  });
+  app.post('/v1/admin/packages', requireRole('admin'), async (req, res) => {
+    await proxyJson(req, res, `${curriculumEngineUrl}/internal/packages`, {
+      method: 'POST', body: req.body, headers: curriculumHeaders(req),
+    });
+  });
+  app.get('/v1/admin/packages/:packageId/:version', requireRole('admin'), async (req, res) => {
+    await proxyJson(req, res,
+      `${curriculumEngineUrl}/internal/packages/${encodeURIComponent(req.params.packageId)}/${encodeURIComponent(req.params.version)}`,
+      { headers: curriculumHeaders(req) });
+  });
+  app.get('/v1/admin/packages/:packageId/:version/events', requireRole('admin'), async (req, res) => {
+    await proxyJson(req, res,
+      `${curriculumEngineUrl}/internal/packages/${encodeURIComponent(req.params.packageId)}/${encodeURIComponent(req.params.version)}/events`,
+      { headers: curriculumHeaders(req) });
   });
 
   app.use((error, req, res, next) => {
