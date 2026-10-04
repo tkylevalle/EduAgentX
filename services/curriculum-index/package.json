@@ -1,0 +1,25 @@
+{
+  "name": "eduagentx-curriculum-index",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ChromaDB retrieval index, cache, and rebuild for Active Domain Assurance Packages (Sprint 2, Issue #11)",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "pg": "^8.11.5",
+    "chromadb": "^3.5.0",
+    "@chroma-core/default-embed": "^0.1.9"
+  },
+  "overrides": {
+    "sharp": "^0.35.5"
+  },
+  "allowScripts": {
+    "onnxruntime-node@1.21.0": true,
+    "sharp@0.34.5": true,
+    "protobufjs@7.6.6": true
+  }
+}
