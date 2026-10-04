@@ -7,6 +7,7 @@ networks:
 volumes:
   postgres-data:
   redis-data:
+  chromadb-data:
 
 services:
   postgres:
@@ -121,6 +122,59 @@ services:
       resources:
         limits:
           cpus: '0.5'
+          memory: 256M
+
+  chromadb:
+    image: ghcr.io/chroma-core/chroma:1.5.9
+    container_name: eduagentx-chromadb
+    environment:
+      IS_PERSISTENT: "TRUE"
+    volumes:
+      - chromadb-data:/chroma/chroma/
+    ports:
+      - "127.0.0.1:${CHROMADB_PORT:-8000}:8000"
+    networks:
+      - eduagentx-net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  curriculum-index:
+    build:
+      context: .
+      dockerfile: services/curriculum-index/Dockerfile
+    container_name: eduagentx-curriculum-index
+    environment:
+      PORT: 4003
+      DATABASE_URL: postgres://curriculum_owner:${CURRICULUM_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      CURRICULUM_INTERNAL_KEY: ${CURRICULUM_INTERNAL_KEY:?Run node scripts/setup-dev.js}
+      CHROMADB_HOST: chromadb
+      CHROMADB_PORT: 8000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      chromadb:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:4003/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    networks:
+      - eduagentx-net
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1024M
+        reservations:
+          cpus: '0.25'
           memory: 256M
 
   api-gateway:
