@@ -27,11 +27,24 @@ const { createRateLimit } = require('./rate-limit');
 const PORT = process.env.PORT || 4000;
 const SERVICE_NAME = process.env.SERVICE_NAME || 'api-gateway';
 const MAX_PROTOCOL_IDEMPOTENCY_ENTRIES = 1000;
+const TRAINING_IDENTIFIER = /^[\x20-\x7e]{1,256}$/;
+
+// Training Session interactions owned by training-service. The plain
+// `training.submit` stays on the Sprint 1 boundary below, because the
+// conformance suite and the Synthetic Agent Learner still send it as the
+// generic lifecycle example and expect 202.
+const TRAINING_INTERACTIONS = Object.freeze({
+  'training.session.start': { action: 'start' },
+  'training.session.continue': { action: 'continue', needsSession: true },
+  'training.session.submit': { action: 'submit', needsSession: true, needsItem: true },
+});
 
 function createApp({
   agentRegistryUrl = process.env.AGENT_REGISTRY_URL || 'http://agent-registry:4001',
   curriculumEngineUrl = process.env.CURRICULUM_ENGINE_URL || 'http://curriculum-engine:4002',
   curriculumInternalKey = process.env.CURRICULUM_INTERNAL_KEY,
+  trainingServiceUrl = process.env.TRAINING_SERVICE_URL || 'http://training-service:4004',
+  trainingInternalKey = process.env.TRAINING_INTERNAL_KEY,
   protocolIdempotencyStore = new Map(),
   rateLimit,
 } = {}) {
@@ -193,6 +206,9 @@ function createApp({
       return res.status(idempotencyResult.status).json(idempotencyResult.body);
     }
 
+    const training = TRAINING_INTERACTIONS[message.payload.interactionType];
+    if (training) return forwardTrainingInteraction(req, res, message, training);
+
     // Sprint 1 has no curriculum/training owner yet. The gateway still proves
     // the real public interaction seam and returns a deliberately bounded
     // acknowledgement; it does not invent a grade, credential, or lifecycle
@@ -258,6 +274,78 @@ function createApp({
     await proxyJson(req, res,
       `${curriculumEngineUrl}/internal/packages/${encodeURIComponent(req.params.packageId)}/${encodeURIComponent(req.params.version)}/events`,
       { headers: curriculumHeaders(req) });
+  });
+
+  // Training-service trusts these two headers, so the actor is always the
+  // authenticated subject, never an agentLearnerKey from the request body.
+  const trainingHeaders = (req) => ({
+    'x-internal-service-key': trainingInternalKey,
+    'x-actor-subject': req.auth.subject,
+  });
+  // Without the internal key Training would refuse every call; answer 503
+  // here instead of sending a request that cannot be authorised.
+  const trainingUnavailable = (req, res, message) => {
+    const body = { apiVersion: 'v1', error: 'training_unavailable', correlationId: req.correlationId };
+    return res.status(503).json(message ? decorateProtocolResponse(message, body) : body);
+  };
+
+  async function forwardTrainingInteraction(req, res, message, training) {
+    const data = message.payload.data;
+    const details = [];
+    if (training.needsSession && !TRAINING_IDENTIFIER.test(typeof data.sessionId === 'string' ? data.sessionId : '')) {
+      details.push({ field: 'payload.data.sessionId', code: 'required', message: 'sessionId is required' });
+    }
+    if (training.needsItem && !TRAINING_IDENTIFIER.test(typeof data.deliveryItemId === 'string' ? data.deliveryItemId : '')) {
+      details.push({ field: 'payload.data.deliveryItemId', code: 'required', message: 'deliveryItemId is required' });
+    }
+    if (details.length) {
+      return res.status(400).json(decorateProtocolResponse(message, {
+        apiVersion: 'v1', error: 'invalid_lifecycle_payload', details, correlationId: req.correlationId,
+      }));
+    }
+    if (!trainingInternalKey) return trainingUnavailable(req, res, message);
+
+    const path = training.needsSession
+      ? `/internal/sessions/${encodeURIComponent(data.sessionId)}/${training.action}`
+      : '/internal/sessions/start';
+    // On start and continue, data.response is only the protocol's required
+    // acknowledgement string, so it is not forwarded. On submit it is the answer.
+    const body = {
+      idempotencyKey: message.idempotencyKey,
+      evidence: { mode: message.evidence.mode, environment: message.evidence.environment },
+      ...(training.needsItem ? { deliveryItemId: data.deliveryItemId, response: data.response } : {}),
+    };
+    try {
+      const upstream = await forwardJson(req, `${trainingServiceUrl}${path}`, {
+        method: 'POST', body, correlationId: message.correlationId, timeoutMs: message.timeoutMs,
+        headers: trainingHeaders(req),
+      });
+      // Not stored in the Gateway's idempotency cache: Training keeps the
+      // durable record and re-checks the package on every retry, so a cached
+      // reply here could hide a later Quarantine.
+      return res.status(upstream.status).json(decorateProtocolResponse(message, {
+        ...upstream.body, credentialIssued: false,
+      }));
+    } catch (error) {
+      return proxyFailure(req, res, error, message);
+    }
+  }
+
+  // Read-only Training Session views for the Assurance Console. Training's own
+  // read routes do not check roles, so the admin role is enforced here.
+  app.get('/v1/admin/training-sessions', requireRole('admin'), async (req, res) => {
+    if (!trainingInternalKey) return trainingUnavailable(req, res);
+    const query = new URLSearchParams();
+    for (const name of ['agentLearnerKey', 'status']) {
+      if (typeof req.query[name] === 'string' && req.query[name]) query.set(name, req.query[name]);
+    }
+    await proxyJson(req, res, `${trainingServiceUrl}/internal/sessions${query.size ? `?${query}` : ''}`,
+      { headers: trainingHeaders(req) });
+  });
+  app.get('/v1/admin/training-sessions/:sessionId', requireRole('admin'), async (req, res) => {
+    if (!trainingInternalKey) return trainingUnavailable(req, res);
+    await proxyJson(req, res, `${trainingServiceUrl}/internal/sessions/${encodeURIComponent(req.params.sessionId)}`,
+      { headers: trainingHeaders(req) });
   });
 
   app.use((error, req, res, next) => {
