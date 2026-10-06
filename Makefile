@@ -11,6 +11,7 @@ up:              ## create .env and keys if missing, build, start, wait for heal
 	docker compose up -d --wait postgres redis
 	docker compose exec -T postgres sh /docker-entrypoint-initdb.d/002_registry_role.sh
 	docker compose exec -T postgres sh /docker-entrypoint-initdb.d/003_curriculum_role.sh
+	docker compose exec -T postgres sh /docker-entrypoint-initdb.d/004_training_role.sh
 	docker compose up --build -d
 	@echo "Waiting for services to become healthy..."
 	@./scripts/wait-for-healthy.sh

@@ -19,6 +19,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
       REGISTRY_DB_PASSWORD: ${REGISTRY_DB_PASSWORD:?Run node scripts/setup-dev.js}
       CURRICULUM_DB_PASSWORD: ${CURRICULUM_DB_PASSWORD:?Run node scripts/setup-dev.js}
+      TRAINING_DB_PASSWORD: ${TRAINING_DB_PASSWORD:?Run node scripts/setup-dev.js}
     ports:
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
