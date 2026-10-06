@@ -6,8 +6,6 @@
 // transaction. Session state is never stored; it is derived from the events.
 // Training delivers curriculum only. It never grades or changes model weights.
 
-const { createHash } = require('node:crypto');
-
 const EVENT_TYPES = Object.freeze([
   'session_started', 'item_delivered', 'item_completed', 'session_completed', 'session_blocked',
 ]);
@@ -16,18 +14,22 @@ const EVENT_TYPES = Object.freeze([
 // (Candidate, Quarantined, or anything unknown) stops delivery.
 const CONTINUE_STATES = new Set(['Active', 'Superseded']);
 
-// Same canonical JSON as curriculum-engine/model.js, so equal content always
-// gives an equal digest regardless of key order.
-function canonical(value) {
-  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
-  if (value && typeof value === 'object') return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`).join(',')}}`;
-  return JSON.stringify(value);
+// --- Package pinning: the only place that decides what "the same package" means.
+// A session is pinned to the validation service's packageId + digest. Training
+// does not compute its own digest, so it detects a change only when that
+// service reports a new digest for the pinned packageId.
+function pinGoverningPackage(pkg) {
+  return { packageId: pkg.id, packageVersion: pkg.version, packageDigest: pkg.digest };
 }
 
-// Training computes the digest itself instead of trusting the source's copy.
-function packageDigest(payload) {
-  return createHash('sha256').update(canonical(payload)).digest('hex');
+function pinMismatch(pkg, session) {
+  if (pkg.id !== session.packageId) return 'package_identity_changed';
+  if (pkg.digest !== session.packageDigest) return 'package_digest_changed';
+  return null;
 }
+
+const isPinnable = (pkg) => typeof pkg.id === 'string' && pkg.id.length > 0 &&
+  typeof pkg.digest === 'string' && pkg.digest.length > 0;
 
 // Flattens the package into its delivery order: modules by ascending
 // `sequence`, then each module's deliveryItems in array order. Returns null
@@ -110,6 +112,7 @@ function decideStart(pkg, registration, existingOpenSession, input) {
   if (!registration || registration.agentLearnerKey !== input.agentLearnerKey) return rejected('not_registered');
   if (!pkg) return rejected('no_active_package');
   if (pkg.state !== 'Active') return rejected('package_not_active');
+  if (!isPinnable(pkg)) return rejected('package_not_pinnable');
   if (!deliveryPlan(pkg.payload)) return rejected('package_not_deliverable');
 
   const session = {
@@ -117,9 +120,7 @@ function decideStart(pkg, registration, existingOpenSession, input) {
     agentLearnerKey: input.agentLearnerKey,
     configurationFingerprint: registration.configurationFingerprint,
     configurationVersion: registration.configurationVersion,
-    packageId: pkg.id,
-    packageVersion: pkg.version,
-    packageDigest: packageDigest(pkg.payload),
+    ...pinGoverningPackage(pkg),
     startedAt: input.now,
     correlationId: input.correlationId,
   };
@@ -187,8 +188,8 @@ function guardRequest(pkg, state, input) {
 function blockReason(pkg, session, registration) {
   if (!pkg) return 'package_missing';
   if (!CONTINUE_STATES.has(pkg.state)) return `package_state:${pkg.state}`;
-  if (pkg.id !== session.packageId || pkg.version !== session.packageVersion) return 'package_identity_changed';
-  if (packageDigest(pkg.payload) !== session.packageDigest) return 'package_digest_changed';
+  const changed = pinMismatch(pkg, session);
+  if (changed) return changed;
   if (!registration) return 'registration_missing';
   // A reconfigured Agent Learner is different evidence, so it needs a new session.
   if (registration.configurationFingerprint !== session.configurationFingerprint) return 'configuration_changed';
@@ -252,5 +253,6 @@ const rejected = (reason) => ({ outcome: 'rejected', reason, events: [] });
 const conflict = (reason) => ({ outcome: 'conflict', reason, events: [] });
 
 module.exports = {
-  EVENT_TYPES, decideContinue, decideStart, decideSubmit, deliveryPlan, deriveSessionState, nextItem, packageDigest,
+  EVENT_TYPES, decideContinue, decideStart, decideSubmit, deliveryPlan, deriveSessionState, nextItem,
+  pinGoverningPackage, pinMismatch,
 };

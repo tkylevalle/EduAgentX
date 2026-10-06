@@ -7,7 +7,8 @@ CREATE TABLE IF NOT EXISTS training_service.sessions (
   configuration_version integer NOT NULL,
   package_id text NOT NULL,
   package_version text NOT NULL,
-  package_digest char(64) NOT NULL,
+  -- The validation service's digest, stored exactly as received (no padding or format assumption).
+  package_digest text NOT NULL,
   started_at timestamptz NOT NULL,
   correlation_id text NOT NULL
 );

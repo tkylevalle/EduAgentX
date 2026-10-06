@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
-  decideContinue, decideStart, decideSubmit, deriveSessionState, nextItem, packageDigest,
+  decideContinue, decideStart, decideSubmit, deriveSessionState, nextItem, pinGoverningPackage, pinMismatch,
 } = require('../session');
 const { createFakePackageSource, createFakeRegistrySource } = require('../sources');
 
@@ -42,7 +42,7 @@ const input = (extra = {}) => {
 // Builds a started Training Session the way the HTTP layer will: load from the
 // sources, decide, then append the returned events.
 async function started({ state = 'Active' } = {}) {
-  const packages = createFakePackageSource([{ id: 'pkg-a', version: '1.0.0', state, payload: payload() }]);
+  const packages = createFakePackageSource([{ id: 'pkg-a', version: '1.0.0', state, digest: 'digest-1', payload: payload() }]);
   const registry = createFakeRegistrySource([registration]);
   const decision = decideStart(await packages.getActive(), await registry.getRegistration(LEARNER), null,
     input({ sessionId: 'session-1', agentLearnerKey: LEARNER }));
@@ -62,7 +62,7 @@ const submit = (ctx, deliveryItemId, extra = {}) =>
   step(ctx, decideSubmit, { deliveryItemId, responseDigest: 'sha256:answer', ...extra });
 
 test('nextItem orders modules by sequence, then deliveryItems order, and links objectives', () => {
-  const pkg = { id: 'pkg-a', version: '1.0.0', state: 'Active', payload: payload() };
+  const pkg = { id: 'pkg-a', version: '1.0.0', state: 'Active', digest: 'digest-1', payload: payload() };
   const state = deriveSessionState([]);
   assert.deepEqual(nextItem(pkg, state), {
     moduleId: 'm1', moduleSequence: 1, deliveryItemId: 'm1-a', text: 'Lesson A1',
@@ -169,7 +169,7 @@ test('the same idempotency key with different content conflicts', async () => {
 
 for (const state of ['Candidate', 'Quarantined', 'AwaitingReview']) {
   test(`a ${state} package cannot start or continue delivery`, async () => {
-    const offered = { id: 'pkg-a', version: '1.0.0', state, payload: payload() };
+    const offered = { id: 'pkg-a', version: '1.0.0', state, digest: 'digest-1', payload: payload() };
     const refused = decideStart(offered, registration, null, input({ sessionId: 's', agentLearnerKey: LEARNER }));
     assert.deepEqual([refused.outcome, refused.reason, refused.events.length], ['rejected', 'package_not_active', 0]);
 
@@ -203,9 +203,7 @@ test('a Superseded package keeps a running session going but cannot start a new 
 
 test('a changed package digest blocks the session even while the package is Active', async () => {
   const ctx = await started();
-  const edited = payload();
-  edited.modules[1].deliveryItems[0].text = 'Silently corrected lesson';
-  ctx.packages.setPayload('pkg-a', edited);
+  ctx.packages.setDigest('pkg-a', 'digest-2');
   const blocked = await step(ctx, decideContinue);
   assert.deepEqual([blocked.outcome, blocked.reason, blocked.events.length], ['blocked', 'package_digest_changed', 1]);
 });
@@ -217,11 +215,12 @@ test('a changed configuration fingerprint blocks the session', async () => {
   assert.deepEqual([blocked.outcome, blocked.reason, blocked.events.length], ['blocked', 'configuration_changed', 1]);
 });
 
-test('start is refused without a registration, an Active package, or deliverable modules', () => {
-  const pkg = { id: 'pkg-a', version: '1.0.0', state: 'Active', payload: payload() };
+test('start is refused without a registration, an Active package, a digest, or deliverable modules', () => {
+  const pkg = { id: 'pkg-a', version: '1.0.0', state: 'Active', digest: 'digest-1', payload: payload() };
   const start = (p, r) => decideStart(p, r, null, input({ sessionId: 's', agentLearnerKey: LEARNER }));
   assert.equal(start(pkg, null).reason, 'not_registered');
   assert.equal(start(null, registration).reason, 'no_active_package');
+  assert.equal(start({ ...pkg, digest: null }, registration).reason, 'package_not_pinnable');
   const broken = payload();
   delete broken.modules[0].sequence;
   assert.equal(start({ ...pkg, payload: broken }, registration).reason, 'package_not_deliverable');
@@ -230,14 +229,17 @@ test('start is refused without a registration, an Active package, or deliverable
   assert.equal(ok.outcome, 'ok');
   assert.deepEqual(ok.session, {
     sessionId: 's', agentLearnerKey: LEARNER, configurationFingerprint: 'sha256:config-1', configurationVersion: 1,
-    packageId: 'pkg-a', packageVersion: '1.0.0', packageDigest: packageDigest(pkg.payload),
+    packageId: 'pkg-a', packageVersion: '1.0.0', packageDigest: 'digest-1',
     startedAt: '2026-10-06T10:00:00.000Z', correlationId: ok.events[0].correlationId,
   });
   assert.deepEqual(ok.events.map((e) => [e.seq, e.eventType]), [[1, 'session_started']]);
 });
 
-test('packageDigest is a sha256 of canonical JSON, so key order does not matter', () => {
-  assert.match(packageDigest({ a: 1, b: [1, 2] }), /^[a-f0-9]{64}$/);
-  assert.equal(packageDigest({ a: 1, b: [1, 2] }), packageDigest({ b: [1, 2], a: 1 }));
-  assert.notEqual(packageDigest({ a: 1 }), packageDigest({ a: 2 }));
+test('pinning uses the validation service packageId and digest, not a digest Training computes', () => {
+  const pkg = { id: 'pkg-a', version: '1.0.0', state: 'Active', digest: 'digest-1', payload: payload() };
+  const pin = pinGoverningPackage(pkg);
+  assert.deepEqual(pin, { packageId: 'pkg-a', packageVersion: '1.0.0', packageDigest: 'digest-1' });
+  assert.equal(pinMismatch(pkg, pin), null);
+  assert.equal(pinMismatch({ ...pkg, digest: 'digest-2' }, pin), 'package_digest_changed');
+  assert.equal(pinMismatch({ ...pkg, id: 'pkg-b' }, pin), 'package_identity_changed');
 });

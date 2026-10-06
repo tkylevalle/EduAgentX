@@ -5,17 +5,16 @@
 // package state is durable; tests inject the fakes below.
 //
 // PackageSource
-//   getActive()  -> Promise<PackageRecord | null>   the current Active Domain Assurance Package
-//   getById(id)  -> Promise<PackageRecord | null>
-//   PackageRecord = { id, version, state, payload }
-//   `payload` is the package content only. A real client must strip
-//   envelope fields such as `state` and `evidence`, or the digest would
-//   change every time a review is recorded.
+//   getActive(options)    -> Promise<PackageRecord | null>   the current Active Domain Assurance Package
+//   getById(id, options)  -> Promise<PackageRecord | null>
+//   PackageRecord = { id, version, state, digest, payload: { objectives, modules } }
+//   `digest` is the validation service's own digest and is what a session pins.
 //
 // RegistrySource
-//   getRegistration(agentLearnerKey)
+//   getRegistration(agentLearnerKey, options)
 //     -> Promise<{ agentLearnerKey, configurationFingerprint, configurationVersion } | null>
 //
+// `options` may carry { correlationId } for the downstream call.
 // Both return null for "not found" and throw when the owner is unreachable.
 // Null can block a session; an outage must not, so the caller retries and
 // writes nothing.
@@ -28,7 +27,8 @@ function createFakePackageSource(records = []) {
     async getById(id) { return copy(byId.get(id)); },
     // Test helpers that stand in for activation, quarantine and silent edits.
     setState(id, state) { byId.get(id).state = state; },
-    setPayload(id, payload) { byId.get(id).payload = structuredClone(payload); },
+    setDigest(id, digest) { byId.get(id).digest = digest; },
+    remove(id) { byId.delete(id); },
   };
 }
 
