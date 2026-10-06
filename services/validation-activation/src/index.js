@@ -100,5 +100,21 @@ app.get('/packages', async (req, res) => {
   res.json(packages);
 });
 
+
+// GET /packages/active — returns the current active package with camelCase mapping
+app.get('/packages/active', async (req, res) => {
+  const pkg = await db.getActivePackage();
+  if (!pkg) return res.status(404).json({ error: 'no_active_package' });
+  const evidence = await db.getEvidence(pkg.id);
+  // camelCase aliases for consumers (e.g. training service)
+  const mapped = {
+    ...pkg,
+    examTemplate: pkg.examination_template,
+    fallbackBank: pkg.fallback_bank,
+    evidence
+  };
+  res.json(mapped);
+});
+
 const PORT = process.env.PORT || 4010;
 app.listen(PORT, () => console.log(`[validation-activation] listening on ${PORT}`));
