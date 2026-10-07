@@ -1,0 +1,365 @@
+{
+  "kpi": "expected-training-completion",
+  "formula": "scenarios with the exact expected outcome / all scenarios; status uses the lower of that and the same ratio over scenarios expected to complete",
+  "dataset": {
+    "name": "training-completion",
+    "version": "1.0.0",
+    "digest": "sha256:c5863fbc78b08af8228249301ec738f86957405bb608e984dec431c546fcc0c7",
+    "scenarios": 36,
+    "expectedToComplete": 25
+  },
+  "environment": "training-service createApp over HTTP, in-memory store, fake package and registry sources",
+  "expectedCompletion": 1,
+  "completionOfCompletable": 1,
+  "acceptanceFloor": 0.9,
+  "initialTarget": 0.95,
+  "status": "Green",
+  "invariants": {
+    "falseCompletions": 0,
+    "duplicateCompletionEvents": 0,
+    "replaysThatAppended": 0,
+    "writesDuringOutage": 0,
+    "weightsNotConfirmedUnchanged": 0
+  },
+  "invariantsHeld": true,
+  "checks": {
+    "repliesStatingWeights": 360
+  },
+  "sessionMetrics": {
+    "counts": {
+      "started": 33,
+      "completed": 25,
+      "remediated": 5,
+      "resumed": 7,
+      "aborted": 5,
+      "open": 3,
+      "assigned": 1
+    },
+    "completionRate": 0.7576
+  },
+  "byCategory": {
+    "clean": {
+      "scenarios": 3,
+      "exact": 3
+    },
+    "retry": {
+      "scenarios": 4,
+      "exact": 4
+    },
+    "restart": {
+      "scenarios": 4,
+      "exact": 4
+    },
+    "outage": {
+      "scenarios": 7,
+      "exact": 7
+    },
+    "state-change": {
+      "scenarios": 6,
+      "exact": 6
+    },
+    "bounded-practice": {
+      "scenarios": 4,
+      "exact": 4
+    },
+    "remediation": {
+      "scenarios": 5,
+      "exact": 5
+    },
+    "abandon": {
+      "scenarios": 3,
+      "exact": 3
+    }
+  },
+  "misses": [],
+  "scenarios": [
+    {
+      "id": "clean-01",
+      "category": "clean",
+      "expected": "completed",
+      "observed": "completed",
+      "completionEvents": 1,
+      "exact": true
+    },
+    {
+      "id": "clean-02",
+      "category": "clean",
+      "expected": "completed",
+      "observed": "completed",
+      "completionEvents": 1,
+      "exact": true
+    },
+    {
+      "id": "clean-03",
+      "category": "clean",
+      "expected": "completed",
+      "observed": "completed",
+      "completionEvents": 1,
+      "exact": true
+    },
+    {
+      "id": "retry-01",
+      "category": "retry",
+      "expected": "completed",
+      "observed": "completed",
+      "completionEvents": 1,
+      "exact": true
+    },
+    {
+      "id": "retry-02",
+      "category": "retry",
+      "expected": "completed",
+      "observed": "completed",
+      "completionEvents": 1,
+      "exact": true
+    },
+    {
+      "id": "retry-03",
+      "category": "retry",
+      "expected": "completed",
+      "observed": "completed",
+      "completionEvents": 1,
+      "exact": true
+    },
+    {
+      "id": "retry-04",
+      "category": "retry",
+      "expected": "completed",
+      "observed": "completed",
+      "completionEvents": 1,
+      "exact": true
+    },
+    {
+      "id": "restart-01",
+      "category": "restart",
+      "expected": "completed",
+      "observed": "completed",
+      "completionEvents": 1,
+      "exact": true
+    },
+    {
+      "id": "restart-02",
+      "category": "restart",
+      "expected": "completed",
+      "observed": "completed",
+      "completionEvents": 1,
+      "exact": true
+    },
+    {
+      "id": "restart-03",
+      "category": "restart",
+      "expected": "completed",
+      "observed": "completed",
+      "completionEvents": 1,
+      "exact": true
+    },
+    {
+      "id": "restart-04",
+      "category": "restart",
+      "expected": "completed",
+      "observed": "completed",
+      "completionEvents": 1,
+      "exact": true
+    },
+    {
+      "id": "outage-01",
+      "category": "outage",
+      "expected": "completed",
+      "observed": "completed",
+      "completionEvents": 1,
+      "exact": true
+    },
+    {
+      "id": "outage-02",
+      "category": "outage",
+      "expected": "completed",
+      "observed": "completed",
+      "completionEvents": 1,
+      "exact": true
+    },
+    {
+      "id": "outage-03",
+      "category": "outage",
+      "expected": "completed",
+      "observed": "completed",
+      "completionEvents": 1,
+      "exact": true
+    },
+    {
+      "id": "outage-04",
+      "category": "outage",
+      "expected": "completed",
+      "observed": "completed",
+      "completionEvents": 1,
+      "exact": true
+    },
+    {
+      "id": "outage-05",
+      "category": "outage",
+      "expected": "completed",
+      "observed": "completed",
+      "completionEvents": 1,
+      "exact": true
+    },
+    {
+      "id": "outage-06",
+      "category": "outage",
+      "expected": "completed",
+      "observed": "completed",
+      "completionEvents": 1,
+      "exact": true
+    },
+    {
+      "id": "outage-07",
+      "category": "outage",
+      "expected": "completed",
+      "observed": "completed",
+      "completionEvents": 1,
+      "exact": true
+    },
+    {
+      "id": "change-01",
+      "category": "state-change",
+      "expected": "blocked:package_state:Quarantined",
+      "observed": "blocked:package_state:Quarantined",
+      "completionEvents": 0,
+      "exact": true
+    },
+    {
+      "id": "change-02",
+      "category": "state-change",
+      "expected": "blocked:package_digest_changed",
+      "observed": "blocked:package_digest_changed",
+      "completionEvents": 0,
+      "exact": true
+    },
+    {
+      "id": "change-03",
+      "category": "state-change",
+      "expected": "blocked:configuration_changed",
+      "observed": "blocked:configuration_changed",
+      "completionEvents": 0,
+      "exact": true
+    },
+    {
+      "id": "change-04",
+      "category": "state-change",
+      "expected": "none",
+      "observed": "none",
+      "completionEvents": 0,
+      "exact": true
+    },
+    {
+      "id": "change-05",
+      "category": "state-change",
+      "expected": "completed",
+      "observed": "completed",
+      "completionEvents": 1,
+      "exact": true
+    },
+    {
+      "id": "change-06",
+      "category": "state-change",
+      "expected": "blocked:package_state:Candidate",
+      "observed": "blocked:package_state:Candidate",
+      "completionEvents": 0,
+      "exact": true
+    },
+    {
+      "id": "bounds-01",
+      "category": "bounded-practice",
+      "expected": "completed",
+      "observed": "completed",
+      "completionEvents": 1,
+      "exact": true
+    },
+    {
+      "id": "bounds-02",
+      "category": "bounded-practice",
+      "expected": "completed",
+      "observed": "completed",
+      "completionEvents": 1,
+      "exact": true
+    },
+    {
+      "id": "bounds-03",
+      "category": "bounded-practice",
+      "expected": "completed",
+      "observed": "completed",
+      "completionEvents": 1,
+      "exact": true
+    },
+    {
+      "id": "bounds-04",
+      "category": "bounded-practice",
+      "expected": "none",
+      "observed": "none",
+      "completionEvents": 0,
+      "exact": true
+    },
+    {
+      "id": "remediation-01",
+      "category": "remediation",
+      "expected": "completed",
+      "observed": "completed",
+      "completionEvents": 1,
+      "exact": true
+    },
+    {
+      "id": "remediation-02",
+      "category": "remediation",
+      "expected": "completed",
+      "observed": "completed",
+      "completionEvents": 1,
+      "exact": true
+    },
+    {
+      "id": "remediation-03",
+      "category": "remediation",
+      "expected": "completed",
+      "observed": "completed",
+      "completionEvents": 1,
+      "exact": true
+    },
+    {
+      "id": "remediation-04",
+      "category": "remediation",
+      "expected": "blocked:package_state:Quarantined",
+      "observed": "blocked:package_state:Quarantined",
+      "completionEvents": 0,
+      "exact": true
+    },
+    {
+      "id": "remediation-05",
+      "category": "remediation",
+      "expected": "assigned",
+      "observed": "assigned",
+      "completionEvents": 0,
+      "exact": true
+    },
+    {
+      "id": "abandon-01",
+      "category": "abandon",
+      "expected": "open",
+      "observed": "open",
+      "completionEvents": 0,
+      "exact": true
+    },
+    {
+      "id": "abandon-02",
+      "category": "abandon",
+      "expected": "open",
+      "observed": "open",
+      "completionEvents": 0,
+      "exact": true
+    },
+    {
+      "id": "abandon-03",
+      "category": "abandon",
+      "expected": "open",
+      "observed": "open",
+      "completionEvents": 0,
+      "exact": true
+    }
+  ]
+}

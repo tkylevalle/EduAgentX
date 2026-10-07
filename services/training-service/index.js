@@ -1,11 +1,13 @@
 'use strict';
 
-// training-service (Sprint 2, issue #12)
+// training-service (Sprint 2, issues #12 and #13)
 //
 // Delivers an ordered Training Session to a registered Agent Learner against
-// one pinned Domain Assurance Package. Reached only through the Gateway, which
-// passes the internal key and the authenticated subject. Training never
-// grades, certifies or changes model weights.
+// one pinned Domain Assurance Package, with bounded practice, targeted
+// remediation, objective-level progress and one completion event per session.
+// Reached only through the Gateway, which passes the internal key and the
+// authenticated subject. Training never grades, certifies or changes model
+// weights.
 
 const fs = require('node:fs');
 const { createHash, randomUUID } = require('node:crypto');
@@ -13,7 +15,10 @@ const express = require('express');
 const { Pool } = require('pg');
 const telemetry = require('../../packages/telemetry');
 const { EVIDENCE_ENVIRONMENTS } = require('../../packages/external-agent-protocol');
-const { decideContinue, decideStart, decideSubmit, deriveSessionState } = require('./session');
+const { decideContinue, decideRemediation, decideStart, decideSubmit, deriveSessionState } = require('./session');
+const { objectiveProgress, policyFromEnv } = require('./plan');
+const { summariseTraining } = require('./metrics');
+const { parseRemediationRequest } = require('./remediation-request');
 const { createPgStore, decideAndAppend, isUniqueViolation } = require('./store');
 const { ContractError, SourceUnavailableError, createPackageSource, createRegistrySource } = require('./clients');
 
@@ -21,6 +26,16 @@ const SERVICE_NAME = 'training-service';
 const API_VERSION = 'v1';
 const IDENTIFIER = /^[\x20-\x7e]{1,256}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// The only body fields each interaction accepts; anything else is refused.
+const BODY_FIELDS = {
+  start: ['idempotencyKey', 'evidence'],
+  continue: ['idempotencyKey', 'evidence'],
+  submit: ['idempotencyKey', 'evidence', 'deliveryItemId', 'response'],
+};
+const REJECTION_STATUS = {
+  not_registered: 403, response_too_long: 422, unknown_objectives: 422, no_targeted_content: 422,
+};
+const MAX_COMPLETION_EVENTS = 100;
 
 class HttpError extends Error {
   constructor(status, error, extra = {}) {
@@ -32,7 +47,7 @@ class HttpError extends Error {
 
 function createApp({
   pool, internalKey = process.env.TRAINING_INTERNAL_KEY, packageSource, registrySource,
-  store = pool ? createPgStore(pool) : undefined, clock = () => new Date().toISOString(),
+  store = pool ? createPgStore(pool) : undefined, clock = () => new Date().toISOString(), policy = policyFromEnv(),
 } = {}) {
   if (!store || !internalKey || !packageSource || !registrySource) {
     throw new Error('store, internal key, package source and registry source required');
@@ -111,9 +126,49 @@ function createApp({
     if (typeof body.response !== 'string' || !body.response.length) {
       throw new HttpError(400, 'invalid_request', { details: ['response'] });
     }
-    // Only a digest of the learner's answer is kept as evidence, not the text.
-    return { deliveryItemId: body.deliveryItemId, responseDigest: `sha256:${sha256(body.response)}` };
+    // Only a digest and the length of the learner's answer are kept, not the text.
+    return {
+      deliveryItemId: body.deliveryItemId, responseDigest: `sha256:${sha256(body.response)}`,
+      responseLength: body.response.length,
+    };
   }));
+
+  // A structured remediation request from an operator (admin-only at the
+  // Gateway). The actor is recorded as requestedBy; the learner is named in the body.
+  app.post('/internal/remediations', handle(async (req) => {
+    const parsed = parseRemediationRequest(req.body);
+    if (parsed.details) throw new HttpError(400, 'invalid_request', { details: parsed.details });
+    const request = parsed.value;
+    const input = {
+      ...request, sessionId: randomUUID(), now: clock(), policy, correlationId: req.correlationId,
+      actor: req.header('x-actor-subject'),
+    };
+    const options = { correlationId: req.correlationId };
+    return decideAndAppend(store, request.agentLearnerKey, async (tx) => {
+      const existingRequest = await tx.findRemediation(request.agentLearnerKey, request.requestId);
+      const openSession = existingRequest ? null : await tx.findOpenSession(request.agentLearnerKey);
+      if (existingRequest || openSession) return decideRemediation(null, null, { existingRequest, openSession }, input);
+      const [pkg, registration] = await Promise.all([
+        packageSource.getActive(options), registrySource.getRegistration(request.agentLearnerKey, options)]);
+      return decideRemediation(pkg, registration, {}, input);
+    });
+  }));
+
+  // Monitoring signals for every session, each traceable to session ids.
+  app.get('/internal/metrics', async (req, res) => {
+    try {
+      res.json({ apiVersion: API_VERSION, ...summariseTraining(await store.metricsInput()), correlationId: req.correlationId });
+    } catch (error) { sendError(req, res, error); }
+  });
+
+  // The completion outbox, newest first. Nothing relays it yet; it is the
+  // durable record a later consumer (Examination, #16) reads.
+  app.get('/internal/completion-events', async (req, res) => {
+    try {
+      const events = await store.listCompletionEvents({ limit: MAX_COMPLETION_EVENTS });
+      res.json({ apiVersion: API_VERSION, events, correlationId: req.correlationId });
+    } catch (error) { sendError(req, res, error); }
+  });
 
   // Read-only views for the Assurance Console (admin-only at the Gateway).
   app.get('/internal/sessions', async (req, res) => {
@@ -141,7 +196,10 @@ function createApp({
   });
 
   function requestInput(req, action, extra = {}) {
-    const { idempotencyKey, evidence } = req.body || {};
+    const body = req.body || {};
+    const unexpected = Object.keys(body).filter((key) => !BODY_FIELDS[action].includes(key));
+    if (unexpected.length) throw new HttpError(400, 'invalid_request', { details: unexpected.map((key) => `unexpected:${key}`) });
+    const { idempotencyKey, evidence } = body;
     if (!IDENTIFIER.test(idempotencyKey || '')) throw new HttpError(400, 'invalid_request', { details: ['idempotencyKey'] });
     // The DB also enforces this; checking here gives a 400 instead of a 500.
     if (!evidence || !Object.hasOwn(EVIDENCE_ENVIRONMENTS, evidence.mode) ||
@@ -156,7 +214,7 @@ function createApp({
     }));
     return {
       ...extra, now: clock(), evidence: { mode, environment: evidence.environment }, correlationId: req.correlationId,
-      actor: req.header('x-actor-subject'), idempotencyKey, requestFingerprint,
+      actor: req.header('x-actor-subject'), idempotencyKey, requestFingerprint, policy,
     };
   }
 
@@ -166,14 +224,15 @@ function createApp({
         const decision = await work(req);
         const body = { apiVersion: API_VERSION, outcome: decision.outcome };
         if (decision.outcome === 'ok' || decision.outcome === 'replay') {
-          const created = decision.events.some((event) => event.eventType === 'session_started');
+          const created = decision.events.some((event) =>
+            event.eventType === 'session_started' || event.eventType === 'remediation_assigned');
           return res.status(created ? 201 : 200).json({ ...body, ...decision.response, correlationId: req.correlationId });
         }
         if (decision.outcome === 'blocked') {
           return res.status(409).json({ ...body, error: 'training_blocked', safeState: 'training_blocked',
             ...decision.response, correlationId: req.correlationId });
         }
-        const status = decision.reason === 'not_registered' ? 403 : 409;
+        const status = REJECTION_STATUS[decision.reason] || 409;
         return res.status(status).json({ ...body, error: decision.reason, correlationId: req.correlationId });
       } catch (error) {
         return sendError(req, res, error);
@@ -203,14 +262,20 @@ function createApp({
 }
 
 // A read-friendly summary for the Console: the stored session plus the state
-// derived from its events. Nothing here is persisted.
+// derived from its events. Nothing here is persisted. The stored plan is
+// replaced by objective-level progress, which is what a reader needs.
 function summarise({ session, events }) {
   const state = deriveSessionState(events);
+  const { deliveryPlan, ...rest } = session;
   return {
-    ...session,
+    ...rest,
+    kind: session.kind || 'standard',
     status: state.status,
     blockReason: state.blockReason,
     completedItems: state.completedItemIds.length,
+    plannedItems: deliveryPlan?.length ?? null,
+    resumeCount: state.resumeCount,
+    objectiveProgress: objectiveProgress(deliveryPlan, state.completedItemIds),
     lastEventAt: events.at(-1)?.occurredAt ?? session.startedAt,
   };
 }
@@ -222,7 +287,7 @@ async function start() {
   // Idle clients emit 'error' when Postgres restarts; an unhandled event would stop the process.
   pool.on('error', () => telemetry.log(SERVICE_NAME, 'postgres_connection_error'));
   await pool.query(fs.readFileSync(`${__dirname}/schema.sql`, 'utf8'));
-  createApp({ pool, packageSource: createPackageSource(), registrySource: createRegistrySource() })
+  createApp({ pool, packageSource: createPackageSource(), registrySource: createRegistrySource(), policy: policyFromEnv() })
     .listen(process.env.PORT || 4004);
 }
 if (require.main === module) start().catch((error) => {

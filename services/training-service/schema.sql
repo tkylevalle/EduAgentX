@@ -59,3 +59,64 @@ FOR EACH ROW EXECUTE FUNCTION training_service.forbid_evidence_change();
 DROP TRIGGER IF EXISTS session_events_immutable ON training_service.session_events;
 CREATE TRIGGER session_events_immutable BEFORE UPDATE OR DELETE ON training_service.session_events
 FOR EACH ROW EXECUTE FUNCTION training_service.forbid_evidence_change();
+
+-- Issue 13: practice, remediation and progress. Every statement can run again
+-- on each start, and rows written before this change keep their meaning.
+
+-- A remediation session stores the structured request, including the evidence
+-- that caused it. The completion policy and delivery plan (identities only,
+-- no lesson text) are pinned when the session is created.
+ALTER TABLE training_service.sessions
+  ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'standard',
+  ADD COLUMN IF NOT EXISTS remediation jsonb,
+  ADD COLUMN IF NOT EXISTS completion_policy jsonb NOT NULL
+    DEFAULT '{"version":"training-completion/0","minPracticeItemsPerModule":0,"maxResponseChars":4000}',
+  ADD COLUMN IF NOT EXISTS delivery_plan jsonb;
+ALTER TABLE training_service.sessions DROP CONSTRAINT IF EXISTS sessions_kind_check;
+ALTER TABLE training_service.sessions ADD CONSTRAINT sessions_kind_check
+  CHECK (kind IN ('standard', 'remediation') AND ((kind = 'remediation') = (remediation IS NOT NULL)));
+
+-- One session per remediation request, so a retried request cannot assign twice.
+CREATE UNIQUE INDEX IF NOT EXISTS remediation_request_once
+  ON training_service.sessions (agent_learner_key, (remediation->>'requestId')) WHERE kind = 'remediation';
+
+ALTER TABLE training_service.session_events
+  ADD COLUMN IF NOT EXISTS item_kind text CHECK (item_kind IN ('lesson', 'practice'));
+ALTER TABLE training_service.session_events DROP CONSTRAINT IF EXISTS session_events_event_type_check;
+ALTER TABLE training_service.session_events ADD CONSTRAINT session_events_event_type_check
+  CHECK (event_type IN ('session_started', 'item_delivered', 'item_completed', 'session_completed', 'session_blocked',
+    'session_resumed', 'remediation_assigned'));
+
+-- A session ends once: one completion or one block, never both or two.
+-- Issue 12 could block a completed session, and the events are immutable, so
+-- a database holding such a session keeps starting: the index is skipped with
+-- a warning instead of failing the whole schema.
+DO $$
+BEGIN
+  IF to_regclass('training_service.one_terminal_event') IS NULL THEN
+    IF EXISTS (
+      SELECT 1 FROM training_service.session_events
+      WHERE event_type IN ('session_completed', 'session_blocked')
+      GROUP BY session_id HAVING count(*) > 1
+    ) THEN
+      RAISE WARNING 'one_terminal_event not created: a session already has more than one terminal event';
+    ELSE
+      CREATE UNIQUE INDEX one_terminal_event
+        ON training_service.session_events (session_id) WHERE event_type IN ('session_completed', 'session_blocked');
+    END IF;
+  END IF;
+END $$;
+
+-- Outbox of training.session.completed events, written in the same
+-- transaction as session_completed. The id is derived from the session, so
+-- the event is emitted once whatever the retries.
+CREATE TABLE IF NOT EXISTS training_service.completion_events (
+  event_id text PRIMARY KEY,
+  session_id uuid NOT NULL UNIQUE REFERENCES training_service.sessions(session_id),
+  envelope jsonb NOT NULL,
+  occurred_at timestamptz NOT NULL,
+  recorded_at timestamptz NOT NULL DEFAULT now()
+);
+DROP TRIGGER IF EXISTS completion_events_immutable ON training_service.completion_events;
+CREATE TRIGGER completion_events_immutable BEFORE UPDATE OR DELETE ON training_service.completion_events
+FOR EACH ROW EXECUTE FUNCTION training_service.forbid_evidence_change();

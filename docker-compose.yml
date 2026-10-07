@@ -189,6 +189,8 @@ services:
       TRAINING_INTERNAL_KEY: ${TRAINING_INTERNAL_KEY:?Run node scripts/setup-dev.js}
       VALIDATION_ACTIVATION_URL: http://validation-activation:4010
       AGENT_REGISTRY_URL: http://agent-registry:4001
+      TRAINING_MIN_PRACTICE_PER_MODULE: ${TRAINING_MIN_PRACTICE_PER_MODULE:-1}
+      TRAINING_MAX_RESPONSE_CHARS: ${TRAINING_MAX_RESPONSE_CHARS:-4000}
     depends_on:
       postgres:
         condition: service_healthy

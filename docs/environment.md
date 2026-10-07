@@ -58,6 +58,8 @@ These are fixed per service and normally need no change.
 |---|---|---|---|
 | `AGENT_REGISTRY_EVENT_STREAM` | agent-registry | Redis Stream name for assurance events | `agent-registry.assurance` |
 | `REGISTRY_CONSUMER_ENABLED` | agent-registry | `false` pauses the stream consumer (used by the gate's recovery test) | `true` |
+| `TRAINING_MIN_PRACTICE_PER_MODULE` | training-service | Practice items each module must hold and the learner must complete before a session completes (0–20). A package with fewer is refused at start with `insufficient_practice`. | `1` |
+| `TRAINING_MAX_RESPONSE_CHARS` | training-service | Longest accepted practice or lesson response (1–16000). A longer one is refused with 422 `response_too_long`. | `4000` |
 
 ## Read by scripts
 

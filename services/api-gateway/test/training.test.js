@@ -150,6 +150,57 @@ test('admin training-session routes are read-only, admin-only and forward only k
   assert.equal(write.status, 404, 'no human write route exists');
 });
 
+test('an admin remediation request reaches Training unchanged with the admin as actor, and unknown fields are refused', async (t) => {
+  const { gateway, training } = await startGateway(t);
+  const agentToken = await getToken(gateway, 'training-agent', 'training-agent-secret');
+  const adminToken = await getToken(gateway, 'training-admin', 'training-admin-secret');
+  const remediation = {
+    requestId: 'req-1', agentLearnerKey: 'training-agent', packageId: 'pkg-a', packageVersion: '1.0.0',
+    objectiveIds: ['o2'], evidence: { mode: 'synthetic', environment: 'simulation' },
+    cause: { type: 'examination_failure', reference: 'attempt-7', evidenceDigest: `sha256:${'a'.repeat(64)}`,
+      observedAt: '2026-10-07T09:00:00Z' },
+  };
+
+  const asAgent = await request(gateway, 'POST', '/v1/admin/training-remediations', remediation,
+    { authorization: `Bearer ${agentToken}` });
+  assert.equal(asAgent.status, 403, 'an Agent Learner cannot assign itself remediation');
+  assert.equal(training.requests.length, 0);
+
+  const forged = await request(gateway, 'POST', '/v1/admin/training-remediations',
+    { ...remediation, weights: [1], sessionId: 'forged' }, { authorization: `Bearer ${adminToken}` });
+  assert.deepEqual([forged.status, forged.body.error, forged.body.details],
+    [400, 'invalid_request', ['unexpected:weights', 'unexpected:sessionId']]);
+  assert.equal(training.requests.length, 0, 'a refused request never reaches Training');
+
+  const assigned = await request(gateway, 'POST', '/v1/admin/training-remediations', remediation,
+    { authorization: `Bearer ${adminToken}`, 'x-correlation-id': 'corr-remediation' });
+  assert.deepEqual([assigned.status, assigned.body.status], [201, 'assigned']);
+  const forwarded = training.requests[0];
+  assert.equal(`${forwarded.method} ${forwarded.url}`, 'POST /internal/remediations');
+  assert.deepEqual(forwarded.body, remediation);
+  assert.equal(forwarded.headers['x-actor-subject'], 'training-admin');
+  assert.equal(forwarded.headers['x-correlation-id'], 'corr-remediation');
+
+  const notObject = await request(gateway, 'POST', '/v1/admin/training-remediations', ['x'],
+    { authorization: `Bearer ${adminToken}` });
+  assert.deepEqual([notObject.status, notObject.body.error], [400, 'invalid_request']);
+  assert.equal(training.requests.length, 1);
+});
+
+test('admin training metrics and completion events are read-only admin views', async (t) => {
+  const { gateway, training } = await startGateway(t);
+  const agentToken = await getToken(gateway, 'training-agent', 'training-agent-secret');
+  const adminToken = await getToken(gateway, 'training-admin', 'training-admin-secret');
+  for (const route of ['/v1/admin/training-metrics', '/v1/admin/training-completion-events']) {
+    assert.equal((await request(gateway, 'GET', route)).status, 401);
+    assert.equal((await request(gateway, 'GET', route, undefined, { authorization: `Bearer ${agentToken}` })).status, 403);
+    assert.equal((await request(gateway, 'GET', route, undefined, { authorization: `Bearer ${adminToken}` })).status, 200);
+    assert.equal((await request(gateway, 'POST', route, {}, { authorization: `Bearer ${adminToken}` })).status, 404);
+  }
+  assert.deepEqual(training.requests.map((r) => `${r.method} ${r.url}`),
+    ['GET /internal/metrics', 'GET /internal/completion-events']);
+});
+
 test('a missing Training key or an unreachable Training service fails closed', async (t) => {
   const { gateway, training } = await startGateway(t, { trainingInternalKey: undefined });
   const agentToken = await getToken(gateway, 'training-agent', 'training-agent-secret');
@@ -159,6 +210,12 @@ test('a missing Training key or an unreachable Training service fails closed', a
   const noKeyAdmin = await request(gateway, 'GET', '/v1/admin/training-sessions', undefined,
     { authorization: `Bearer ${adminToken}` });
   assert.deepEqual([noKeyAdmin.status, noKeyAdmin.body.error], [503, 'training_unavailable']);
+  for (const [method, route] of [['GET', '/v1/admin/training-metrics'], ['GET', '/v1/admin/training-completion-events'],
+    ['POST', '/v1/admin/training-remediations']]) {
+    const refused = await request(gateway, method, route, method === 'POST' ? { requestId: 'r' } : undefined,
+      { authorization: `Bearer ${adminToken}` });
+    assert.deepEqual([refused.status, refused.body.error], [503, 'training_unavailable'], route);
+  }
   assert.equal(training.requests.length, 0);
 
   const unreachable = http.createServer(createApp({ trainingServiceUrl: 'http://127.0.0.1:1', trainingInternalKey: TRAINING_KEY }));
@@ -197,6 +254,9 @@ async function startTrainingStub() {
     }
     if (req.url.endsWith('/submit')) {
       return sendJson(res, 200, { apiVersion: 'v1', outcome: 'ok', sessionId: SESSION_ID, status: 'open', completedItemId: 'm1-a' });
+    }
+    if (req.url === '/internal/remediations') {
+      return sendJson(res, 201, { apiVersion: 'v1', outcome: 'ok', sessionId: SESSION_ID, status: 'assigned' });
     }
     if (req.method === 'GET') return sendJson(res, 200, { apiVersion: 'v1', sessions: [] });
     return sendJson(res, 404, { error: 'not_found' });

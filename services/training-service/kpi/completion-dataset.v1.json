@@ -1,0 +1,79 @@
+{
+  "dataset": "training-completion",
+  "version": "1.0.0",
+  "description": "Controlled dataset for the Expected training completion KPI (Issue 13). Each scenario drives one Agent Learner through training-service over HTTP and states the outcome a correct service must reach. Placeholder content only; no real curriculum.",
+  "policy": { "minPracticeItemsPerModule": 1, "maxResponseChars": 4000 },
+  "packages": {
+    "standard": {
+      "objectives": [
+        { "id": "o1", "deliveryItemIds": ["m1-lesson", "m1-practice"] },
+        { "id": "o2", "deliveryItemIds": ["m2-lesson", "m2-practice-1", "m2-practice-2"] },
+        { "id": "o3", "deliveryItemIds": ["m3-lesson", "m3-practice"] }
+      ],
+      "modules": [
+        { "id": "m2", "sequence": 2, "objectiveIds": ["o2"], "deliveryItems": [
+          { "id": "m2-lesson", "kind": "lesson", "text": "Dataset lesson 2" },
+          { "id": "m2-practice-1", "kind": "practice", "text": "Dataset practice 2a" },
+          { "id": "m2-practice-2", "kind": "practice", "text": "Dataset practice 2b" }] },
+        { "id": "m1", "sequence": 1, "objectiveIds": ["o1"], "deliveryItems": [
+          { "id": "m1-lesson", "kind": "lesson", "text": "Dataset lesson 1" },
+          { "id": "m1-practice", "kind": "practice", "text": "Dataset practice 1" }] },
+        { "id": "m3", "sequence": 3, "objectiveIds": ["o3"], "deliveryItems": [
+          { "id": "m3-lesson", "kind": "lesson", "text": "Dataset lesson 3" },
+          { "id": "m3-practice", "kind": "practice", "text": "Dataset practice 3" }] }
+      ]
+    },
+    "lessons-only": {
+      "objectives": [{ "id": "o1", "deliveryItemIds": ["m1-lesson"] }],
+      "modules": [
+        { "id": "m1", "sequence": 1, "objectiveIds": ["o1"], "deliveryItems": [
+          { "id": "m1-lesson", "kind": "lesson", "text": "Dataset lesson 1" }] }
+      ]
+    }
+  },
+  "scenarios": [
+    { "id": "clean-01", "category": "clean", "steps": ["start", "work:all"], "expected": "completed" },
+    { "id": "clean-02", "category": "clean", "steps": ["start", "work:1", "work:1", "work:all"], "expected": "completed" },
+    { "id": "clean-03", "category": "clean", "steps": ["start", "maxResponse", "work:all"], "expected": "completed" },
+
+    { "id": "retry-01", "category": "retry", "steps": ["start", "retry", "work:all"], "expected": "completed" },
+    { "id": "retry-02", "category": "retry", "steps": ["start", "work:2", "retry", "retry", "work:all"], "expected": "completed" },
+    { "id": "retry-03", "category": "retry", "steps": ["start", "work:all", "retry"], "expected": "completed" },
+    { "id": "retry-04", "category": "retry", "steps": ["start", "work:3", "retry", "start", "retry", "work:all"], "expected": "completed" },
+
+    { "id": "restart-01", "category": "restart", "steps": ["start", "work:2", "restart", "start", "work:all"], "expected": "completed" },
+    { "id": "restart-02", "category": "restart", "steps": ["start", "restart", "restart", "start", "work:all"], "expected": "completed" },
+    { "id": "restart-03", "category": "restart", "steps": ["start", "work:6", "restart", "start", "work:all"], "expected": "completed" },
+    { "id": "restart-04", "category": "restart", "steps": ["start", "work:all", "restart", "retry"], "expected": "completed" },
+
+    { "id": "outage-01", "category": "outage", "steps": ["start", "work:1", "outage:package", "work:all"], "expected": "completed" },
+    { "id": "outage-02", "category": "outage", "steps": ["start", "work:2", "outage:registry", "work:all"], "expected": "completed" },
+    { "id": "outage-03", "category": "outage", "steps": ["outage:package", "start", "work:all"], "expected": "completed" },
+    { "id": "outage-04", "category": "outage", "steps": ["start", "outage:package:3", "outage:registry:2", "work:all"], "expected": "completed" },
+    { "id": "outage-05", "category": "outage", "steps": ["start", "work:3", "outage:package", "restart", "start", "work:all"], "expected": "completed" },
+    { "id": "outage-06", "category": "outage", "steps": ["start", "work:1", "collision:1", "work:all"], "expected": "completed" },
+    { "id": "outage-07", "category": "outage", "steps": ["start", "work:1", "collision:2", "work:all"], "expected": "completed" },
+
+    { "id": "change-01", "category": "state-change", "steps": ["start", "work:2", "state:Quarantined", "work:all"], "expected": "blocked:package_state:Quarantined" },
+    { "id": "change-02", "category": "state-change", "steps": ["start", "work:2", "digest:digest-2", "work:all"], "expected": "blocked:package_digest_changed" },
+    { "id": "change-03", "category": "state-change", "steps": ["start", "work:4", "fingerprint:sha256:changed", "work:all"], "expected": "blocked:configuration_changed" },
+    { "id": "change-04", "category": "state-change", "steps": ["state:Quarantined", "refusedStart"], "expected": "none" },
+    { "id": "change-05", "category": "state-change", "note": "A pinned session finishes on a Superseded version (Issue 12 rule).", "steps": ["start", "work:1", "state:Superseded", "work:all"], "expected": "completed" },
+    { "id": "change-06", "category": "state-change", "steps": ["start", "work:1", "state:Candidate", "work:all"], "expected": "blocked:package_state:Candidate" },
+
+    { "id": "bounds-01", "category": "bounded-practice", "steps": ["start", "longResponse", "work:all"], "expected": "completed" },
+    { "id": "bounds-02", "category": "bounded-practice", "steps": ["start", "outOfOrder", "work:all"], "expected": "completed" },
+    { "id": "bounds-03", "category": "bounded-practice", "steps": ["start", "extraField", "work:all"], "expected": "completed" },
+    { "id": "bounds-04", "category": "bounded-practice", "package": "lessons-only", "steps": ["refusedStart"], "expected": "none" },
+
+    { "id": "remediation-01", "category": "remediation", "steps": ["remediate:o2", "start", "work:all"], "expected": "completed" },
+    { "id": "remediation-02", "category": "remediation", "steps": ["remediate:o1,o3", "retry", "start", "work:all"], "expected": "completed" },
+    { "id": "remediation-03", "category": "remediation", "steps": ["remediate:o3", "start", "work:1", "restart", "start", "work:all"], "expected": "completed" },
+    { "id": "remediation-04", "category": "remediation", "steps": ["remediate:o2", "start", "work:1", "state:Quarantined", "work:all"], "expected": "blocked:package_state:Quarantined" },
+    { "id": "remediation-05", "category": "remediation", "steps": ["remediate:o2"], "expected": "assigned" },
+
+    { "id": "abandon-01", "category": "abandon", "steps": ["start", "work:2"], "expected": "open" },
+    { "id": "abandon-02", "category": "abandon", "steps": ["start", "work:3", "restart", "start"], "expected": "open" },
+    { "id": "abandon-03", "category": "abandon", "steps": ["start"], "expected": "open" }
+  ]
+}

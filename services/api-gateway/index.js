@@ -28,6 +28,9 @@ const PORT = process.env.PORT || 4000;
 const SERVICE_NAME = process.env.SERVICE_NAME || 'api-gateway';
 const MAX_PROTOCOL_IDEMPOTENCY_ENTRIES = 1000;
 const TRAINING_IDENTIFIER = /^[\x20-\x7e]{1,256}$/;
+const REMEDIATION_FIELDS = Object.freeze([
+  'requestId', 'agentLearnerKey', 'packageId', 'packageVersion', 'objectiveIds', 'cause', 'evidence',
+]);
 
 // Training Session interactions owned by training-service. The plain
 // `training.submit` stays on the Sprint 1 boundary below, because the
@@ -346,6 +349,32 @@ function createApp({
     if (!trainingInternalKey) return trainingUnavailable(req, res);
     await proxyJson(req, res, `${trainingServiceUrl}/internal/sessions/${encodeURIComponent(req.params.sessionId)}`,
       { headers: trainingHeaders(req) });
+  });
+  app.get('/v1/admin/training-metrics', requireRole('admin'), async (req, res) => {
+    if (!trainingInternalKey) return trainingUnavailable(req, res);
+    await proxyJson(req, res, `${trainingServiceUrl}/internal/metrics`, { headers: trainingHeaders(req) });
+  });
+  app.get('/v1/admin/training-completion-events', requireRole('admin'), async (req, res) => {
+    if (!trainingInternalKey) return trainingUnavailable(req, res);
+    await proxyJson(req, res, `${trainingServiceUrl}/internal/completion-events`, { headers: trainingHeaders(req) });
+  });
+
+  // The one human write route into Training: an operator assigns targeted
+  // remediation. An unknown field is refused here, as Training would refuse
+  // it; Training validates the rest and records the admin as requestedBy.
+  app.post('/v1/admin/training-remediations', requireRole('admin'), async (req, res) => {
+    const body = req.body;
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      return res.status(400).json({ apiVersion: 'v1', error: 'invalid_request', details: ['body'], correlationId: req.correlationId });
+    }
+    const unexpected = Object.keys(body).filter((name) => !REMEDIATION_FIELDS.includes(name));
+    if (unexpected.length) {
+      return res.status(400).json({ apiVersion: 'v1', error: 'invalid_request',
+        details: unexpected.map((name) => `unexpected:${name}`), correlationId: req.correlationId });
+    }
+    if (!trainingInternalKey) return trainingUnavailable(req, res);
+    await proxyJson(req, res, `${trainingServiceUrl}/internal/remediations`,
+      { method: 'POST', body, headers: trainingHeaders(req) });
   });
 
   app.use((error, req, res, next) => {

@@ -45,6 +45,15 @@ app.get('/api/training-sessions', async (req, res) => {
   }
 });
 
+app.get('/api/training-metrics', async (req, res) => {
+  try {
+    return res.status(200).json(await readTrainingMetrics());
+  } catch (error) {
+    telemetry.log(SERVICE_NAME, 'training_metrics_read_failed', { outcome: 'error' });
+    return res.status(503).json({ apiVersion: 'v1', error: 'training_metrics_unavailable', message: 'Training metrics are unavailable' });
+  }
+});
+
 app.get('/api/training-sessions/:sessionId', async (req, res) => {
   try {
     const get = await adminClient(`console-training-${randomUUID()}`);
@@ -78,7 +87,15 @@ app.get('/', async (req, res) => {
   try {
     trainingState = await readTrainingSessions();
   } catch (error) {
+    telemetry.log(SERVICE_NAME, 'training_sessions_read_failed', { outcome: 'error' });
     trainingState = { error: 'Training Sessions unavailable' };
+  }
+  // Read separately so a metrics outage never hides the session list.
+  try {
+    trainingState = { ...trainingState, metrics: await readTrainingMetrics() };
+  } catch (error) {
+    telemetry.log(SERVICE_NAME, 'training_metrics_read_failed', { outcome: 'error' });
+    trainingState = { ...trainingState, metrics: null };
   }
 
   res.status(200).send(renderPage(gatewayStatus, traceState, trainingState));
@@ -115,6 +132,13 @@ async function readTrainingSessions() {
   return { rows, total: list.body.sessions.length };
 }
 
+async function readTrainingMetrics() {
+  const get = await adminClient(`console-training-${randomUUID()}`);
+  const metrics = await get('/v1/admin/training-metrics');
+  if (!metrics.ok || !metrics.body.counts) throw new Error(`training metrics request returned ${metrics.status}`);
+  return metrics.body;
+}
+
 async function readLatestTrace() {
   const correlationId = `console-trace-${randomUUID()}`;
   const tokenResponse = await requestJson(`${API_GATEWAY_URL}/v1/auth/tokens`, {
@@ -145,20 +169,50 @@ async function requestJson(url, options = {}) {
   };
 }
 
+const METRIC_LABELS = Object.freeze([
+  ['started', 'Started'], ['completed', 'Completed'], ['remediated', 'Remediated'], ['resumed', 'Resumed'],
+  ['aborted', 'Aborted'],
+]);
+// Statuses that still need the Agent Learner; everything else is history.
+const CURRENT_STATUSES = Object.freeze(['open', 'assigned']);
+
+function renderTrainingMetrics(metrics) {
+  if (!metrics) return '<h3>Metrics</h3><p>Training metrics unavailable</p>';
+  const rate = metrics.completionRate === null ? 'not measured (no session started)'
+    : `${(metrics.completionRate * 100).toFixed(1)}%`;
+  const counts = METRIC_LABELS.map(([key, label]) => `<dt>${label}</dt><dd>${escapeHtml(metrics.counts[key])}</dd>`);
+  return `<h3>Metrics</h3><dl class="metrics">${counts.join('')}<dt>Completion rate</dt><dd>${escapeHtml(rate)}</dd></dl>`;
+}
+
 function renderTrainingSessions(training) {
   if (!training || training.error) return `<p>${escapeHtml(training?.error || 'Training Sessions unavailable')}</p>`;
-  if (!training.rows.length) return '<p>No Training Sessions exist yet.</p>';
+  const metrics = renderTrainingMetrics(training.metrics);
+  if (!training.rows.length) return `${metrics}<p>No Training Sessions exist yet.</p>`;
   const table = (rows) => (rows.length
     ? `<div class="table-wrap"><table>
-        <thead><tr><th>Agent Learner</th><th>Package</th><th>Status</th><th>Module / item</th><th>Mode</th><th>Environment</th><th>Started</th><th>Last event</th></tr></thead>
+        <thead><tr><th>Agent Learner</th><th>Package</th><th>Kind</th><th>Status</th><th>Objective progress</th><th>Module / item</th><th>Mode</th><th>Environment</th><th>Started</th><th>Last event</th></tr></thead>
         <tbody>${rows.map(renderSessionRow).join('')}</tbody>
       </table></div>`
     : '<p>None.</p>');
   const shown = training.rows.length < training.total
     ? `<p>Showing the ${training.rows.length} most recent of ${training.total} sessions.</p>` : '';
-  return `${shown}
-    <h3>Current</h3>${table(training.rows.filter((row) => row.status === 'open'))}
-    <h3>History</h3>${table(training.rows.filter((row) => row.status !== 'open'))}`;
+  const isCurrent = (row) => CURRENT_STATUSES.includes(row.status);
+  return `${metrics}${shown}
+    <h3>Current</h3>${table(training.rows.filter(isCurrent))}
+    <h3>History</h3>${table(training.rows.filter((row) => !isCurrent(row)))}`;
+}
+
+// A remediation row names its cause so the operator can trace it back.
+function sessionKind(row) {
+  if (row.kind !== 'remediation' || !row.remediation) return row.kind || 'standard';
+  const { cause, objectiveIds } = row.remediation;
+  return `remediation: ${cause?.type} (${cause?.reference}), objectives ${(objectiveIds || []).join(', ')}`;
+}
+
+// Completed items per objective; Issue 12 sessions stored no plan.
+function objectiveProgressText(row) {
+  if (!Array.isArray(row.objectiveProgress)) return 'not tracked';
+  return row.objectiveProgress.map((o) => `${o.objectiveId} ${o.completedItems}/${o.plannedItems}`).join(', ');
 }
 
 // Fields that come from the event history say "unavailable" if it could not
@@ -172,7 +226,9 @@ function renderSessionRow(row) {
   return `<tr>
       <td>${escapeHtml(row.agentLearnerKey)}</td>
       <td>${escapeHtml(row.packageId)} ${escapeHtml(row.packageVersion)}</td>
+      <td>${escapeHtml(sessionKind(row))}</td>
       <td>${escapeHtml(status)}</td>
+      <td>${escapeHtml(objectiveProgressText(row))}</td>
       <td>${escapeHtml(item)}</td>
       <td>${escapeHtml(events ? latest?.evidenceMode : 'unavailable')}</td>
       <td>${escapeHtml(events ? latest?.evidenceEnvironment : 'unavailable')}</td>
@@ -209,6 +265,8 @@ function renderPage(gatewayStatus, trace, training) {
       .status { color: #176b3a; }
       .table-wrap { overflow-x: auto; }
       table { border-collapse: collapse; font-size: .9em; }
+      .metrics { display: grid; grid-template-columns: max-content auto; gap: .25rem 1rem; }
+      .metrics dt, .metrics dd { margin: 0; }
       th, td { text-align: left; padding: .35rem .5rem; border-bottom: 1px solid #d5dae3; vertical-align: top; }
     </style>
   </head>
