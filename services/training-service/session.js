@@ -44,10 +44,11 @@ const policyOf = (session) => session.completionPolicy || LEGACY_POLICY;
 function deriveSessionState(events) {
   const state = {
     status: 'not_started', lastSeq: 0, completedItemIds: [], pendingItem: null, blockReason: null,
-    resumeCount: 0, replies: new Map(),
+    resumeCount: 0, replies: new Map(), lastEventAt: null,
   };
   for (const event of [...events].sort((a, b) => a.seq - b.seq)) {
     state.lastSeq = event.seq;
+    state.lastEventAt = event.occurredAt;
     if (event.idempotencyKey) {
       state.replies.set(event.idempotencyKey, { requestFingerprint: event.requestFingerprint, response: event.storedResponse });
     }
@@ -100,7 +101,7 @@ function decideStart(pkg, registration, existing, input) {
 // version never takes over. An assigned remediation starts here; an open
 // session records a resume, so every reconnection is countable evidence.
 function decideExistingStart(pkg, registration, { session, state }, input) {
-  const reason = blockReason(pkg, session, registration);
+  const reason = idleReason(state, input) || blockReason(pkg, session, registration);
   if (reason) return block(session, state, input, reason);
   const replay = replayOf(state, input);
   if (replay) return replay;
@@ -249,7 +250,7 @@ function guardRequest(pkg, state, input) {
   if (state.status === 'not_started' || state.status === 'assigned') return rejected('session_not_started');
   // A completed session keeps its result; a later package change does not block it.
   if (state.status === 'completed') return replayOf(state, input);
-  const reason = blockReason(pkg, input.session, input.registration);
+  const reason = idleReason(state, input) || blockReason(pkg, input.session, input.registration);
   if (state.status === 'blocked' || reason) return block(input.session, state, input, reason);
   return replayOf(state, input);
 }
@@ -271,6 +272,20 @@ function blockReason(pkg, session, registration) {
   // A reconfigured Agent Learner is different evidence, so it needs a new session.
   if (registration.configurationFingerprint !== session.configurationFingerprint) return 'configuration_changed';
   return null;
+}
+
+// An open session with no event since `idleCutoff` is abandoned. It ends as
+// blocked, so it counts as aborted and the next start opens a new session.
+// An assigned remediation waits for its learner and never times out.
+function idleReason(state, input) {
+  if (state.status !== 'open' || !input.idleCutoff || state.lastEventAt == null) return null;
+  return new Date(state.lastEventAt).getTime() < new Date(input.idleCutoff).getTime() ? 'session_timed_out' : null;
+}
+
+// The expiry sweep's decision for one session: end it if it is idle, else do nothing.
+function decideTimeout(state, input) {
+  const reason = idleReason(state, input);
+  return reason ? block(input.session, state, input, reason) : ok([], null);
 }
 
 // A block is recorded once; later requests on a blocked session append nothing.
@@ -342,6 +357,6 @@ const rejected = (reason) => ({ outcome: 'rejected', reason, events: [] });
 const conflict = (reason) => ({ outcome: 'conflict', reason, events: [] });
 
 module.exports = {
-  EVENT_TYPES, decideContinue, decideRemediation, decideStart, decideSubmit, deliveryPlan, deriveSessionState,
-  nextItem, pinGoverningPackage, pinMismatch,
+  EVENT_TYPES, decideContinue, decideRemediation, decideStart, decideSubmit, decideTimeout, deliveryPlan,
+  deriveSessionState, nextItem, pinGoverningPackage, pinMismatch,
 };

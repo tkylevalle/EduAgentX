@@ -9,6 +9,8 @@ const { deriveSessionState } = require('./session');
 const isUniqueViolation = (error) => error?.code === '23505';
 // At most one of these per session, enforced by a unique index in schema.sql.
 const isTerminal = (eventType) => eventType === 'session_completed' || eventType === 'session_blocked';
+// One relay at a time publishes the completion outbox, across every Training instance.
+const RELAY_LOCK = 'training-relay:completions';
 
 async function decideAndAppend(store, lockKey, decide) {
   for (let attempt = 1; ; attempt += 1) {
@@ -206,7 +208,69 @@ function createPgStore(pool) {
         'SELECT envelope FROM training_service.completion_events ORDER BY occurred_at DESC, event_id LIMIT $1', [limit]);
       return result.rows.map((row) => row.envelope);
     },
+    // Started sessions with no terminal event and no event since `cutoff`, oldest first.
+    async listIdleOpenSessions(cutoff, limit = 100) {
+      const result = await pool.query(
+        `SELECT s.session_id, s.agent_learner_key
+         FROM training_service.sessions s
+         JOIN training_service.session_events e ON e.session_id = s.session_id
+         GROUP BY s.session_id, s.agent_learner_key
+         HAVING bool_or(e.event_type = 'session_started')
+            AND NOT bool_or(e.event_type IN ('session_completed', 'session_blocked'))
+            AND max(e.occurred_at) < $1
+         ORDER BY max(e.occurred_at), s.session_id LIMIT $2`, [cutoff, limit]);
+      return result.rows.map((row) => ({ sessionId: row.session_id, agentLearnerKey: row.agent_learner_key }));
+    },
+    async publishPendingCompletions(publish, limit = 100) {
+      return publishUnderRelayLock(pool, publish, limit);
+    },
+    async completionPublicationCounts() {
+      const result = await pool.query(
+        `SELECT count(*)::int AS total, count(p.event_id)::int AS published
+         FROM training_service.completion_events c
+         LEFT JOIN training_service.completion_publications p ON p.event_id = c.event_id`);
+      const { total, published } = result.rows[0];
+      return { total, published, pending: total - published };
+    },
   };
+}
+
+// Sends each unpublished completion event, oldest first, and records its
+// stream id. A send that fails stops the run with nothing recorded for that
+// event, so the next run sends it again: delivery is at least once.
+async function publishUnderRelayLock(pool, publish, limit) {
+  const client = await pool.connect();
+  let releaseError;
+  // pg-pool removes its idle 'error' listener on checkout. The relay holds this
+  // client while it waits on Redis, so a Postgres restart then must not crash
+  // the process; the error destroys the client instead of returning it.
+  const onError = (error) => { releaseError = error; };
+  client.on('error', onError);
+  try {
+    const lock = await client.query('SELECT pg_try_advisory_lock(hashtextextended($1, 0)) AS locked', [RELAY_LOCK]);
+    if (!lock.rows[0].locked) return 0;
+    try {
+      const pending = await client.query(
+        `SELECT c.event_id, c.envelope FROM training_service.completion_events c
+         WHERE NOT EXISTS (SELECT 1 FROM training_service.completion_publications p WHERE p.event_id = c.event_id)
+         ORDER BY c.occurred_at, c.event_id LIMIT $1`, [limit]);
+      for (const row of pending.rows) {
+        const streamId = await publish(row.envelope);
+        await client.query(
+          `INSERT INTO training_service.completion_publications (event_id, stream_id) VALUES ($1, $2)
+           ON CONFLICT (event_id) DO NOTHING`, [row.event_id, streamId]);
+      }
+      return pending.rows.length;
+    } finally {
+      // A session lock outlives the query; if the unlock fails, the connection
+      // is destroyed instead of returned, which releases the lock with it.
+      await client.query('SELECT pg_advisory_unlock(hashtextextended($1, 0))', [RELAY_LOCK])
+        .catch((error) => { releaseError = error; });
+    }
+  } finally {
+    client.off('error', onError);
+    client.release(releaseError);
+  }
 }
 
 // --- In-memory store with the same interface, for route tests only. It
@@ -216,6 +280,7 @@ function createMemoryStore() {
   const sessions = new Map();
   const events = [];
   const completions = new Map();
+  const publications = new Map();
   let queue = Promise.resolve();
   const uniqueViolation = () => Object.assign(new Error('duplicate key'), { code: '23505' });
   const store = {
@@ -290,6 +355,23 @@ function createMemoryStore() {
     },
     async metricsInput() { return store.listSessions(); },
     async listCompletionEvents() { return structuredClone([...completions.values()].reverse()); },
+    async listIdleOpenSessions(cutoff, limit = 100) {
+      const before = new Date(cutoff).getTime();
+      return [...sessions.values()]
+        .map((session) => ({ session, state: deriveSessionState(events.filter((e) => e.sessionId === session.sessionId)) }))
+        .filter(({ state }) => state.status === 'open' && new Date(state.lastEventAt).getTime() < before)
+        .sort((a, b) => new Date(a.state.lastEventAt).getTime() - new Date(b.state.lastEventAt).getTime())
+        .slice(0, limit)
+        .map(({ session }) => ({ sessionId: session.sessionId, agentLearnerKey: session.agentLearnerKey }));
+    },
+    async publishPendingCompletions(publish, limit = 100) {
+      const pending = [...completions.values()].filter((c) => !publications.has(c.eventId)).slice(0, limit);
+      for (const envelope of pending) publications.set(envelope.eventId, await publish(structuredClone(envelope)));
+      return pending.length;
+    },
+    async completionPublicationCounts() {
+      return { total: completions.size, published: publications.size, pending: completions.size - publications.size };
+    },
   };
   return store;
 }

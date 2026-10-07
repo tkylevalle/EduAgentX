@@ -31,6 +31,8 @@ const { SourceUnavailableError } = require('../clients');
 const { completionPolicy } = require('../plan');
 
 const DATASET_PATH = path.join(__dirname, 'completion-dataset.v1.json');
+// The default session timeout; every scenario runs well inside it.
+const KPI_SESSION_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 const REPORT_PATH = path.join(__dirname, '../../../evidence/sprint-2/training-completion-kpi.json');
 const ACCEPTANCE_FLOOR = 0.9;
 const INITIAL_TARGET = 0.95;
@@ -66,7 +68,8 @@ async function createContext(dataset, scenario) {
 // A restart is a new app over the same durable store and sources.
 async function boot(ctx) {
   if (ctx.server) await new Promise((resolve) => ctx.server.close(resolve));
-  const app = createApp({ internalKey: KEY, store: ctx.store, policy: ctx.policy,
+  // The timeout is fixed so the environment cannot change the measurement.
+  const app = createApp({ internalKey: KEY, store: ctx.store, policy: ctx.policy, sessionTimeoutMs: KPI_SESSION_TIMEOUT_MS,
     packageSource: failingWhenDown(ctx.packages, 'package', ctx),
     registrySource: failingWhenDown(ctx.registry, 'registry', ctx),
     clock: () => new Date(CLOCK_START + (ctx.tick += 1000)).toISOString() });

@@ -73,6 +73,23 @@ test('objective delivery link must resolve to a real immutable lesson', () => {
   assert.ok(hasError(validatePackage(pkg), 'objectives[0].deliveryItemIds'));
 });
 
+test('each module has a lesson and a practice item, and its objective links both', () => {
+  for (const [index, module] of sample.modules.entries()) {
+    assert.deepEqual(module.deliveryItems.map((item) => [item.id, item.kind]),
+      [[`${module.id}-lesson-1`, 'lesson'], [`${module.id}-practice-1`, 'practice']]);
+    assert.match(module.deliveryItems[1].text, /^Practice: /);
+    assert.equal(module.deliveryItems.map((item) => item.text).join(' '), module.content);
+    assert.deepEqual(sample.objectives[index].deliveryItemIds, module.deliveryItems.map((item) => item.id));
+  }
+});
+
+test('a delivery item kind other than lesson or practice fails closed', () => {
+  const pkg = copy();
+  pkg.modules[0].deliveryItems[1].kind = 'quiz';
+  pkg.modules[0].contentSha256 = sha256({ content: pkg.modules[0].content, deliveryItems: pkg.modules[0].deliveryItems });
+  assert.ok(hasError(validatePackage(pkg), 'modules[0].deliveryItems'));
+});
+
 test('Curriculum Track cannot repeat one module while omitting the others', () => {
   const pkg = copy();
   pkg.curriculumTrack.moduleIds = Array(5).fill('m1');

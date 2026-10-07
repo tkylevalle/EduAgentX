@@ -2,7 +2,7 @@
 
 // Authored Candidate for model inspection, not approved teaching material.
 const { sha256 } = require('../model');
-const version = '0.1.4-draft';
+const version = '0.1.5-draft';
 const retrievedAt = '2026-09-29T15:00:00Z';
 const source = (id, issuer, title, documentIdentifier, edition, snapshot, canonicalUrl, snapshotUrl, contentSha256, licenseBasis, sourceRetrievedAt = retrievedAt) => ({
   id, version, issuer, title, documentIdentifier, edition, snapshot,
@@ -31,17 +31,26 @@ const lessons = [
   'A tool call can have effects outside the conversation. The OWASP agentic-risk release names Agent Goal Hijack and Tool Misuse among its 2026 risks. Treat retrieved text and tool output as untrusted data, keep credentials scoped to the authorized task, and require an explicit boundary before a message is sent or state is changed. Practice: inspect a forged instruction hidden in a retrieved page and show that the agent keeps its original task and refuses an unauthorized tool action.',
   'Adversarial testing asks how a system behaves when inputs are deliberately hostile. NIST AI 100-2e2025 distinguishes evasion, poisoning, privacy, and misuse attacks across AI settings. For an agent, record the attacker-controlled surface, the desired deviation, the observed behavior, and a mitigation with its limits. Practice: classify a poisoned document and an evasive user request, then choose a monitor and a stop/escalation response for each. Re-test after changing a defense.',
 ];
+// Each lesson ends with its practice task; Training delivers the two as a
+// lesson item and a practice item, so every module holds bounded practice.
+const deliveryItemsOf = (id, content) => {
+  const at = content.indexOf(' Practice: ');
+  return [
+    { id: `${id}-lesson-1`, kind: 'lesson', text: content.slice(0, at) },
+    { id: `${id}-practice-1`, kind: 'practice', text: content.slice(at + 1) },
+  ];
+};
 const objectives = topics.map(([id, , statement], index) => ({
   id: `o${index + 1}`, version, statement,
   observableVerb: ['Map', 'Apply', 'Identify', 'Refuse', 'Classify'][index],
   safetyCritical: index >= 2,
-  moduleIds: [id], deliveryItemIds: [`${id}-lesson-1`],
+  moduleIds: [id], deliveryItemIds: deliveryItemsOf(id, lessons[index]).map((item) => item.id),
   examSlotIds: [`r${index + 1}`, `a${index + 1}`, ...(index >= 2 ? [`v${index - 1}`] : [])],
   criticalViolationRuleIds: index >= 2 ? [`critical-o${index + 1}`] : [],
 }));
 const modules = topics.map(([id, title, summary, sourceId, pinpoint], index) => {
   const content = lessons[index];
-  const deliveryItems = [{ id: `${id}-lesson-1`, kind: 'lesson', text: content }];
+  const deliveryItems = deliveryItemsOf(id, content);
   return {
     id, version, title, sequence: index + 1, difficulty: 'foundational',
     objectiveIds: [`o${index + 1}`], summary, content, deliveryItems,

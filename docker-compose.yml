@@ -191,6 +191,10 @@ services:
       AGENT_REGISTRY_URL: http://agent-registry:4001
       TRAINING_MIN_PRACTICE_PER_MODULE: ${TRAINING_MIN_PRACTICE_PER_MODULE:-1}
       TRAINING_MAX_RESPONSE_CHARS: ${TRAINING_MAX_RESPONSE_CHARS:-4000}
+      TRAINING_SESSION_TIMEOUT_MINUTES: ${TRAINING_SESSION_TIMEOUT_MINUTES:-1440}
+      # The completion relay. Training starts without Redis; events wait in the outbox.
+      REDIS_URL: redis://redis:6379
+      TRAINING_COMPLETION_STREAM: ${TRAINING_COMPLETION_STREAM:-training.session.completed}
     depends_on:
       postgres:
         condition: service_healthy

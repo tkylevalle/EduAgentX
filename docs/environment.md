@@ -48,7 +48,7 @@ These are fixed per service and normally need no change.
 | `PORT` | each service | Container port (4000 gateway, 4001 registry, 4100 console, 4200 learner) |
 | `SERVICE_NAME` | each service | Name written in every log record |
 | `DATABASE_URL` | agent-registry | Connection as `registry_owner` |
-| `REDIS_URL` | agent-registry | `redis://redis:6379` |
+| `REDIS_URL` | agent-registry, training-service | `redis://redis:6379`. Training runs its completion relay only when this is set. |
 | `AGENT_REGISTRY_URL` | api-gateway | `http://agent-registry:4001` |
 | `API_GATEWAY_URL` | console, learner | `http://api-gateway:4000` |
 
@@ -60,6 +60,8 @@ These are fixed per service and normally need no change.
 | `REGISTRY_CONSUMER_ENABLED` | agent-registry | `false` pauses the stream consumer (used by the gate's recovery test) | `true` |
 | `TRAINING_MIN_PRACTICE_PER_MODULE` | training-service | Practice items each module must hold and the learner must complete before a session completes (0–20). A package with fewer is refused at start with `insufficient_practice`. | `1` |
 | `TRAINING_MAX_RESPONSE_CHARS` | training-service | Longest accepted practice or lesson response (1–16000). A longer one is refused with 422 `response_too_long`. | `4000` |
+| `TRAINING_SESSION_TIMEOUT_MINUTES` | training-service | Minutes without an event after which an open session ends with `session_timed_out` (whole number from 0 to 5256000; `0` turns the timeout off). | `1440` |
+| `TRAINING_COMPLETION_STREAM` | training-service | Redis Stream that receives `training.session.completed` envelopes from the completion relay. | `training.session.completed` |
 
 ## Read by scripts
 

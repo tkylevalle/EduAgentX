@@ -120,3 +120,14 @@ CREATE TABLE IF NOT EXISTS training_service.completion_events (
 DROP TRIGGER IF EXISTS completion_events_immutable ON training_service.completion_events;
 CREATE TRIGGER completion_events_immutable BEFORE UPDATE OR DELETE ON training_service.completion_events
 FOR EACH ROW EXECUTE FUNCTION training_service.forbid_evidence_change();
+
+-- One row per completion event the relay has published to the Redis Stream.
+-- An event with no row here is still pending and is sent on the next run.
+CREATE TABLE IF NOT EXISTS training_service.completion_publications (
+  event_id text PRIMARY KEY REFERENCES training_service.completion_events(event_id),
+  stream_id text NOT NULL,
+  published_at timestamptz NOT NULL DEFAULT now()
+);
+DROP TRIGGER IF EXISTS completion_publications_immutable ON training_service.completion_publications;
+CREATE TRIGGER completion_publications_immutable BEFORE UPDATE OR DELETE ON training_service.completion_publications
+FOR EACH ROW EXECUTE FUNCTION training_service.forbid_evidence_change();

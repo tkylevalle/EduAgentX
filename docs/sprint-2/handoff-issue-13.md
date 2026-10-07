@@ -7,7 +7,9 @@
 - **Targeted remediation.** `POST /v1/admin/training-remediations` (admin only; Gateway → `POST /internal/remediations`) creates a session in the new `assigned` status. The session holds only the delivery items linked to the requested objectives. The learner starts it with the normal `training.session.start`. The request keeps its causing evidence (`cause.type`, `reference`, `evidenceDigest`, `observedAt`, optional `summary`), the operator subject as `requestedBy`, and a digest of the request. A replay of the same `requestId` returns the stored response. The same `requestId` with different content gets 409 `remediation_request_conflict`.
 - **Objective-level progress.** Each session stores its delivery plan without the text (`delivery_plan`). Session reads include `objectiveProgress`, which gives planned and completed items and practice per objective, and `plannedItems`, `resumeCount` and `kind`.
 - **One completion event.** When a session completes, the same transaction writes one `training.session.completed:<sessionId>` envelope to the immutable `completion_events` outbox. `session_id` is UNIQUE, and the partial unique index `one_terminal_event` lets each session have only one terminal event (completed or blocked). A completed session stays completed: a later package or configuration change does not block it, and a retry replays the stored reply. Issue 12 could block a completed session. If a database already holds such a session, the schema skips the index with a warning, so the service still starts. `GET /v1/admin/training-completion-events` reads the outbox.
-- **Monitoring signals.** `GET /v1/admin/training-metrics` returns the counts started, completed, remediated, resumed, aborted, open and assigned, plus `completionRate` (completed / started; `null` before any start), `byKind` and `abortReasons`. "Aborted" means that Training blocked the session (`session_blocked`). A session that the learner leaves stays `open`; there is no timeout. It also returns `trace`, which lists the session IDs behind each count. A resume now appends a `session_resumed` event, so resumes can be counted.
+- **Completion relay.** When `REDIS_URL` is set, a background relay (`relay.js`) publishes each outbox envelope to the Redis Stream `TRAINING_COMPLETION_STREAM` (default `training.session.completed`) with `XADD`. Each stream entry has the fields `eventId` and `envelope` (the JSON envelope). The relay records the stream id in the immutable `completion_publications` table, so it sends each event once in normal operation. If Training stops between the send and the record, the event is sent again: delivery is at least once, and a consumer must remove duplicates by `eventId`. While Redis is down, nothing is sent and the events wait in the outbox; Training still starts and serves requests. A PostgreSQL advisory lock lets only one Training instance relay at a time. The relay runs every second and sends at most 100 events per run, oldest first. A send that gets no reply in 5 seconds stops the run and is tried again on the next run. The relay logs `redis_connection_error` once when Redis goes down and `redis_connection_restored` when it comes back.
+- **Session timeout.** An `open` session with no event for `TRAINING_SESSION_TIMEOUT_MINUTES` (default 1440, which is 24 hours; at most 5256000, which is 10 years; `0` turns it off) is ended with `session_blocked` and the reason `session_timed_out`. This happens on the learner's next request, which gets 409 `training_blocked`, or by a background sweep that runs every minute. The sweep takes the same per-learner lock as a request, so a session gets only one terminal event. If the sweep cannot end one session, it logs `session_expiry_failed` and continues with the others. The block event keeps the session's evidence mode, and its actor is `training-service`. After a timeout, the next start opens a new session. An `assigned` remediation does not time out, because it waits for its learner.
+- **Monitoring signals.** `GET /v1/admin/training-metrics` returns the counts started, completed, remediated, resumed, aborted, open and assigned, plus `completionRate` (completed / started; `null` before any start), `byKind` and `abortReasons`. "Aborted" means that Training blocked the session (`session_blocked`), and this includes a timeout (`abortReasons.session_timed_out`). It also returns `trace`, which lists the session IDs behind each count, and `completionEvents {total, published, pending}` for the relay. A resume now appends a `session_resumed` event, so resumes can be counted.
 - **Assurance Console.** The Training section shows a metrics block (Started, Completed, Remediated, Resumed, Aborted, Completion rate). It shows a Kind column that names the remediation cause and objectives, and an Objective progress column (completed / planned items per objective; "not tracked" for Issue 12 sessions). It also shows assigned remediation as current work. `/api/training-metrics` serves the same data. A metrics outage is shown as "Training metrics unavailable" and does not hide the session list.
 - **KPI.** `services/training-service/kpi/` holds the controlled dataset and its runner. The result is in `evidence/sprint-2/training-completion-kpi.json`.
 
@@ -44,7 +46,7 @@
 | Derived status | `open`, `completed`, `blocked` | adds `assigned` (remediation not started yet) |
 | Session columns | — | `kind`, `remediation`, `completion_policy`, `delivery_plan` |
 | Event columns | — | `item_kind` |
-| New table | — | `completion_events` (immutable, one per session) |
+| New tables | — | `completion_events` (immutable, one per session), `completion_publications` (immutable, one per published event) |
 | Internal routes | 5 | adds `POST /internal/remediations`, `GET /internal/metrics`, `GET /internal/completion-events` |
 
 `schema.sql` is still idempotent and runs at every start. It adds the new columns with defaults that keep Issue 12 rows valid, and it replaces the two CHECK constraints.
@@ -69,7 +71,7 @@ The scenarios are in these categories:
 - Quarantined, Candidate, Superseded, digest and configuration changes
 - bounded-practice refusals
 - remediation
-- abandoned sessions
+- abandoned sessions (inside the timeout, so they count as `open`)
 
 A scenario has the exact expected outcome only if all of these are true:
 - Its final status and block reason match the expected outcome.
@@ -96,7 +98,8 @@ Any change to the dataset gives it a new digest and a new baseline. Under KPI Ch
 
 ## Verification
 
-- training-service: 62 tests pass. New files: `test/plan.test.js`, `test/practice-remediation.test.js`, `test/metrics.test.js` and `test/kpi.test.js`, plus five new route tests in `test/app.test.js`. A regression test checks that a completed session stays completed after its package is quarantined.
+- training-service: 70 tests pass. New files: `test/plan.test.js`, `test/practice-remediation.test.js`, `test/metrics.test.js`, `test/kpi.test.js`, `test/expiry.test.js`, `test/relay.test.js` and `test/example-package.test.js`, plus five new route tests in `test/app.test.js`. A regression test checks that a completed session stays completed after its package is quarantined.
+- curriculum-engine: 12 tests pass. The 2 new ones check the lesson and practice item in each example module, and refuse an unknown item `kind`. curriculum-index: 7 tests pass.
 - api-gateway: 21 tests pass. The 3 new ones cover these points:
   - Remediation is admin only.
   - An unknown field is refused before Training is called, and the admin is the actor.
@@ -111,17 +114,20 @@ Any change to the dataset gives it a new digest and a new baseline. Under KPI Ch
   5. Quarantine the package after completion. The session stays completed.
   6. Apply the Issue 13 schema to an Issue 12 database that has a session with both a completion and a block. The schema applies twice, skips `one_terminal_event`, and raises the warning.
   7. Confirm that the database refuses a second terminal event (`one_terminal_event`), an UPDATE on `completion_events` (immutable trigger), and an unknown event type (`session_events_event_type_check`).
+  8. Run the expiry sweep: it ends the idle legacy session once with `session_timed_out` and does not touch the completed session.
+  9. With a real Redis 7: the relay sends nothing while another connection holds the relay lock, then publishes the one completion once, and an UPDATE on `completion_publications` is refused.
+- With Redis unreachable, the relay sends nothing, logs `redis_connection_error`, and the process stays up.
 - `scripts/smoke.sh` step 15: an agent gets 403 on training metrics, and an admin gets 200 with `completionRate`.
 
 ## Known limits
 
-- **Real packages have no practice items.** The curriculum-engine example and anything validation-activation can hold today have only lessons. With the default policy they are refused with `insufficient_practice`. Content (#9/#14) must add `kind: "practice"` items, or an operator can set `TRAINING_MIN_PRACTICE_PER_MODULE=0` for a lessons-only demo. The dev stub (`dev/stub-package-service.js`) now has one practice item per module.
-- **Remediation needs a free learner.** It is refused with `session_in_progress` while the learner has an open or assigned session. Training does not end or replace a running session for the learner.
+- **Packages without practice are refused.** The curriculum-engine example (now `0.1.5-draft`) has one lesson and one practice item per module, and curriculum-engine refuses an item `kind` other than `lesson` or `practice`. A package from another source that has only lessons is still refused with `insufficient_practice`. An operator can set `TRAINING_MIN_PRACTICE_PER_MODULE=0` for a lessons-only demo.
+- **Remediation needs a free learner.** It is refused with `session_in_progress` while the learner has an open or assigned session. Training does not replace a running session for the learner; an abandoned one ends at the timeout.
 - **Remediation always uses the current Active package.** The request must name the Active package and version.
-- **No relay reads the outbox.** Nothing publishes `completion_events` to Redis yet. Examination (#16) can read `GET /internal/completion-events` or add a relay.
+- **No consumer reads the stream yet.** Examination (#16) must read `training.session.completed` with a consumer group and remove duplicates by `eventId`. The stream has no length cap.
 - **Metrics read every session.** `GET /internal/metrics` reads all sessions on each call. `trace` lists at most 200 IDs per counter, but the counts always cover every session. This is acceptable at Sprint 2 volume.
 - **Lists are capped.** The session list returns the 100 newest sessions, and the completion outbox read returns the 100 newest events. The Console says when it shows fewer sessions than exist.
-- **Abandoned sessions stay open.** Nothing ends a session that the learner leaves. It counts as `open`, not as aborted.
+- **The sweep scans every session.** It finds idle sessions with one grouped query over all events each minute. This is acceptable at Sprint 2 volume.
 - **The KPI runs in memory.** It uses the in-memory store. The PostgreSQL path is covered by the store tests and the one-off PostgreSQL check above, not by the KPI runner.
 - **The Console was checked by its HTML only.** It was not rendered and checked visually.
 

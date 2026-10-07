@@ -20,6 +20,8 @@ const { objectiveProgress, policyFromEnv } = require('./plan');
 const { summariseTraining } = require('./metrics');
 const { parseRemediationRequest } = require('./remediation-request');
 const { createPgStore, decideAndAppend, isUniqueViolation } = require('./store');
+const { idleCutoff, sessionTimeoutFromEnv, startExpirySweep } = require('./expiry');
+const { DEFAULT_STREAM, createRelayClient, startCompletionRelay } = require('./relay');
 const { ContractError, SourceUnavailableError, createPackageSource, createRegistrySource } = require('./clients');
 
 const SERVICE_NAME = 'training-service';
@@ -48,6 +50,7 @@ class HttpError extends Error {
 function createApp({
   pool, internalKey = process.env.TRAINING_INTERNAL_KEY, packageSource, registrySource,
   store = pool ? createPgStore(pool) : undefined, clock = () => new Date().toISOString(), policy = policyFromEnv(),
+  sessionTimeoutMs = sessionTimeoutFromEnv(),
 } = {}) {
   if (!store || !internalKey || !packageSource || !registrySource) {
     throw new Error('store, internal key, package source and registry source required');
@@ -157,12 +160,12 @@ function createApp({
   // Monitoring signals for every session, each traceable to session ids.
   app.get('/internal/metrics', async (req, res) => {
     try {
-      res.json({ apiVersion: API_VERSION, ...summariseTraining(await store.metricsInput()), correlationId: req.correlationId });
+      const [sessions, completionEvents] = await Promise.all([store.metricsInput(), store.completionPublicationCounts()]);
+      res.json({ apiVersion: API_VERSION, ...summariseTraining(sessions), completionEvents, correlationId: req.correlationId });
     } catch (error) { sendError(req, res, error); }
   });
 
-  // The completion outbox, newest first. Nothing relays it yet; it is the
-  // durable record a later consumer (Examination, #16) reads.
+  // The completion outbox, newest first. relay.js publishes it to a Redis Stream.
   app.get('/internal/completion-events', async (req, res) => {
     try {
       const events = await store.listCompletionEvents({ limit: MAX_COMPLETION_EVENTS });
@@ -212,8 +215,9 @@ function createApp({
     const requestFingerprint = sha256(JSON.stringify({
       action, sessionId: req.params.id || null, evidence: { mode, environment: evidence.environment }, ...extra,
     }));
+    const now = clock();
     return {
-      ...extra, now: clock(), evidence: { mode, environment: evidence.environment }, correlationId: req.correlationId,
+      ...extra, now, idleCutoff: idleCutoff(now, sessionTimeoutMs), evidence: { mode, environment: evidence.environment }, correlationId: req.correlationId,
       actor: req.header('x-actor-subject'), idempotencyKey, requestFingerprint, policy,
     };
   }
@@ -287,8 +291,20 @@ async function start() {
   // Idle clients emit 'error' when Postgres restarts; an unhandled event would stop the process.
   pool.on('error', () => telemetry.log(SERVICE_NAME, 'postgres_connection_error'));
   await pool.query(fs.readFileSync(`${__dirname}/schema.sql`, 'utf8'));
-  createApp({ pool, packageSource: createPackageSource(), registrySource: createRegistrySource(), policy: policyFromEnv() })
-    .listen(process.env.PORT || 4004);
+  const store = createPgStore(pool);
+  const sessionTimeoutMs = sessionTimeoutFromEnv();
+  createApp({
+    pool, store, packageSource: createPackageSource(), registrySource: createRegistrySource(), policy: policyFromEnv(),
+    sessionTimeoutMs,
+  }).listen(process.env.PORT || 4004);
+  startExpirySweep({ store, timeoutMs: sessionTimeoutMs });
+  // Without REDIS_URL the outbox is kept and read through the admin API only.
+  if (process.env.REDIS_URL) {
+    startCompletionRelay({
+      store, redis: createRelayClient(process.env.REDIS_URL),
+      stream: process.env.TRAINING_COMPLETION_STREAM || DEFAULT_STREAM,
+    });
+  }
 }
 if (require.main === module) start().catch((error) => {
   console.error('training-service startup failed', error.code || error.name);
