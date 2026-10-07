@@ -193,7 +193,7 @@ services:
       postgres:
         condition: service_healthy
       validation-activation:
-        condition: service_started
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:4004/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
       interval: 5s
@@ -344,7 +344,7 @@ services:
       PORT: 4010
       SERVICE_NAME: validation-activation
     ports:
-      - "4010:4010"
+      - "127.0.0.1:${VALIDATION_ACTIVATION_PORT:-4010}:4010"
     depends_on:
       postgres:
         condition: service_healthy

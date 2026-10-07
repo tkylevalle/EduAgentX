@@ -24,12 +24,16 @@ Prometheus + blackbox-exporter ──▶ /health of every service ──▶ Graf
 | `docs/` | Contracts, environment, sprint records, blueprint and reference PDFs |
 | `evidence/` | Committed gate runs. Files under `evidence/runs/` are hashed; never edit them |
 
-## Current services (Sprint 1)
+## Current services (Sprint 1 and Sprint 2)
 
 | Service | Port | Responsibility |
 |---|---|---|
 | `api-gateway` | 4000 (host 8080) | Only public entry point. Issues RS256 JWTs, checks role and identity, validates the ExternalAgentLearner envelope, rate limits, forwards to owners |
 | `agent-registry` | 4001 | Authoritative Agent Learner identities and configuration versions. Durable idempotency, append-only assurance events, outbox delivery |
+| `curriculum-engine` | 4002 | Immutable Course Packages: candidate validation, content digests and lifecycle events (#9) |
+| `curriculum-index` | 4003 | Rebuildable ChromaDB index of Active package content. Never the source of truth (#11) |
+| `training-service` | 4004 | Event-sourced training sessions pinned to one Active package and configuration fingerprint (#12) |
+| `validation-activation` | 4010 (host 127.0.0.1 only) | Package gates, review records and activation state (#10). In memory in Sprint 2 |
 | `assurance-console` | 4100 (host 4173) | Read-only page that shows the latest registration trace |
 | `synthetic-agent-learner` | 4200 | Deterministic test learner. Uses the public Gateway protocol like any external agent |
 

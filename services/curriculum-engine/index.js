@@ -79,6 +79,8 @@ function createApp({ pool, internalKey = process.env.CURRICULUM_INTERNAL_KEY } =
 
 async function start() {
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  // Idle clients emit 'error' when Postgres restarts; an unhandled event would stop the process.
+  pool.on('error', (error) => console.error('curriculum-engine postgres connection error', error.code || error.name));
   await pool.query(fs.readFileSync(`${__dirname}/schema.sql`, 'utf8'));
   createApp({ pool }).listen(process.env.PORT || 4002);
 }

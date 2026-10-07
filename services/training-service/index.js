@@ -219,6 +219,8 @@ const sha256 = (value) => createHash('sha256').update(value).digest('hex');
 
 async function start() {
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  // Idle clients emit 'error' when Postgres restarts; an unhandled event would stop the process.
+  pool.on('error', () => telemetry.log(SERVICE_NAME, 'postgres_connection_error'));
   await pool.query(fs.readFileSync(`${__dirname}/schema.sql`, 'utf8'));
   createApp({ pool, packageSource: createPackageSource(), registrySource: createRegistrySource() })
     .listen(process.env.PORT || 4004);

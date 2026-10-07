@@ -1,7 +1,7 @@
-FROM node:20-alpine
+FROM node:24-alpine
 WORKDIR /app
 COPY package*.json ./
-RUN npm install --production
+RUN npm ci --omit=dev --ignore-scripts
 COPY src ./src
 EXPOSE 4010
 HEALTHCHECK --interval=5s --timeout=5s --retries=10 \

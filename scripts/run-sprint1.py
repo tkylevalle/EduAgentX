@@ -73,12 +73,16 @@ SYNTHETIC_CONSOLE_SCRIPT = """
 })().catch(()=>process.exit(1));
 """
 
+# EXPECTED_TARGETS is replaced by the /health URLs listed in prometheus.yml, so
+# adding a service to monitoring also adds it to this check.
 MONITORING_SCRIPT = """
 (async()=>{
+ const expected=EXPECTED_TARGETS;
  const deadline=Date.now()+30000;
  while(Date.now()<deadline){
   const data=await (await fetch('http://prometheus:9090/api/v1/query?query=probe_success')).json();
-  if(data.data?.result.length===4 && data.data.result.every(x=>x.value[1]==='1')){
+  const up=new Set((data.data?.result||[]).filter(x=>x.value[1]==='1').map(x=>x.metric.instance));
+  if(expected.length && expected.every(target=>up.has(target))){
    if(!(await fetch('http://grafana:3000/api/health')).ok) throw Error('Grafana unhealthy');
    console.log(JSON.stringify(data));return;
   }
@@ -87,6 +91,12 @@ MONITORING_SCRIPT = """
  throw Error('Missing or failing service health probes');
 })().catch(()=>process.exit(1));
 """
+
+
+def health_targets():
+    """The service /health URLs that Prometheus probes (monitoring/prometheus.yml)."""
+    text = (ROOT / 'monitoring' / 'prometheus.yml').read_text()
+    return re.findall(r'^\s*-\s*(http://\S+/health)\s*$', text, re.M)
 
 
 def source_hash():
@@ -424,7 +434,8 @@ class EvidenceRun:
 
     def check_monitoring(self):
         print('Checking Prometheus probes and Grafana...', flush=True)
-        monitor = self.dc('exec', '-T', 'agent-registry', 'node', '-e', MONITORING_SCRIPT)
+        script = MONITORING_SCRIPT.replace('EXPECTED_TARGETS', json.dumps(health_targets()))
+        monitor = self.dc('exec', '-T', 'agent-registry', 'node', '-e', script)
         (self.out / 'monitoring.json').write_text(monitor.stdout)
         self.checks['monitoring'] = True
 
