@@ -19,6 +19,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
       REGISTRY_DB_PASSWORD: ${REGISTRY_DB_PASSWORD:?Run node scripts/setup-dev.js}
       CURRICULUM_DB_PASSWORD: ${CURRICULUM_DB_PASSWORD:?Run node scripts/setup-dev.js}
+      TRAINING_DB_PASSWORD: ${TRAINING_DB_PASSWORD:?Run node scripts/setup-dev.js}
     ports:
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
@@ -177,6 +178,39 @@ services:
           cpus: '0.25'
           memory: 256M
 
+  training-service:
+    build:
+      context: .
+      dockerfile: services/training-service/Dockerfile
+    container_name: eduagentx-training-service
+    environment:
+      PORT: 4004
+      DATABASE_URL: postgres://training_owner:${TRAINING_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      TRAINING_INTERNAL_KEY: ${TRAINING_INTERNAL_KEY:?Run node scripts/setup-dev.js}
+      VALIDATION_ACTIVATION_URL: http://validation-activation:4010
+      AGENT_REGISTRY_URL: http://agent-registry:4001
+    depends_on:
+      postgres:
+        condition: service_healthy
+      validation-activation:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:4004/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    networks:
+      - eduagentx-net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+
   api-gateway:
     build:
       context: .
@@ -187,6 +221,8 @@ services:
       AGENT_REGISTRY_URL: http://agent-registry:4001
       CURRICULUM_ENGINE_URL: http://curriculum-engine:4002
       CURRICULUM_INTERNAL_KEY: ${CURRICULUM_INTERNAL_KEY:?Run node scripts/setup-dev.js}
+      TRAINING_SERVICE_URL: http://training-service:4004
+      TRAINING_INTERNAL_KEY: ${TRAINING_INTERNAL_KEY:?Run node scripts/setup-dev.js}
       SERVICE_NAME: api-gateway
       JWT_ISSUER: ${JWT_ISSUER}
       JWT_AUDIENCE: ${JWT_AUDIENCE}
@@ -205,6 +241,8 @@ services:
       agent-registry:
         condition: service_healthy
       curriculum-engine:
+        condition: service_healthy
+      training-service:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:4000/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]

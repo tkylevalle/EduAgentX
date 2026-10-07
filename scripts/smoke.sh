@@ -203,5 +203,18 @@ grep -q 'SIMULATION: Synthetic Agent Learner' /tmp/synthetic-run.json || fail "s
 grep -q '"credentialIssued":false' /tmp/synthetic-run.json || fail "synthetic adapter claimed credential issuance"
 echo "   OK: synthetic learner was accepted through the Gateway with simulation evidence"
 
+echo "14) Training Sessions must be readable by an admin, and only an admin, through the Gateway..."
+training_agent_status=$(curl -s -o /tmp/training-agent.json -w '%{http_code}' \
+  "${BASE_URL}/v1/admin/training-sessions" \
+  -H "authorization: Bearer ${AGENT_TOKEN}")
+[ "$training_agent_status" = "403" ] || fail "agent token on training sessions returned ${training_agent_status}, expected 403: $(cat /tmp/training-agent.json)"
+training_status=$(curl -s -o /tmp/training-sessions.json -w '%{http_code}' \
+  "${BASE_URL}/v1/admin/training-sessions" \
+  -H "authorization: Bearer ${ADMIN_TOKEN}" \
+  -H "x-correlation-id: training-${CORRELATION_ID}")
+[ "$training_status" = "200" ] || fail "training sessions returned ${training_status}: $(cat /tmp/training-sessions.json)"
+grep -q '"sessions":\[' /tmp/training-sessions.json || fail "training sessions response omitted the sessions list"
+echo "   OK: training-service reachable through the Gateway admin route"
+
 echo ""
 echo "SMOKE TEST PASSED"
