@@ -6,6 +6,7 @@ const {
   decideContinue, decideStart, decideSubmit, deriveSessionState, nextItem, pinGoverningPackage, pinMismatch,
 } = require('../session');
 const { createFakePackageSource, createFakeRegistrySource } = require('../sources');
+const { completionPolicy } = require('../plan');
 
 const LEARNER = 'learner-1';
 const registration = { agentLearnerKey: LEARNER, configurationFingerprint: 'sha256:config-1', configurationVersion: 1 };
@@ -19,9 +20,9 @@ const payload = () => ({
   ],
   // Listed out of order on purpose: delivery must follow `sequence`, not array position.
   modules: [
-    { id: 'm2', sequence: 2, objectiveIds: ['o3'], deliveryItems: [{ id: 'm2-a', text: 'Lesson B1' }] },
+    { id: 'm2', sequence: 2, objectiveIds: ['o3'], deliveryItems: [{ id: 'm2-a', kind: 'practice', text: 'Practice B1' }] },
     { id: 'm1', sequence: 1, objectiveIds: ['o1', 'o2'],
-      deliveryItems: [{ id: 'm1-a', text: 'Lesson A1' }, { id: 'm1-b', text: 'Lesson A2' }] },
+      deliveryItems: [{ id: 'm1-a', text: 'Lesson A1' }, { id: 'm1-b', kind: 'practice', text: 'Practice A2' }] },
   ],
 });
 
@@ -35,6 +36,7 @@ const input = (extra = {}) => {
     actor: LEARNER,
     idempotencyKey: `key-${counter}`,
     requestFingerprint: `fingerprint-${counter}`,
+    policy: completionPolicy(),
     ...extra,
   };
 };
@@ -65,7 +67,7 @@ test('nextItem orders modules by sequence, then deliveryItems order, and links o
   const pkg = { id: 'pkg-a', version: '1.0.0', state: 'Active', digest: 'digest-1', payload: payload() };
   const state = deriveSessionState([]);
   assert.deepEqual(nextItem(pkg, state), {
-    moduleId: 'm1', moduleSequence: 1, deliveryItemId: 'm1-a', text: 'Lesson A1',
+    moduleId: 'm1', moduleSequence: 1, deliveryItemId: 'm1-a', kind: 'lesson', text: 'Lesson A1',
     objectiveIds: ['o1'], position: 1, total: 3,
   });
   assert.equal(nextItem(pkg, { ...state, completedItemIds: ['m1-a'] }).deliveryItemId, 'm1-b');
@@ -122,7 +124,7 @@ test('resume after interruption keeps the governing package and never duplicates
   await step(ctx, decideContinue);
   assert.equal((await submit(ctx, 'm1-a')).outcome, 'ok');
 
-  // The Agent Learner reconnects and calls start again: same session, nothing appended.
+  // The Agent Learner reconnects and calls start again: same session, one resume recorded.
   const resumed = decideStart(await ctx.packages.getById('pkg-a'), registration,
     { session: ctx.session, state: deriveSessionState(ctx.events) },
     input({ sessionId: 'session-2', agentLearnerKey: LEARNER }));
@@ -130,7 +132,9 @@ test('resume after interruption keeps the governing package and never duplicates
   assert.equal(resumed.session.sessionId, 'session-1');
   assert.equal(resumed.session.packageDigest, ctx.session.packageDigest);
   assert.equal(resumed.response.resumed, true);
-  assert.deepEqual(resumed.events, []);
+  assert.deepEqual(resumed.events.map((e) => [e.seq, e.eventType]), [[4, 'session_resumed']]);
+  ctx.events.push(...resumed.events);
+  assert.equal(deriveSessionState(ctx.events).resumeCount, 1);
 
   const shown = await step(ctx, decideContinue);
   assert.equal(shown.response.item.deliveryItemId, 'm1-b');
@@ -231,6 +235,12 @@ test('start is refused without a registration, an Active package, a digest, or d
     sessionId: 's', agentLearnerKey: LEARNER, configurationFingerprint: 'sha256:config-1', configurationVersion: 1,
     packageId: 'pkg-a', packageVersion: '1.0.0', packageDigest: 'digest-1',
     startedAt: '2026-10-06T10:00:00.000Z', correlationId: ok.events[0].correlationId,
+    kind: 'standard', remediation: null, completionPolicy: completionPolicy(),
+    deliveryPlan: [
+      { deliveryItemId: 'm1-a', moduleId: 'm1', moduleSequence: 1, kind: 'lesson', objectiveIds: ['o1'] },
+      { deliveryItemId: 'm1-b', moduleId: 'm1', moduleSequence: 1, kind: 'practice', objectiveIds: ['o2'] },
+      { deliveryItemId: 'm2-a', moduleId: 'm2', moduleSequence: 2, kind: 'practice', objectiveIds: ['o3'] },
+    ],
   });
   assert.deepEqual(ok.events.map((e) => [e.seq, e.eventType]), [[1, 'session_started']]);
 });

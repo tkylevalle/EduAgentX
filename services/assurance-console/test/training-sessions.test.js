@@ -4,13 +4,25 @@ const test = require('node:test');
 
 const OPEN_ID = '00000000-0000-4000-8000-0000000000a1';
 const BLOCKED_ID = '00000000-0000-4000-8000-0000000000b2';
+const REMEDIATION_ID = '00000000-0000-4000-8000-0000000000c3';
 const sessions = [
   { sessionId: OPEN_ID, agentLearnerKey: 'learner-<b>1</b>', packageId: 'ai-safety', packageVersion: '1.0.0',
-    status: 'open', blockReason: null, startedAt: '2026-10-06T10:00:00.000Z', lastEventAt: '2026-10-06T10:05:00.000Z' },
+    status: 'open', blockReason: null, startedAt: '2026-10-06T10:00:00.000Z', lastEventAt: '2026-10-06T10:05:00.000Z',
+    objectiveProgress: [
+      { objectiveId: 'o1', plannedItems: 2, completedItems: 2, plannedPractice: 1, completedPractice: 1, complete: true },
+      { objectiveId: 'o<2>', plannedItems: 3, completedItems: 1, plannedPractice: 2, completedPractice: 0, complete: false }] },
   { sessionId: BLOCKED_ID, agentLearnerKey: 'learner-2', packageId: 'ai-safety', packageVersion: '0.9.0',
     status: 'blocked', blockReason: 'package_state:Quarantined', startedAt: '2026-10-05T09:00:00.000Z',
     lastEventAt: '2026-10-05T09:30:00.000Z' },
+  { sessionId: REMEDIATION_ID, kind: 'remediation', agentLearnerKey: 'learner-3', packageId: 'ai-safety',
+    packageVersion: '1.0.0', status: 'assigned', blockReason: null, startedAt: '2026-10-07T09:00:00.000Z',
+    lastEventAt: '2026-10-07T09:00:00.000Z',
+    remediation: { requestId: 'req-1', objectiveIds: ['o2'], cause: { type: 'examination_failure', reference: 'attempt-<7>' } } },
 ];
+const metrics = {
+  apiVersion: 'v1', sessions: 3, completionRate: 0.6667,
+  counts: { started: 3, completed: 2, remediated: 1, resumed: 4, aborted: 1, open: 0, assigned: 1 },
+};
 const events = {
   [OPEN_ID]: [
     { seq: 1, eventType: 'session_started', evidenceMode: 'synthetic', evidenceEnvironment: 'simulation' },
@@ -20,6 +32,9 @@ const events = {
   [BLOCKED_ID]: [
     { seq: 1, eventType: 'session_started', evidenceMode: 'live', evidenceEnvironment: 'live' },
     { seq: 2, eventType: 'session_blocked', evidenceMode: 'live', evidenceEnvironment: 'live' },
+  ],
+  [REMEDIATION_ID]: [
+    { seq: 1, eventType: 'remediation_assigned', evidenceMode: 'synthetic', evidenceEnvironment: 'simulation' },
   ],
 };
 
@@ -44,6 +59,9 @@ test.before(async () => {
     if (req.headers.authorization !== 'Bearer console-admin-token') return json(res, 401, { error: 'unauthorized' });
     if (req.method === 'GET' && req.url === '/v1/admin/training-sessions') {
       return gatewayMode === 'training-down' ? json(res, 503, { error: 'training_unavailable' }) : json(res, 200, { apiVersion: 'v1', sessions });
+    }
+    if (req.method === 'GET' && req.url === '/v1/admin/training-metrics') {
+      return gatewayMode === 'metrics-down' ? json(res, 503, { error: 'training_unavailable' }) : json(res, 200, metrics);
     }
     const match = req.method === 'GET' && req.url.match(/^\/v1\/admin\/training-sessions\/([^/]+)$/);
     if (match) {
@@ -83,7 +101,7 @@ test('console shows current and historical Training Sessions read-only through t
   assert.doesNotMatch(page.body, /<form|<button/i, 'the view has no controls that change anything');
 
   const list = await request(consoleServer, 'GET', '/api/training-sessions');
-  assert.deepEqual([list.status, list.body.sessions.length], [200, 2]);
+  assert.deepEqual([list.status, list.body.sessions.length], [200, 3]);
   const detail = await request(consoleServer, 'GET', `/api/training-sessions/${OPEN_ID}`);
   assert.deepEqual([detail.status, detail.body.session.sessionId, detail.body.events.length], [200, OPEN_ID, 2]);
   const missing = await request(consoleServer, 'GET', '/api/training-sessions/00000000-0000-4000-8000-000000000000');
@@ -93,6 +111,37 @@ test('console shows current and historical Training Sessions read-only through t
   const toGateway = gatewayRequests.filter((r) => r.path.startsWith('/v1/admin/training-sessions'));
   assert.ok(toGateway.length > 0);
   assert.ok(toGateway.every((r) => r.method === 'GET' && r.authorization === 'Bearer console-admin-token'));
+});
+
+test('console shows training metrics and remediation sessions with their cause', async () => {
+  gatewayMode = 'ok';
+  const page = await request(consoleServer, 'GET', '/');
+  const block = page.body.slice(page.body.indexOf('<h3>Metrics</h3>'), page.body.indexOf('<h3>Current</h3>'));
+  for (const [label, value] of [['Started', '3'], ['Completed', '2'], ['Remediated', '1'], ['Resumed', '4'],
+    ['Aborted', '1'], ['Completion rate', '66.7%']]) {
+    assert.match(block, new RegExp(`<dt>${label}</dt><dd>${value}</dd>`), label);
+  }
+  const current = page.body.slice(page.body.indexOf('<h3>Current</h3>'), page.body.indexOf('<h3>History</h3>'));
+  assert.match(current, /assigned/, 'an assigned remediation is current work');
+  assert.match(current, /remediation: examination_failure \(attempt-&lt;7&gt;\), objectives o2/);
+  assert.match(current, /<td>standard<\/td>/);
+  assert.match(current, /<td>o1 2\/2, o&lt;2&gt; 1\/3<\/td>/, 'objective progress, escaped');
+  const history = page.body.slice(page.body.indexOf('<h3>History</h3>'));
+  assert.match(history, /<td>not tracked<\/td>/, 'a session without a stored plan says so');
+
+  const api = await request(consoleServer, 'GET', '/api/training-metrics');
+  assert.deepEqual([api.status, api.body.counts.completed], [200, 2]);
+  assert.equal((await request(consoleServer, 'POST', '/api/training-metrics')).status, 404);
+});
+
+test('a metrics outage is reported without hiding the session list', async () => {
+  gatewayMode = 'metrics-down';
+  const page = await request(consoleServer, 'GET', '/');
+  assert.match(page.body, /Training metrics unavailable/);
+  assert.match(page.body, /<h3>Current<\/h3>/);
+  const api = await request(consoleServer, 'GET', '/api/training-metrics');
+  assert.deepEqual([api.status, api.body.error], [503, 'training_metrics_unavailable']);
+  gatewayMode = 'ok';
 });
 
 test('console fails closed when the admin token or Training is unavailable', async () => {

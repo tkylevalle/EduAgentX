@@ -4,6 +4,8 @@ const { createHash } = require('node:crypto');
 
 const STATES = Object.freeze(['Candidate', 'Active', 'Quarantined', 'Superseded']);
 const HEX = /^[a-f0-9]{64}$/;
+// The delivery item kinds Training accepts; an item without a kind is a lesson.
+const ITEM_KINDS = ['lesson', 'practice'];
 const VERSION = /^\d+\.\d+\.\d+(?:-[a-z0-9.-]+)?$/;
 // Official identities, download locations, and independently fetched PDF
 // digests for the first domain. Matching them does not approve lesson content.
@@ -106,10 +108,10 @@ function validatePackage(pkg) {
     if (!Array.isArray(module.objectiveIds) || !module.objectiveIds.length || module.objectiveIds.some((id) => !objectives.has(id)))
       fail(`modules[${index}].objectiveIds`, 'must link existing objectives');
     if (!Array.isArray(module.deliveryItems) || !module.deliveryItems.length ||
-      module.deliveryItems.some((item) => !str(item?.id) || !str(item?.text)) ||
+      module.deliveryItems.some((item) => !str(item?.id) || !str(item?.text) || !ITEM_KINDS.includes(item.kind ?? 'lesson')) ||
       !HEX.test(module.contentSha256 || '') ||
       module.contentSha256 !== sha256({ content: module.content, deliveryItems: module.deliveryItems }))
-      fail(`modules[${index}].deliveryItems`, 'requires real lessons and a matching content SHA-256');
+      fail(`modules[${index}].deliveryItems`, 'requires lesson or practice items and a matching content SHA-256');
     if (!Array.isArray(module.claims) || !module.claims.length) fail(`modules[${index}].claims`, 'requires cited claims');
     for (const [claimIndex, claim] of (module.claims || []).entries()) {
       if (!str(claim?.text) || !str(claim?.pinpoint) || !sources.has(claim?.sourceId))

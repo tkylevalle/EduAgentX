@@ -216,5 +216,18 @@ training_status=$(curl -s -o /tmp/training-sessions.json -w '%{http_code}' \
 grep -q '"sessions":\[' /tmp/training-sessions.json || fail "training sessions response omitted the sessions list"
 echo "   OK: training-service reachable through the Gateway admin route"
 
+echo "15) Training metrics must be readable by an admin, and only an admin, through the Gateway..."
+metrics_agent_status=$(curl -s -o /tmp/training-metrics-agent.json -w '%{http_code}' \
+  "${BASE_URL}/v1/admin/training-metrics" \
+  -H "authorization: Bearer ${AGENT_TOKEN}")
+[ "$metrics_agent_status" = "403" ] || fail "agent token on training metrics returned ${metrics_agent_status}, expected 403: $(cat /tmp/training-metrics-agent.json)"
+metrics_status=$(curl -s -o /tmp/training-metrics.json -w '%{http_code}' \
+  "${BASE_URL}/v1/admin/training-metrics" \
+  -H "authorization: Bearer ${ADMIN_TOKEN}" \
+  -H "x-correlation-id: training-metrics-${CORRELATION_ID}")
+[ "$metrics_status" = "200" ] || fail "training metrics returned ${metrics_status}: $(cat /tmp/training-metrics.json)"
+grep -q '"completionRate"' /tmp/training-metrics.json || fail "training metrics response omitted completionRate"
+echo "   OK: training metrics reachable through the Gateway admin route"
+
 echo ""
 echo "SMOKE TEST PASSED"

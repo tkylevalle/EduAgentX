@@ -4,6 +4,13 @@
   "private": true,
   "description": "Ordered Training Session delivery against a pinned Domain Assurance Package for Sprint 2",
   "main": "index.js",
-  "scripts": { "start": "node index.js", "test": "node --test" },
-  "dependencies": { "express": "^4.19.2", "pg": "^8.11.5" }
+  "scripts": {
+    "start": "node index.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "pg": "^8.11.5",
+    "redis": "^4.7.1"
+  }
 }
