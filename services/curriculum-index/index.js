@@ -49,6 +49,8 @@ function createApp({ pool, client, embeddingFunction, internalKey = process.env.
 
 async function start() {
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  // Idle clients emit 'error' when Postgres restarts; an unhandled event would stop the process.
+  pool.on('error', (error) => console.error('curriculum-index postgres connection error', error.code || error.name));
   const client = new ChromaClient({
     host: process.env.CHROMADB_HOST || 'chromadb',
     port: Number(process.env.CHROMADB_PORT) || 8000,

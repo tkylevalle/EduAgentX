@@ -10,7 +10,10 @@ scrape_configs:
       - targets:
           - http://api-gateway:4000/health
           - http://agent-registry:4001/health
+          - http://curriculum-engine:4002/health
+          - http://curriculum-index:4003/health
           - http://training-service:4004/health
+          - http://validation-activation:4010/health
           - http://assurance-console:4100/health
           - http://synthetic-agent-learner:4200/health
     relabel_configs:
