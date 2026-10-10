@@ -349,6 +349,7 @@ services:
     environment:
       PORT: 4010
       SERVICE_NAME: validation-activation
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
     ports:
       - "127.0.0.1:${VALIDATION_ACTIVATION_PORT:-4010}:4010"
     depends_on:
