@@ -14,12 +14,16 @@ app.get('/health', (req, res) => {
 });
 
 // POST /packages — ingest a package from curriculum-engine
+// Accepts both { id } and { manifest: { packageId } } shapes
 app.post('/packages', async (req, res) => {
   const pkg = req.body;
-  if (!pkg || !pkg.id) return res.status(400).json({ error: 'missing_package_or_id' });
-  const digest = crypto.createHash('sha256').update(JSON.stringify(pkg)).digest('hex');
-  await db.seedPackage({ ...pkg, digest });
-  res.status(201).json({ packageId: pkg.id, digest, state: 'Candidate' });
+  // Normalise: curriculum-engine sends manifest.packageId
+  const id = pkg.id || pkg.manifest?.packageId;
+  if (!id) return res.status(400).json({ error: 'missing_package_id', hint: 'provide id or manifest.packageId' });
+  const normalised = { ...pkg, id };
+  const digest = crypto.createHash('sha256').update(JSON.stringify(normalised)).digest('hex');
+  await db.seedPackage({ ...normalised, digest });
+  res.status(201).json({ packageId: id, digest, state: 'Candidate' });
 });
 
 // POST /validate — run 6 gates on a candidate package
