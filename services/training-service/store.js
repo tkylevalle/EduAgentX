@@ -226,18 +226,28 @@ function createPgStore(pool) {
     },
     async completionPublicationCounts() {
       const result = await pool.query(
-        `SELECT count(*)::int AS total, count(p.event_id)::int AS published
+        `SELECT count(*)::int AS total, count(p.event_id)::int AS published,
+          count(i.event_id)::int AS quarantined
          FROM training_service.completion_events c
-         LEFT JOIN training_service.completion_publications p ON p.event_id = c.event_id`);
-      const { total, published } = result.rows[0];
-      return { total, published, pending: total - published };
+         LEFT JOIN training_service.completion_publications p ON p.event_id = c.event_id
+         LEFT JOIN training_service.completion_delivery_incidents i ON i.event_id = c.event_id`);
+      const { total, published, quarantined } = result.rows[0];
+      return { total, published, pending: total - published - quarantined, quarantined };
+    },
+    async listCompletionIncidents() {
+      const result = await pool.query(
+        `SELECT event_id AS "eventId", category, severity, safe_state AS "safeState",
+          cause_code AS "causeCode", correlation_id AS "correlationId", affected,
+          retry_count AS "retryCount", occurred_at AS "occurredAt"
+         FROM training_service.completion_delivery_incidents ORDER BY occurred_at DESC`);
+      return result.rows;
     },
   };
 }
 
-// Sends each unpublished completion event, oldest first, and records its
-// stream id. A send that fails stops the run with nothing recorded for that
-// event, so the next run sends it again: delivery is at least once.
+// Each failed actual send is durable. After three failures the event is
+// quarantined and unrelated events continue; a disconnected Redis readiness
+// check never spends an attempt.
 async function publishUnderRelayLock(pool, publish, limit) {
   const client = await pool.connect();
   let releaseError;
@@ -251,16 +261,34 @@ async function publishUnderRelayLock(pool, publish, limit) {
     if (!lock.rows[0].locked) return 0;
     try {
       const pending = await client.query(
-        `SELECT c.event_id, c.envelope FROM training_service.completion_events c
+        `SELECT c.event_id, c.envelope, COALESCE(f.failures,0)::int AS failures FROM training_service.completion_events c
+         LEFT JOIN LATERAL (SELECT count(*) AS failures FROM training_service.completion_delivery_failures f
+           WHERE f.event_id=c.event_id) f ON true
          WHERE NOT EXISTS (SELECT 1 FROM training_service.completion_publications p WHERE p.event_id = c.event_id)
+           AND NOT EXISTS (SELECT 1 FROM training_service.completion_delivery_incidents i WHERE i.event_id = c.event_id)
+           AND COALESCE(f.failures,0) < 3
          ORDER BY c.occurred_at, c.event_id LIMIT $1`, [limit]);
+      let sent = 0;
       for (const row of pending.rows) {
-        const streamId = await publish(row.envelope);
-        await client.query(
-          `INSERT INTO training_service.completion_publications (event_id, stream_id) VALUES ($1, $2)
-           ON CONFLICT (event_id) DO NOTHING`, [row.event_id, streamId]);
+        try {
+          const streamId = await publish(row.envelope);
+          await client.query(
+            `INSERT INTO training_service.completion_publications (event_id, stream_id) VALUES ($1, $2)
+             ON CONFLICT (event_id) DO NOTHING`, [row.event_id, streamId]);
+          sent += 1;
+        } catch {
+          const attempt = row.failures + 1;
+          await client.query(
+            `INSERT INTO training_service.completion_delivery_failures(event_id,attempt_no,cause_code)
+             VALUES($1,$2,'publish_failed')`, [row.event_id, attempt]);
+          if (attempt >= 3) await client.query(
+            `INSERT INTO training_service.completion_delivery_incidents(event_id,cause_code,correlation_id,affected)
+             VALUES($1,'delivery_budget_exhausted',$2,$3) ON CONFLICT DO NOTHING`,
+            [row.event_id, row.envelope.correlationId || null,
+              JSON.stringify({ sessionId: row.envelope.sessionId, package: row.envelope.package || null })]);
+        }
       }
-      return pending.rows.length;
+      return sent;
     } finally {
       // A session lock outlives the query; if the unlock fails, the connection
       // is destroyed instead of returned, which releases the lock with it.
@@ -281,6 +309,8 @@ function createMemoryStore() {
   const events = [];
   const completions = new Map();
   const publications = new Map();
+  const deliveryFailures = new Map();
+  const deliveryIncidents = new Map();
   let queue = Promise.resolve();
   const uniqueViolation = () => Object.assign(new Error('duplicate key'), { code: '23505' });
   const store = {
@@ -365,13 +395,28 @@ function createMemoryStore() {
         .map(({ session }) => ({ sessionId: session.sessionId, agentLearnerKey: session.agentLearnerKey }));
     },
     async publishPendingCompletions(publish, limit = 100) {
-      const pending = [...completions.values()].filter((c) => !publications.has(c.eventId)).slice(0, limit);
-      for (const envelope of pending) publications.set(envelope.eventId, await publish(structuredClone(envelope)));
-      return pending.length;
+      const pending = [...completions.values()].filter((c) => !publications.has(c.eventId) && !deliveryIncidents.has(c.eventId)).slice(0, limit);
+      let sent = 0;
+      for (const envelope of pending) {
+        try { publications.set(envelope.eventId, await publish(structuredClone(envelope))); sent += 1; }
+        catch {
+          const attempts = (deliveryFailures.get(envelope.eventId) || 0) + 1;
+          deliveryFailures.set(envelope.eventId, attempts);
+          if (attempts >= 3) deliveryIncidents.set(envelope.eventId, {
+            eventId: envelope.eventId, category: 'integration', severity: 'Major',
+            safeState: 'quarantined_unpublished', causeCode: 'delivery_budget_exhausted',
+            correlationId: envelope.correlationId || null,
+            affected: { sessionId: envelope.sessionId, package: envelope.package || null }, retryCount: 3,
+          });
+        }
+      }
+      return sent;
     },
     async completionPublicationCounts() {
-      return { total: completions.size, published: publications.size, pending: completions.size - publications.size };
+      return { total: completions.size, published: publications.size,
+        pending: completions.size - publications.size - deliveryIncidents.size, quarantined: deliveryIncidents.size };
     },
+    async listCompletionIncidents() { return structuredClone([...deliveryIncidents.values()]); },
   };
   return store;
 }

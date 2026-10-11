@@ -131,3 +131,36 @@ CREATE TABLE IF NOT EXISTS training_service.completion_publications (
 DROP TRIGGER IF EXISTS completion_publications_immutable ON training_service.completion_publications;
 CREATE TRIGGER completion_publications_immutable BEFORE UPDATE OR DELETE ON training_service.completion_publications
 FOR EACH ROW EXECUTE FUNCTION training_service.forbid_evidence_change();
+
+-- Actual failed delivery attempts only; readiness polling while Redis is down
+-- does not consume the logical three-attempt budget.
+CREATE TABLE IF NOT EXISTS training_service.completion_delivery_failures (
+  event_id text NOT NULL REFERENCES training_service.completion_events(event_id),
+  attempt_no integer NOT NULL CHECK (attempt_no BETWEEN 1 AND 3),
+  cause_code text NOT NULL,
+  occurred_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (event_id, attempt_no)
+);
+DROP TRIGGER IF EXISTS completion_delivery_failures_immutable ON training_service.completion_delivery_failures;
+CREATE TRIGGER completion_delivery_failures_immutable BEFORE UPDATE OR DELETE ON training_service.completion_delivery_failures
+FOR EACH ROW EXECUTE FUNCTION training_service.forbid_evidence_change();
+
+CREATE TABLE IF NOT EXISTS training_service.completion_delivery_incidents (
+  event_id text PRIMARY KEY REFERENCES training_service.completion_events(event_id),
+  category text NOT NULL DEFAULT 'integration',
+  severity text NOT NULL DEFAULT 'Major',
+  safe_state text NOT NULL DEFAULT 'quarantined_unpublished',
+  cause_code text NOT NULL,
+  correlation_id text,
+  affected jsonb NOT NULL DEFAULT '{}'::jsonb,
+  retry_count integer NOT NULL DEFAULT 3,
+  occurred_at timestamptz NOT NULL DEFAULT now(),
+  CHECK (retry_count = 3)
+);
+ALTER TABLE training_service.completion_delivery_incidents
+  ADD COLUMN IF NOT EXISTS correlation_id text,
+  ADD COLUMN IF NOT EXISTS affected jsonb NOT NULL DEFAULT '{}'::jsonb,
+  ADD COLUMN IF NOT EXISTS retry_count integer NOT NULL DEFAULT 3;
+DROP TRIGGER IF EXISTS completion_delivery_incidents_immutable ON training_service.completion_delivery_incidents;
+CREATE TRIGGER completion_delivery_incidents_immutable BEFORE UPDATE OR DELETE ON training_service.completion_delivery_incidents
+FOR EACH ROW EXECUTE FUNCTION training_service.forbid_evidence_change();

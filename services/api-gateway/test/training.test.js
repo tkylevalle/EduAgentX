@@ -187,18 +187,19 @@ test('an admin remediation request reaches Training unchanged with the admin as 
   assert.equal(training.requests.length, 1);
 });
 
-test('admin training metrics and completion events are read-only admin views', async (t) => {
+test('admin training metrics, completion events, and incidents are read-only admin views', async (t) => {
   const { gateway, training } = await startGateway(t);
   const agentToken = await getToken(gateway, 'training-agent', 'training-agent-secret');
   const adminToken = await getToken(gateway, 'training-admin', 'training-admin-secret');
-  for (const route of ['/v1/admin/training-metrics', '/v1/admin/training-completion-events']) {
+  for (const route of ['/v1/admin/training-metrics', '/v1/admin/training-completion-events',
+    '/v1/admin/training-completion-incidents']) {
     assert.equal((await request(gateway, 'GET', route)).status, 401);
     assert.equal((await request(gateway, 'GET', route, undefined, { authorization: `Bearer ${agentToken}` })).status, 403);
     assert.equal((await request(gateway, 'GET', route, undefined, { authorization: `Bearer ${adminToken}` })).status, 200);
     assert.equal((await request(gateway, 'POST', route, {}, { authorization: `Bearer ${adminToken}` })).status, 404);
   }
   assert.deepEqual(training.requests.map((r) => `${r.method} ${r.url}`),
-    ['GET /internal/metrics', 'GET /internal/completion-events']);
+    ['GET /internal/metrics', 'GET /internal/completion-events', 'GET /internal/completion-incidents']);
 });
 
 test('a missing Training key or an unreachable Training service fails closed', async (t) => {
@@ -211,6 +212,7 @@ test('a missing Training key or an unreachable Training service fails closed', a
     { authorization: `Bearer ${adminToken}` });
   assert.deepEqual([noKeyAdmin.status, noKeyAdmin.body.error], [503, 'training_unavailable']);
   for (const [method, route] of [['GET', '/v1/admin/training-metrics'], ['GET', '/v1/admin/training-completion-events'],
+    ['GET', '/v1/admin/training-completion-incidents'],
     ['POST', '/v1/admin/training-remediations']]) {
     const refused = await request(gateway, method, route, method === 'POST' ? { requestId: 'r' } : undefined,
       { authorization: `Bearer ${adminToken}` });

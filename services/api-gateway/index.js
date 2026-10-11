@@ -384,6 +384,10 @@ function createApp({
     if (!trainingInternalKey) return trainingUnavailable(req, res);
     await proxyJson(req, res, `${trainingServiceUrl}/internal/completion-events`, { headers: trainingHeaders(req) });
   });
+  app.get('/v1/admin/training-completion-incidents', requireRole('admin'), async (req, res) => {
+    if (!trainingInternalKey) return trainingUnavailable(req, res);
+    await proxyJson(req, res, `${trainingServiceUrl}/internal/completion-incidents`, { headers: trainingHeaders(req) });
+  });
 
   // The one human write route into Training: an operator assigns targeted
   // remediation. An unknown field is refused here, as Training would refuse

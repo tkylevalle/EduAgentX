@@ -173,6 +173,13 @@ function createApp({
     } catch (error) { sendError(req, res, error); }
   });
 
+  app.get('/internal/completion-incidents', async (req, res) => {
+    try {
+      const incidents = await store.listCompletionIncidents();
+      res.json({ apiVersion: API_VERSION, incidents, correlationId: req.correlationId });
+    } catch (error) { sendError(req, res, error); }
+  });
+
   // Read-only views for the Assurance Console (admin-only at the Gateway).
   app.get('/internal/sessions', async (req, res) => {
     try {
