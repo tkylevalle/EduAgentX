@@ -1,6 +1,7 @@
 'use strict';
 
 const { createHash } = require('node:crypto');
+const { validateFallbackBank } = require('./fallback');
 
 const STATES = Object.freeze(['Candidate', 'Active', 'Quarantined', 'Superseded']);
 const HEX = /^[a-f0-9]{64}$/;
@@ -87,6 +88,9 @@ function validatePackage(pkg) {
   const sources = new Map((pkg.sources || []).map((source) => [source.id, source]));
   const objectives = new Map((pkg.objectives || []).map((objective) => [objective.id, objective]));
   const modules = new Map((pkg.modules || []).map((module) => [module.id, module]));
+  for (const message of validateFallbackBank(pkg.fallbackBank, {
+    sourceIds: new Set(sources.keys()), objectiveIds: new Set(objectives.keys()),
+  })) fail('fallbackBank', message);
   if (sources.size !== SOURCE_BASELINE.size || [...SOURCE_BASELINE.keys()].some((id) => !sources.has(id)))
     fail('sources', 'must contain the five required official-source identities');
   for (const [index, source] of (pkg.sources || []).entries()) {

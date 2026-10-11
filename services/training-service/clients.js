@@ -37,12 +37,14 @@ function toPackageRecord(body) {
   if (!text(body?.digest)) missing.push('digest');
   if (!Array.isArray(body?.objectives)) missing.push('objectives');
   if (!Array.isArray(body?.modules)) missing.push('modules');
+  if (!Array.isArray(body?.quarantinedScopes)) missing.push('quarantinedScopes');
   if (missing.length) throw new ContractError('validation-activation', missing);
   return {
     id: body.packageId,
     version: body.version,
     state: body.state,
     digest: body.digest,
+    quarantinedScopes: body.quarantinedScopes,
     payload: { objectives: body.objectives, modules: body.modules },
   };
 }

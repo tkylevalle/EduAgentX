@@ -10,6 +10,7 @@ const {
 const activeBody = {
   packageId: 'pkg-a', digest: 'digest-1', version: '1.0.0', state: 'Active',
   objectives: [{ id: 'o1' }], modules: [{ id: 'm1' }],
+  quarantinedScopes: [],
   examTemplate: {}, fallbackBank: {}, rubric: {}, evidence: [{ event: 'activated' }],
 };
 
@@ -31,12 +32,13 @@ async function stub(routes) {
 test('toPackageRecord maps the validation-activation response and keeps only objectives and modules', () => {
   assert.deepEqual(toPackageRecord(activeBody), {
     id: 'pkg-a', version: '1.0.0', state: 'Active', digest: 'digest-1',
+    quarantinedScopes: [],
     payload: { objectives: [{ id: 'o1' }], modules: [{ id: 'm1' }] },
   });
 });
 
 test('toPackageRecord fails closed on a missing digest, modules or identity instead of guessing', () => {
-  for (const [field, value] of [['digest', null], ['modules', undefined], ['packageId', ''], ['state', undefined],
+  for (const [field, value] of [['digest', null], ['modules', undefined], ['packageId', ''], ['state', undefined], ['quarantinedScopes', undefined],
     ['version', undefined], ['objectives', undefined]]) {
     const body = { ...activeBody, [field]: value };
     assert.throws(() => toPackageRecord(body), (error) =>

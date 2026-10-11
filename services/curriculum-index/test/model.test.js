@@ -26,3 +26,11 @@ test('chunk digest changes if module content changes', () => {
   const original = extractChunks(samplePackage);
   assert.notEqual(changed[0].digest, original[0].digest);
 });
+
+test('a quarantined module is removed from index chunks at the smallest available retrieval boundary', () => {
+  const pkg = structuredClone(samplePackage);
+  pkg.quarantinedScopes = [{ scopeType: 'module', scopeId: 'm3' }];
+  const chunks = extractChunks(pkg);
+  assert.equal(chunks.length, 4);
+  assert.equal(chunks.some((chunk) => chunk.moduleId === 'm3'), false);
+});

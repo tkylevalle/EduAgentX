@@ -2,6 +2,7 @@
 
 // Authored Candidate for model inspection, not approved teaching material.
 const { sha256 } = require('../model');
+const { FALLBACK_BANK } = require('../fallback');
 const version = '0.1.5-draft';
 const retrievedAt = '2026-09-29T15:00:00Z';
 const source = (id, issuer, title, documentIdentifier, edition, snapshot, canonicalUrl, snapshotUrl, contentSha256, licenseBasis, sourceRetrievedAt = retrievedAt) => ({
@@ -73,7 +74,7 @@ const rubric = {
   policy: 'Draft critical-rule identifiers only; grading criteria and human approval pending.',
   criticalViolationRuleIds: ['critical-o3', 'critical-o4', 'critical-o5'],
 };
-const fallbackBank = { id: 'ai-safety-fallback', version, policy: 'Draft contract only; 15 reviewed deterministic items pending issue #14. This package cannot activate.' };
+const fallbackBank = { ...FALLBACK_BANK, version, items: FALLBACK_BANK.items.map((item) => ({ ...item, version })) };
 const pin = (value) => ({ id: value.id, version: value.version, sha256: sha256(value) });
 const pkg = {
   manifest: {

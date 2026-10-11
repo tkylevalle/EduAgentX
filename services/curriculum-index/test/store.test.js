@@ -15,7 +15,7 @@ const samplePackage = require('../../curriculum-engine/examples/ai-safety-candid
 // proven against a live database (see the Docker smoke test) — this just
 // lets rebuildIndex run without a live Postgres connection.
 function fakePool(packages) {
-  return { query: async () => ({ rows: packages.map((payload) => ({ payload })) }) };
+  return { query: async () => ({ rows: packages.map((payload) => ({ payload, quarantined_scopes: payload.quarantinedScopes || [] })) }) };
 }
 
 // Minimal in-memory stand-in for the real ChromaDB client — just enough of
@@ -72,7 +72,7 @@ test('queryIndex returns mode "live" and finds the right module when ChromaDB is
   // Note: this fake client does literal matching, not real embeddings — the
   // actual semantic ranking behavior was already verified against live
   // ChromaDB in Docker. This test exists to check mode/wiring, not ranking.
-  const result = await queryIndex({ client, embeddingFunction: null, text: 'no match expected here' });
+  const result = await queryIndex({ pool, client, embeddingFunction: null, text: 'no match expected here' });
   assert.equal(result.mode, 'live');
 });
 
@@ -80,7 +80,22 @@ test('queryIndex falls back to the cached snapshot, marked stale, when ChromaDB 
   const pool = fakePool([samplePackage]);
   await rebuildIndex({ pool, client: fakeChromaClient(), embeddingFunction: null });
 
-  const result = await queryIndex({ client: unreachableChromaClient(), embeddingFunction: null, text: 'Tool Misuse' });
+  const result = await queryIndex({ pool, client: unreachableChromaClient(), embeddingFunction: null, text: 'Tool Misuse' });
   assert.equal(result.mode, 'cached-stale');
   assert.ok(result.results.some((chunk) => chunk.moduleId === 'm4'));
+});
+
+test('the last-index cache does not return content quarantined after its snapshot was built', async () => {
+  await rebuildIndex({ pool: fakePool([samplePackage]), client: fakeChromaClient(), embeddingFunction: null });
+  const changed = structuredClone(samplePackage);
+  changed.quarantinedScopes = [{ scopeType: 'module', scopeId: 'm4' }];
+  const result = await queryIndex({ pool: fakePool([changed]), client: unreachableChromaClient(), embeddingFunction: null, text: 'Tool Misuse' });
+  assert.equal(result.mode, 'cached-stale');
+  assert.equal(result.results.some((chunk) => chunk.moduleId === 'm4'), false);
+});
+
+test('stale cache is not used when current Active scope cannot be verified', async () => {
+  await rebuildIndex({ pool: fakePool([samplePackage]), client: fakeChromaClient(), embeddingFunction: null });
+  await assert.rejects(queryIndex({ pool: { query: async () => { throw new Error('postgres unavailable'); } },
+    client: unreachableChromaClient(), embeddingFunction: null, text: 'Tool Misuse' }), /postgres unavailable/);
 });
