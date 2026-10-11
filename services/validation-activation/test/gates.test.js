@@ -2,71 +2,43 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { runValidationGates } = require('../src/gates');
-const { FALLBACK_BANK } = require('../../curriculum-engine/fallback');
+const candidate = require('../../curriculum-engine/examples/ai-safety-candidate');
 
-const fallbackFixture = structuredClone(FALLBACK_BANK);
-fallbackFixture.items = fallbackFixture.items.map((item, index) => ({
-  ...item,
-  objectiveIds: [index < 5 ? 'o1' : 'o2'],
-  sourceLinks: [{ sourceId: index % 2 ? 'nist-rmf' : 'owasp-agentic', pinpoint: 'fixture source section' }],
-}));
+const copy = () => structuredClone(candidate);
+const gate = (pkg, name) => runValidationGates(pkg).gates.find(item => item.name === name);
 
-const validPackage = {
-  id: 'pkg-001', version: '1.0.0',
-  manifest: { title: 'AI Safety Course' },
-  sources: [{ id: 'nist-rmf' }, { id: 'owasp-agentic' }],
-  modules: [
-    { id: 'm1', source: 'NIST SP 800-53', source_hash: 'abc123' },
-    { id: 'm2', source: 'OWASP Top 10 2021', source_hash: 'def456' },
-    { id: 'm3', source: 'OECD AI Principles 2024', source_hash: 'ghi789' },
-    { id: 'm4', source: 'NIST AI RMF 1.0', source_hash: 'jkl012' },
-    { id: 'm5', source: 'OWASP LLM Top 10', source_hash: 'mno345' },
-  ],
-  objectives: [
-    { id: 'o1', module_id: 'm1', examination_slots: [{ tier: 1 }, { tier: 2 }], safety_critical: false },
-    { id: 'o2', module_id: 'm2', examination_slots: [{ tier: 1 }, { tier: 2 }], safety_critical: true, adversarial_coverage: true, critical_rule: 'no-bypass' },
-  ],
-  examination_template: { pass_threshold: 0.7, question_count: 10, tiers: [1, 2] },
-  rubric: { score_floor: 3.5, score_target: 4.0, criteria: ['accuracy', 'coverage', 'traceability'] },
-  fallback_bank: fallbackFixture
-};
-
-test('valid package passes all 6 gates', async () => {
-  const result = await runValidationGates(validPackage);
-  assert.strictEqual(result.passed, true);
-  assert.strictEqual(result.gates.length, 6);
+test('canonical five-module Candidate passes all six independent gates', () => {
+  const result = runValidationGates(copy());
+  assert.equal(result.passed, true, JSON.stringify(result.gates));
+  assert.equal(result.gates.length, 6);
 });
 
-test('missing manifest fails schema gate', async () => {
-  const pkg = { ...validPackage, manifest: undefined };
-  const result = await runValidationGates(pkg);
-  assert.strictEqual(result.passed, false);
-  assert.strictEqual(result.gates[0].name, 'schema_manifest');
-  assert.strictEqual(result.gates[0].passed, false);
+test('missing manifest fails schema gate', () => {
+  const pkg = copy(); delete pkg.manifest;
+  assert.equal(gate(pkg, 'schema_manifest').passed, false);
 });
 
-test('missing source hash fails source traceability gate', async () => {
-  const pkg = { ...validPackage, modules: [{ id: 'm1', source: 'NIST SP 800-53' }] };
-  const result = await runValidationGates(pkg);
-  assert.strictEqual(result.gates[1].passed, false);
+test('claim without a source pinpoint fails traceability', () => {
+  const pkg = copy(); pkg.modules[0].claims[0].pinpoint = '';
+  assert.equal(gate(pkg, 'source_traceability').passed, false);
 });
 
-test('safety-critical objective without adversarial coverage fails', async () => {
-  const pkg = { ...validPackage, objectives: [
-    { id: 'o1', module_id: 'm1', examination_slots: [{ tier: 1 }, { tier: 2 }], safety_critical: true }
-  ]};
-  const result = await runValidationGates(pkg);
-  assert.strictEqual(result.gates[2].passed, false);
+test('safety-critical objective without adversarial slot fails coverage', () => {
+  const pkg = copy(); pkg.objectives[3].examSlotIds = ['r4', 'a4'];
+  assert.equal(gate(pkg, 'objective_coverage').passed, false);
 });
 
-test('pass threshold below 0.7 fails examination policy gate', async () => {
-  const pkg = { ...validPackage, examination_template: { pass_threshold: 0.5, question_count: 10, tiers: [1, 2] } };
-  const result = await runValidationGates(pkg);
-  assert.strictEqual(result.gates[3].passed, false);
+test('incorrect pass threshold fails examination policy', () => {
+  const pkg = copy(); pkg.examTemplate.overallPassPercent = 70;
+  assert.equal(gate(pkg, 'examination_policy').passed, false);
 });
 
-test('fallback bank with fewer than 5 items fails', async () => {
-  const pkg = { ...validPackage, fallback_bank: { version: '1.0', items: ['f1', 'f2'] } };
-  const result = await runValidationGates(pkg);
-  assert.strictEqual(result.gates[5].passed, false);
+test('missing rubric criteria fails rubric gate', () => {
+  const pkg = copy(); pkg.rubric.criteria = [];
+  assert.equal(gate(pkg, 'rubric_policy').passed, false);
+});
+
+test('missing fallback item fails readiness', () => {
+  const pkg = copy(); pkg.fallbackBank.items.pop();
+  assert.equal(gate(pkg, 'fallback_readiness').passed, false);
 });

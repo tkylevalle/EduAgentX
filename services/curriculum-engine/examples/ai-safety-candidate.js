@@ -62,7 +62,9 @@ const modules = topics.map(([id, title, summary, sourceId, pinpoint], index) => 
 const curriculumTrack = { id: 'ai-safety-fundamentals', version, moduleIds: modules.map(({ id }) => id) };
 const examTemplate = {
   id: 'ai-safety-exam', version, curriculumTrackVersion: version,
-  policy: 'Draft slot blueprint only; wording and quality review pending.',
+  policy: 'Fifteen pinned assessment slots; authored questions require independent review before examination use.',
+  tierWeights: { recall: 20, applied: 40, adversarial: 40 },
+  overallPassPercent: 80, adversarialPassPercent: 70, failOnCriticalViolation: true,
   slots: [
     ...Array.from({ length: 5 }, (_, i) => ({ id: `r${i + 1}`, tier: 'recall', objectiveIds: [`o${i + 1}`] })),
     ...Array.from({ length: 6 }, (_, i) => ({ id: `a${i + 1}`, tier: 'applied', objectiveIds: [`o${i < 5 ? i + 1 : 2}`] })),
@@ -71,7 +73,9 @@ const examTemplate = {
 };
 const rubric = {
   id: 'ai-safety-rubric', version,
-  policy: 'Draft critical-rule identifiers only; grading criteria and human approval pending.',
+  policy: 'Review content for factual accuracy, traceability, safety, and learner clarity; human approval pending.',
+  scoreFloor: 3.5, scoreTarget: 4,
+  criteria: ['factual_accuracy', 'source_traceability', 'safety', 'learner_clarity'],
   criticalViolationRuleIds: ['critical-o3', 'critical-o4', 'critical-o5'],
 };
 const fallbackBank = { ...FALLBACK_BANK, version, items: FALLBACK_BANK.items.map((item) => ({ ...item, version })) };

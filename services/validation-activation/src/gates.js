@@ -1,111 +1,75 @@
-/**
- * Six independent validation gates.
- * Each gate returns { name, passed, reason }.
- */
+'use strict';
 
-const { validateFallbackBank } = require('../../curriculum-engine/fallback');
+// The six gates operate on the immutable Curriculum Engine contract. A failed
+// gate is reported independently so a reviewer can identify the exact defect.
+const { validatePackage, sha256 } = require('../../curriculum-engine/model');
+const { validateFallbackBank, POLICY } = require('../../curriculum-engine/fallback');
 
-async function runValidationGates(pkg) {
-  const gates = await Promise.all([
-    gateSchema(pkg),
-    gateSourceTraceability(pkg),
-    gateObjectiveCoverage(pkg),
-    gateExaminationPolicy(pkg),
-    gateRubricPolicy(pkg),
-    gateFallbackReadiness(pkg),
-  ]);
+const result = (name, errors) => ({
+  name, passed: errors.length === 0,
+  reason: errors.length ? errors.join('; ') : 'Passed',
+});
 
-  const passed = gates.every(g => g.passed);
-  return { passed, gates };
-}
-
-// Gate 1 — Schema & manifest completeness
-function gateSchema(pkg) {
-  const required = ['id', 'version', 'manifest', 'modules', 'objectives', 'examination_template', 'rubric', 'fallback_bank'];
-  const missing = required.filter(k => !pkg[k]);
-  return {
-    name: 'schema_manifest',
-    passed: missing.length === 0,
-    reason: missing.length ? `Missing fields: ${missing.join(', ')}` : 'All required fields present'
-  };
-}
-
-// Gate 2 — Source traceability (NIST/OECD/OWASP pinned with hash)
-function gateSourceTraceability(pkg) {
-  const approvedSources = ['NIST', 'OECD', 'OWASP'];
-  const modules = pkg.modules || [];
-  const violations = modules.filter(m => {
-    const hasApproved = approvedSources.some(s => m.source?.includes(s));
-    const hasHash = !!m.source_hash;
-    return !hasApproved || !hasHash;
+function runValidationGates(pkg) {
+  const schemaErrors = validatePackage(pkg);
+  const sources = new Map((pkg?.sources || []).map(source => [source.id, source]));
+  const modules = new Map((pkg?.modules || []).map(module => [module.id, module]));
+  const slots = new Map((pkg?.examTemplate?.slots || []).map(slot => [slot.id, slot]));
+  const sourceErrors = [];
+  for (const module of pkg?.modules || []) {
+    for (const claim of module.claims || []) {
+      const source = sources.get(claim.sourceId);
+      if (!source || !claim.pinpoint?.trim() || !source.contentSha256 ||
+          !pkg.manifest?.sourcePins?.some(pin => pin.id === source.id && pin.sha256 === sha256(source)))
+        sourceErrors.push(`${module.id}: claim source/pinpoint is not pinned`);
+    }
+  }
+  for (const item of pkg?.fallbackBank?.items || []) {
+    if (!item.sourceLinks?.length || item.sourceLinks.some(link =>
+      !sources.has(link.sourceId) || !link.pinpoint?.trim()))
+      sourceErrors.push(`${item.id}: fallback source/pinpoint missing`);
+  }
+  const objectiveErrors = [];
+  for (const objective of pkg?.objectives || []) {
+    if (!objective.moduleIds?.some(id => modules.get(id)?.objectiveIds?.includes(objective.id)))
+      objectiveErrors.push(`${objective.id}: module link missing`);
+    const covered = (objective.examSlotIds || []).map(id => slots.get(id))
+      .filter(slot => slot?.objectiveIds?.includes(objective.id));
+    if (covered.length < 2 || new Set(covered.map(slot => slot.tier)).size < 2)
+      objectiveErrors.push(`${objective.id}: two slots in distinct tiers required`);
+    if (objective.safetyCritical && (!covered.some(slot => slot.tier === 'adversarial') ||
+      !objective.criticalViolationRuleIds?.some(id => pkg.rubric?.criticalViolationRuleIds?.includes(id))))
+      objectiveErrors.push(`${objective.id}: adversarial slot and critical rule required`);
+  }
+  const exam = pkg?.examTemplate || {};
+  const tierCounts = ['recall', 'applied', 'adversarial'].map(tier =>
+    (exam.slots || []).filter(slot => slot.tier === tier).length);
+  const examinationErrors = [];
+  if (exam.slots?.length !== 15 || tierCounts.join() !== '5,6,4')
+    examinationErrors.push('15 slots with 5/6/4 tiers required');
+  if (JSON.stringify(exam.tierWeights) !== JSON.stringify(POLICY.tierWeights) ||
+      exam.overallPassPercent !== 80 || exam.adversarialPassPercent !== 70 ||
+      exam.failOnCriticalViolation !== true)
+    examinationErrors.push('20/40/40 weights, 80 overall, 70 adversarial, critical failure required');
+  const rubric = pkg?.rubric || {};
+  const rubricErrors = [];
+  if (rubric.scoreFloor !== 3.5 || rubric.scoreTarget !== 4 ||
+      !Array.isArray(rubric.criteria) || rubric.criteria.length < 3 ||
+      !rubric.criticalViolationRuleIds?.length)
+    rubricErrors.push('review floor 3.5, target 4, criteria and critical rules required');
+  const fallbackErrors = validateFallbackBank(pkg?.fallbackBank, {
+    sourceIds: new Set(sources.keys()),
+    objectiveIds: new Set((pkg?.objectives || []).map(objective => objective.id)),
   });
-  return {
-    name: 'source_traceability',
-    passed: violations.length === 0,
-    reason: violations.length ? `${violations.length} module(s) missing approved source or hash` : 'All modules have pinned approved sources'
-  };
-}
-
-// Gate 3 — Objective coverage (each objective linked to module + 2 exam slots across 2 tiers)
-function gateObjectiveCoverage(pkg) {
-  const objectives = pkg.objectives || [];
-  const violations = objectives.filter(obj => {
-    const hasModule = !!obj.module_id;
-    const examSlots = obj.examination_slots || [];
-    const tiers = new Set(examSlots.map(e => e.tier));
-    const safetyCriticalOk = !obj.safety_critical || (obj.adversarial_coverage && obj.critical_rule);
-    return !hasModule || examSlots.length < 2 || tiers.size < 2 || !safetyCriticalOk;
-  });
-  return {
-    name: 'objective_coverage',
-    passed: violations.length === 0,
-    reason: violations.length ? `${violations.length} objective(s) fail coverage requirements` : 'All objectives correctly linked and covered'
-  };
-}
-
-// Gate 4 — Examination policy
-function gateExaminationPolicy(pkg) {
-  const template = pkg.examination_template || {};
-  const hasPassThreshold = typeof template.pass_threshold === 'number' && template.pass_threshold >= 0.7;
-  const hasQuestionCount = typeof template.question_count === 'number' && template.question_count >= 10;
-  const hasTiers = Array.isArray(template.tiers) && template.tiers.length >= 2;
-  const passed = hasPassThreshold && hasQuestionCount && hasTiers;
-  return {
-    name: 'examination_policy',
-    passed,
-    reason: passed ? 'Examination policy valid' : 'Examination template missing pass threshold, question count, or tiers'
-  };
-}
-
-// Gate 5 — Rubric policy
-function gateRubricPolicy(pkg) {
-  const rubric = pkg.rubric || {};
-  const hasFloor = typeof rubric.score_floor === 'number' && rubric.score_floor >= 3.5;
-  const hasTarget = typeof rubric.score_target === 'number' && rubric.score_target >= 4.0;
-  const hasCriteria = Array.isArray(rubric.criteria) && rubric.criteria.length >= 3;
-  const passed = hasFloor && hasTarget && hasCriteria;
-  return {
-    name: 'rubric_policy',
-    passed,
-    reason: passed ? 'Rubric policy valid' : 'Rubric missing score floor (3.5), target (4.0), or criteria'
-  };
-}
-
-// Gate 6 — Fallback readiness
-function gateFallbackReadiness(pkg) {
-  const fallback = pkg.fallback_bank || pkg.fallbackBank || {};
-  const sources = pkg.sources || [];
-  const objectives = pkg.objectives || [];
-  const errors = validateFallbackBank(fallback, {
-    sourceIds: new Set(sources.map((source) => source?.id || source?.sourceId)),
-    objectiveIds: new Set(objectives.map((objective) => objective?.id || objective?.objectiveId)),
-  });
-  const passed = errors.length === 0;
-  return {
-    name: 'fallback_readiness',
-    passed,
-    reason: passed ? 'Exactly 15 immutable source-linked items pass the approved tier and scoring policy' : errors.join('; ')
-  };
+  const gates = [
+    result('schema_manifest', schemaErrors.map(error => `${error.path}: ${error.message}`)),
+    result('source_traceability', sourceErrors),
+    result('objective_coverage', objectiveErrors),
+    result('examination_policy', examinationErrors),
+    result('rubric_policy', rubricErrors),
+    result('fallback_readiness', fallbackErrors),
+  ];
+  return { passed: gates.every(gate => gate.passed), gates };
 }
 
 module.exports = { runValidationGates };
