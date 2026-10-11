@@ -346,7 +346,8 @@ services:
 
   validation-activation:
     build:
-      context: ./services/validation-activation
+      context: .
+      dockerfile: services/validation-activation/Dockerfile
     container_name: eduagentx-validation-activation
     environment:
       PORT: 4010
