@@ -55,6 +55,37 @@ test('a competent synthetic learner registers and sends lifecycle interaction th
   assert.equal(calls[1].message.payload.data.agentLearnerKey, registration.agentLearnerKey);
 });
 
+test('Sprint 2 driver uses session start/continue/submit and resumes without duplicate item completion', async () => {
+  const interactions = [];
+  const items = [
+    { moduleId: 'm1', deliveryItemId: 'm1-lesson', kind: 'lesson' },
+    { moduleId: 'm1', deliveryItemId: 'm1-practice', kind: 'practice' },
+  ];
+  let completed = 0;
+  const learner = createSyntheticAgentLearner({ gatewayClient: {
+    register: async () => ({ status: 200, body: {} }),
+    interact: async (message) => {
+      const { interactionType, data } = message.payload;
+      interactions.push(interactionType);
+      if (interactionType === 'training.session.start') return { status: 200, body: { sessionId: 'session-1' } };
+      if (interactionType === 'training.session.continue') return { status: 200, body: {
+        sessionId: 'session-1', status: completed === items.length ? 'completed' : 'open',
+        item: items[completed] || null, bounds: { modelWeightsModified: false },
+      } };
+      assert.equal(data.deliveryItemId, items[completed].deliveryItemId);
+      completed += 1;
+      return { status: 200, body: { sessionId: 'session-1', status: completed === items.length ? 'completed' : 'open', modelWeightsModified: false } };
+    },
+  } });
+  const first = await learner.train({ agentLearnerKey: 'synthetic-agent-learner-dev', maxItems: 1 });
+  assert.equal(first.outcome, 'open');
+  const resumed = await learner.train({ agentLearnerKey: 'synthetic-agent-learner-dev', resumeSessionId: first.sessionId });
+  assert.equal(resumed.outcome, 'completed');
+  assert.equal(completed, 2);
+  assert.deepEqual(interactions, ['training.session.start', 'training.session.continue', 'training.session.submit',
+    'training.session.start', 'training.session.continue', 'training.session.submit']);
+});
+
 test('malformed and inconsistent synthetic responses fail closed without credential issuance', async () => {
   for (const profileId of ['malformed', 'inconsistent']) {
     const calls = [];

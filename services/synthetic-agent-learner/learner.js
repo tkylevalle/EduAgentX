@@ -168,7 +168,56 @@ function createSyntheticAgentLearner({ gatewayClient, idGenerator = randomUUID }
     };
   }
 
-  return { run };
+  // Sprint 2 path: a synthetic learner exercises the actual Gateway session
+  // contract. Bounded runs make interruption/resumption reproducible.
+  async function train({ agentLearnerKey, profileId = 'competent', resumeSessionId,
+    maxItems = 20, correlationId = `synthetic-training-${idGenerator()}`, timeoutMs = 5000 } = {}) {
+    const profile = getSyntheticProfile(profileId);
+    if (!profile || !agentLearnerKey || !Number.isInteger(maxItems) || maxItems < 1 || maxItems > 20)
+      return { outcome: 'rejected', reason: 'invalid_training_request', credentialIssued: false };
+    const evidence = canonicalEvidence('synthetic');
+    const registrationMessage = createRegistrationMessage({
+      messageId: `synthetic-registration-${idGenerator()}`, correlationId,
+      idempotencyKey: `synthetic-registration-${correlationId}`, timeoutMs, evidence,
+      payload: { ...DEFAULT_REGISTRATION, agentLearnerKey },
+    });
+    try {
+      const registrationResponse = await gatewayClient.register(registrationMessage);
+      if (!isSuccess(registrationResponse)) return { outcome: 'system_aborted', reason: registrationResponse.body?.error || 'registration_unavailable', credentialIssued: false };
+      const interact = async (interactionType, data) => gatewayClient.interact(createLifecycleMessage({
+        messageId: `synthetic-training-${idGenerator()}`, correlationId,
+        idempotencyKey: `synthetic-training-${idGenerator()}`, timeoutMs, evidence,
+        payload: { interactionType, data: { agentLearnerKey, response: 'acknowledge', ...data } },
+      }));
+      const started = await interact('training.session.start', {});
+      if (!isSuccess(started) || !started.body?.sessionId)
+        return { outcome: 'system_aborted', reason: started.body?.error || 'training_start_failed', credentialIssued: false };
+      const sessionId = started.body.sessionId;
+      if (resumeSessionId && resumeSessionId !== sessionId)
+        return { outcome: 'rejected', reason: 'session_identity_changed', sessionId, credentialIssued: false };
+      const completedItems = [];
+      for (let index = 0; index < maxItems; index += 1) {
+        const delivery = await interact('training.session.continue', { sessionId });
+        if (!isSuccess(delivery)) return { outcome: 'system_aborted', reason: delivery.body?.error || 'training_continue_failed', sessionId, completedItems, credentialIssued: false };
+        if (delivery.body.status === 'completed') return { outcome: 'completed', sessionId, completedItems, credentialIssued: false };
+        const item = delivery.body.item;
+        if (!item?.deliveryItemId || delivery.body.bounds?.modelWeightsModified !== false)
+          return { outcome: 'rejected', reason: 'unsafe_training_contract', sessionId, completedItems, credentialIssued: false };
+        const submitted = await interact('training.session.submit', {
+          sessionId, deliveryItemId: item.deliveryItemId, response: profile.response || 'deterministic synthetic practice',
+        });
+        if (!isSuccess(submitted) || submitted.body.modelWeightsModified !== false)
+          return { outcome: 'system_aborted', reason: submitted.body?.error || 'training_submit_failed', sessionId, completedItems, credentialIssued: false };
+        completedItems.push({ moduleId: item.moduleId, deliveryItemId: item.deliveryItemId, kind: item.kind });
+        if (submitted.body.status === 'completed') return { outcome: 'completed', sessionId, completedItems, credentialIssued: false };
+      }
+      return { outcome: 'open', sessionId, completedItems, credentialIssued: false };
+    } catch {
+      return { outcome: 'system_aborted', reason: 'gateway_unavailable', credentialIssued: false };
+    }
+  }
+
+  return { run, train };
 }
 
 function createProfileLifecycleMessage({

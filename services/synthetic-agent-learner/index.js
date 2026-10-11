@@ -58,6 +58,21 @@ function createApp({ learner = createDefaultLearner() } = {}) {
     }
   });
 
+  app.post('/v1/training-runs', async (req, res, next) => {
+    try {
+      const body = req.body || {};
+      const result = await learner.train({
+        agentLearnerKey: body.agentLearnerKey || AGENT_CLIENT_ID,
+        profileId: body.profileId || 'competent',
+        resumeSessionId: body.resumeSessionId,
+        maxItems: body.maxItems === undefined ? 20 : body.maxItems,
+        correlationId: req.correlationId || body.correlationId,
+      });
+      return res.status(statusForOutcome(result.outcome)).json({ apiVersion: 'v1', ...result,
+        evidence: canonicalEvidence('synthetic') });
+    } catch (error) { return next(error); }
+  });
+
   app.use((error, req, res, next) => {
     if (res.headersSent) return next(error);
     if (error instanceof SyntaxError && error.status === 400 && 'body' in error) {

@@ -10,6 +10,7 @@ const {
 const activeBody = {
   packageId: 'pkg-a', digest: 'digest-1', version: '1.0.0', state: 'Active',
   objectives: [{ id: 'o1' }], modules: [{ id: 'm1' }],
+  curriculumTrack: { moduleIds: ['m1'] },
   quarantinedScopes: [],
   examTemplate: {}, fallbackBank: {}, rubric: {}, evidence: [{ event: 'activated' }],
 };
@@ -33,7 +34,7 @@ test('toPackageRecord maps the validation-activation response and keeps only obj
   assert.deepEqual(toPackageRecord(activeBody), {
     id: 'pkg-a', version: '1.0.0', state: 'Active', digest: 'digest-1',
     quarantinedScopes: [],
-    payload: { objectives: [{ id: 'o1' }], modules: [{ id: 'm1' }] },
+    payload: { objectives: [{ id: 'o1' }], modules: [{ id: 'm1' }], curriculumTrack: { moduleIds: ['m1'] } },
   });
 });
 
@@ -47,28 +48,28 @@ test('toPackageRecord fails closed on a missing digest, modules or identity inst
 });
 
 test('package client reads the Active package, a package by id, and 404 as null', async (t) => {
-  const upstream = await stub({ '/packages/active': [200, activeBody], '/packages/pkg-a': [200, { ...activeBody, id: 'pkg-a' }] });
+  const upstream = await stub({ '/packages/active': [200, activeBody], '/packages/pkg-a?version=1.0.0': [200, { ...activeBody, id: 'pkg-a' }] });
   t.after(upstream.close);
-  const source = createPackageSource({ baseUrl: upstream.url });
+  const source = createPackageSource({ baseUrl: upstream.url, internalKey: 'test-key' });
   assert.equal((await source.getActive({ correlationId: 'c-1' })).digest, 'digest-1');
-  assert.equal((await source.getById('pkg-a')).id, 'pkg-a');
-  assert.equal(await source.getById('missing'), null);
+  assert.equal((await source.getById('pkg-a', '1.0.0')).id, 'pkg-a');
+  assert.equal(await source.getById('missing', '1.0.0'), null);
   assert.equal(upstream.seen[0].correlationId, 'c-1', 'the correlation ID is passed downstream');
 });
 
 test('package client treats a malformed Active package as a contract error', async (t) => {
   const upstream = await stub({ '/packages/active': [200, { ...activeBody, digest: null }] });
   t.after(upstream.close);
-  await assert.rejects(createPackageSource({ baseUrl: upstream.url }).getActive(), ContractError);
+  await assert.rejects(createPackageSource({ baseUrl: upstream.url, internalKey: 'test-key' }).getActive(), ContractError);
 });
 
 test('package client reports 5xx, invalid JSON and a refused connection as unavailable', async (t) => {
-  const upstream = await stub({ '/packages/active': [500, { error: 'boom' }], '/packages/x': 'invalid-json' });
+  const upstream = await stub({ '/packages/active': [500, { error: 'boom' }], '/packages/x?version=1.0.0': 'invalid-json' });
   t.after(upstream.close);
-  const source = createPackageSource({ baseUrl: upstream.url });
+  const source = createPackageSource({ baseUrl: upstream.url, internalKey: 'test-key' });
   await assert.rejects(source.getActive(), SourceUnavailableError);
-  await assert.rejects(source.getById('x'), SourceUnavailableError);
-  const closed = createPackageSource({ baseUrl: 'http://127.0.0.1:1' });
+  await assert.rejects(source.getById('x', '1.0.0'), SourceUnavailableError);
+  const closed = createPackageSource({ baseUrl: 'http://127.0.0.1:1', internalKey: 'test-key' });
   await assert.rejects(closed.getActive(), SourceUnavailableError);
 });
 

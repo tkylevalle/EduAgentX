@@ -60,7 +60,14 @@ function deliveryPlan(payload) {
   const objectives = Array.isArray(payload.objectives) ? payload.objectives : [];
   const seen = new Set();
   const items = [];
-  for (const module of [...modules].sort((a, b) => a.sequence - b.sequence)) {
+  // Older pinned packages predate curriculumTrack. Preserve their established
+  // sequence ordering while canonical packages follow the manifest-pinned track.
+  const order = payload?.curriculumTrack?.moduleIds ||
+    [...modules].sort((a, b) => a.sequence - b.sequence).map(module => module.id);
+  if (!Array.isArray(order) || order.length !== modules.length ||
+      new Set(order).size !== modules.length || order.some(id => !modules.some(module => module.id === id))) return null;
+  for (const moduleId of order) {
+    const module = modules.find(entry => entry.id === moduleId);
     for (const item of module.deliveryItems) {
       // Progress is keyed by item id, so a repeated id would make resume ambiguous.
       if (seen.has(item.id)) return null;

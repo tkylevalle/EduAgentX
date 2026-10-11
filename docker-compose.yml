@@ -8,6 +8,7 @@ volumes:
   postgres-data:
   redis-data:
   chromadb-data:
+  curriculum-index-cache:
 
 services:
   postgres:
@@ -156,6 +157,9 @@ services:
       CURRICULUM_INTERNAL_KEY: ${CURRICULUM_INTERNAL_KEY:?Run node scripts/setup-dev.js}
       CHROMADB_HOST: chromadb
       CHROMADB_PORT: 8000
+      INDEX_SNAPSHOT_PATH: /app/services/curriculum-index/data/last-index-snapshot.json
+    volumes:
+      - curriculum-index-cache:/app/services/curriculum-index/data
     depends_on:
       postgres:
         condition: service_healthy
@@ -189,6 +193,7 @@ services:
       PORT: 4004
       DATABASE_URL: postgres://training_owner:${TRAINING_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
       TRAINING_INTERNAL_KEY: ${TRAINING_INTERNAL_KEY:?Run node scripts/setup-dev.js}
+      CURRICULUM_INTERNAL_KEY: ${CURRICULUM_INTERNAL_KEY:?Run node scripts/setup-dev.js}
       VALIDATION_ACTIVATION_URL: http://validation-activation:4010
       AGENT_REGISTRY_URL: http://agent-registry:4001
       TRAINING_MIN_PRACTICE_PER_MODULE: ${TRAINING_MIN_PRACTICE_PER_MODULE:-1}
@@ -228,6 +233,7 @@ services:
       PORT: 4000
       AGENT_REGISTRY_URL: http://agent-registry:4001
       CURRICULUM_ENGINE_URL: http://curriculum-engine:4002
+      VALIDATION_ACTIVATION_URL: http://validation-activation:4010
       CURRICULUM_INTERNAL_KEY: ${CURRICULUM_INTERNAL_KEY:?Run node scripts/setup-dev.js}
       TRAINING_SERVICE_URL: http://training-service:4004
       TRAINING_INTERNAL_KEY: ${TRAINING_INTERNAL_KEY:?Run node scripts/setup-dev.js}
@@ -241,6 +247,10 @@ services:
       AGENT_CLIENT_SECRET: ${AGENT_CLIENT_SECRET}
       ADMIN_CLIENT_ID: ${ADMIN_CLIENT_ID}
       ADMIN_CLIENT_SECRET: ${ADMIN_CLIENT_SECRET}
+      REVIEWER_1_CLIENT_ID: ${REVIEWER_1_CLIENT_ID:-}
+      REVIEWER_1_CLIENT_SECRET: ${REVIEWER_1_CLIENT_SECRET:-}
+      REVIEWER_2_CLIENT_ID: ${REVIEWER_2_CLIENT_ID:-}
+      REVIEWER_2_CLIENT_SECRET: ${REVIEWER_2_CLIENT_SECRET:-}
     volumes:
       - ./keys:/app/keys:ro
     ports:
@@ -352,7 +362,8 @@ services:
     environment:
       PORT: 4010
       SERVICE_NAME: validation-activation
-      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      DATABASE_URL: postgres://curriculum_owner:${CURRICULUM_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      CURRICULUM_INTERNAL_KEY: ${CURRICULUM_INTERNAL_KEY:?Run node scripts/setup-dev.js}
     ports:
       - "127.0.0.1:${VALIDATION_ACTIVATION_PORT:-4010}:4010"
     depends_on:

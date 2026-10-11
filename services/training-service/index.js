@@ -81,7 +81,7 @@ function createApp({
   // service is still in-memory, and a restart there must not permanently
   // block every running session.
   async function governingPackage(session, options) {
-    const pkg = await packageSource.getById(session.packageId, options);
+    const pkg = await packageSource.getById(session.packageId, session.packageVersion, options);
     if (!pkg) throw new HttpError(503, 'governing_package_unavailable');
     return pkg;
   }

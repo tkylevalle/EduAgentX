@@ -37,6 +37,7 @@ function toPackageRecord(body) {
   if (!text(body?.digest)) missing.push('digest');
   if (!Array.isArray(body?.objectives)) missing.push('objectives');
   if (!Array.isArray(body?.modules)) missing.push('modules');
+  if (!Array.isArray(body?.curriculumTrack?.moduleIds)) missing.push('curriculumTrack.moduleIds');
   if (!Array.isArray(body?.quarantinedScopes)) missing.push('quarantinedScopes');
   if (missing.length) throw new ContractError('validation-activation', missing);
   return {
@@ -45,7 +46,7 @@ function toPackageRecord(body) {
     state: body.state,
     digest: body.digest,
     quarantinedScopes: body.quarantinedScopes,
-    payload: { objectives: body.objectives, modules: body.modules },
+    payload: { objectives: body.objectives, modules: body.modules, curriculumTrack: body.curriculumTrack },
   };
 }
 
@@ -65,11 +66,11 @@ function toRegistration(body) {
 }
 
 // Returns the parsed body, or null on 404. Every other failure is an outage.
-async function getJson(source, url, { correlationId, timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
+async function getJson(source, url, { correlationId, timeoutMs = DEFAULT_TIMEOUT_MS, headers = {} } = {}) {
   let response;
   try {
     response = await fetch(url, {
-      headers: correlationId ? { 'x-correlation-id': correlationId } : {},
+      headers: { ...headers, ...(correlationId ? { 'x-correlation-id': correlationId } : {}) },
       signal: AbortSignal.timeout(timeoutMs),
     });
   } catch {
@@ -86,15 +87,18 @@ async function getJson(source, url, { correlationId, timeoutMs = DEFAULT_TIMEOUT
 
 function createPackageSource({
   baseUrl = process.env.VALIDATION_ACTIVATION_URL || 'http://validation-activation:4010',
+  internalKey = process.env.CURRICULUM_INTERNAL_KEY,
   timeoutMs,
 } = {}) {
   const read = async (path, options = {}) => {
-    const body = await getJson('validation-activation', `${baseUrl}${path}`, { ...options, timeoutMs });
+    if (!internalKey) throw new SourceUnavailableError('validation-activation');
+    const body = await getJson('validation-activation', `${baseUrl}${path}`, { ...options, timeoutMs,
+      headers: { 'x-internal-service-key': internalKey, 'x-actor-subject': 'training-service' } });
     return body === null ? null : toPackageRecord(body);
   };
   return {
     getActive: (options) => read('/packages/active', options),
-    getById: (id, options) => read(`/packages/${encodeURIComponent(id)}`, options),
+    getById: (id, version, options) => read(`/packages/${encodeURIComponent(id)}?version=${encodeURIComponent(version)}`, options),
   };
 }
 
