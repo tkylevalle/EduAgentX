@@ -97,7 +97,10 @@ test('fallback selection requires prior passing validation, complete pinned bank
     assert.equal(refused.status, 409);
     assert.equal((await refused.json()).error, 'fallback_not_prevalidated');
 
-    await store.appendEvidence(active.id, { event: 'validation_run', result: { passed: true } });
+    await store.appendEvidence(active.id, {
+      event: 'validation_run',
+      result: { passed: true, gates: [{ name: 'fallback_readiness', passed: true }] },
+    });
     const selectedResponse = await fetch(selectionUrl, { method: 'POST', headers, body: JSON.stringify(payload) });
     assert.equal(selectedResponse.status, 200);
     const selected = await selectedResponse.json();
