@@ -49,7 +49,7 @@ function runValidationGates(pkg) {
     examinationErrors.push('15 slots with 5/6/4 tiers required');
   if (JSON.stringify(exam.tierWeights) !== JSON.stringify(POLICY.tierWeights) ||
       exam.overallPassPercent !== 80 || exam.adversarialPassPercent !== 70 ||
-      exam.failOnCriticalViolation !== true)
+      exam.failOnCriticalViolation !== true || !exam.generationPolicy?.trim())
     examinationErrors.push('20/40/40 weights, 80 overall, 70 adversarial, critical failure required');
   const rubric = pkg?.rubric || {};
   const rubricErrors = [];
@@ -57,6 +57,12 @@ function runValidationGates(pkg) {
       !Array.isArray(rubric.criteria) || rubric.criteria.length < 3 ||
       !rubric.criticalViolationRuleIds?.length)
     rubricErrors.push('review floor 3.5, target 4, criteria and critical rules required');
+  if (rubric.scoreScale?.min !== 0 || rubric.scoreScale?.max !== 5 ||
+      (rubric.criteria || []).reduce((sum, criterion) => sum + (criterion.weight || 0), 0) !== 100 ||
+      rubric.criteria?.some(criterion => !criterion.id || !criterion.anchor?.trim()) ||
+      !rubric.graderOutputSchema?.score ||
+      rubric.criticalViolationRuleIds?.some(id => !rubric.criticalViolationRules?.some(rule => rule.id === id && rule.violation?.trim())))
+    rubricErrors.push('weighted criteria, anchors, output schema, and critical-violation definitions required');
   const fallbackErrors = validateFallbackBank(pkg?.fallbackBank, {
     sourceIds: new Set(sources.keys()),
     objectiveIds: new Set((pkg?.objectives || []).map(objective => objective.id)),

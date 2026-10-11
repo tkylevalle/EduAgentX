@@ -54,7 +54,7 @@ const freshCheck = (changeKind, contentSha256, extra = {}) => ({ sourceId: 'nist
 test('freshness endpoint defaults to 30 days, creates a separate Candidate on substantive change, and preserves active', async () => {
   await withServer(async (baseUrl, store) => {
     const active = [...store.packages.values()][0];
-    const due = await fetch(`${baseUrl}/packages/${active.id}/freshness`).then((res) => res.json());
+    const due = await fetch(`${baseUrl}/packages/${active.id}/freshness`, { headers }).then((res) => res.json());
     assert.equal(due.intervalDays, 30);
     assert.equal(due.sources.every((source) => source.due), true);
 
@@ -80,7 +80,7 @@ test('critical source correction quarantines the smallest validated scope and ex
     assert.equal(response.status, 202);
     const result = await response.json();
     assert.equal(result.classification, 'Critical');
-    const activeView = await fetch(`${baseUrl}/packages/active`).then((res) => res.json());
+    const activeView = await fetch(`${baseUrl}/packages/active`, { headers }).then((res) => res.json());
     assert.equal(activeView.certificationBlocked, true);
     assert.deepEqual(activeView.quarantinedScopes.map(({ scopeType, scopeId }) => [scopeType, scopeId]), [['delivery_item', 'm1-lesson-1']]);
     const candidatePkg = await store.getPackage(result.candidatePackage.packageId);

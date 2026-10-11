@@ -67,6 +67,11 @@ function knownClients() {
       clientSecret: process.env.ADMIN_CLIENT_SECRET || '',
       role: 'admin',
     },
+    ...[1, 2].map(index => ({
+      clientId: process.env[`REVIEWER_${index}_CLIENT_ID`] || '',
+      clientSecret: process.env[`REVIEWER_${index}_CLIENT_SECRET`] || '',
+      role: 'reviewer',
+    })),
   ].filter((c) => c.clientId && c.clientSecret);
 }
 

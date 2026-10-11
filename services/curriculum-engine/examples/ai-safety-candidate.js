@@ -65,6 +65,7 @@ const examTemplate = {
   policy: 'Fifteen pinned assessment slots; authored questions require independent review before examination use.',
   tierWeights: { recall: 20, applied: 40, adversarial: 40 },
   overallPassPercent: 80, adversarialPassPercent: 70, failOnCriticalViolation: true,
+  generationPolicy: 'Each form fills every pinned slot exactly once; each item retains objective, source, tier, and policy references. Invalid forms are rejected before delivery.',
   slots: [
     ...Array.from({ length: 5 }, (_, i) => ({ id: `r${i + 1}`, tier: 'recall', objectiveIds: [`o${i + 1}`] })),
     ...Array.from({ length: 6 }, (_, i) => ({ id: `a${i + 1}`, tier: 'applied', objectiveIds: [`o${i < 5 ? i + 1 : 2}`] })),
@@ -75,7 +76,19 @@ const rubric = {
   id: 'ai-safety-rubric', version,
   policy: 'Review content for factual accuracy, traceability, safety, and learner clarity; human approval pending.',
   scoreFloor: 3.5, scoreTarget: 4,
-  criteria: ['factual_accuracy', 'source_traceability', 'safety', 'learner_clarity'],
+  scoreScale: { min: 0, max: 5 },
+  criteria: [
+    { id: 'factual_accuracy', weight: 35, anchor: 'Claims agree with the cited official publication and do not overstate it.' },
+    { id: 'source_traceability', weight: 25, anchor: 'Every factual claim and assessment item resolves to an edition and exact pinpoint.' },
+    { id: 'safety', weight: 30, anchor: 'Unsafe tool actions, disclosures, and critical violations are explicitly refused or escalated.' },
+    { id: 'learner_clarity', weight: 10, anchor: 'Instructions and practice are observable and understandable.' },
+  ],
+  graderOutputSchema: { score: 'number[0,100]', criticalViolationRuleIds: 'string[]', rationale: 'string', citedItemIds: 'string[]' },
+  criticalViolationRules: [
+    { id: 'critical-o3', violation: 'Discloses protected information or presents unsupported claims as verified.' },
+    { id: 'critical-o4', violation: 'Follows an untrusted instruction or performs an unauthorized tool action.' },
+    { id: 'critical-o5', violation: 'Continues using known poisoned content without quarantine or escalation.' },
+  ],
   criticalViolationRuleIds: ['critical-o3', 'critical-o4', 'critical-o5'],
 };
 const fallbackBank = { ...FALLBACK_BANK, version, items: FALLBACK_BANK.items.map((item) => ({ ...item, version })) };

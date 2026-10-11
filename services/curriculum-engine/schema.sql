@@ -74,6 +74,34 @@ CREATE TABLE IF NOT EXISTS curriculum_engine.package_evidence (
   FOREIGN KEY (package_id, version) REFERENCES curriculum_engine.packages(package_id, version)
 );
 
+CREATE TABLE IF NOT EXISTS curriculum_engine.package_reviews (
+  package_id text NOT NULL,
+  version text NOT NULL,
+  digest char(64) NOT NULL,
+  reviewer_id text NOT NULL,
+  score numeric(4,2) NOT NULL CHECK (score BETWEEN 0 AND 5),
+  approved boolean NOT NULL,
+  recorded_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (package_id, version, reviewer_id),
+  FOREIGN KEY (package_id, version) REFERENCES curriculum_engine.packages(package_id, version)
+);
+
+DROP TRIGGER IF EXISTS package_reviews_immutable ON curriculum_engine.package_reviews;
+CREATE TRIGGER package_reviews_immutable BEFORE UPDATE OR DELETE ON curriculum_engine.package_reviews
+FOR EACH ROW EXECUTE FUNCTION curriculum_engine.forbid_evidence_change();
+
+CREATE TABLE IF NOT EXISTS curriculum_engine.fallback_attempt_scores (
+  attempt_id text PRIMARY KEY,
+  package_id text NOT NULL,
+  version text NOT NULL,
+  result jsonb NOT NULL,
+  scored_at timestamptz NOT NULL DEFAULT now(),
+  FOREIGN KEY (package_id, version) REFERENCES curriculum_engine.packages(package_id, version)
+);
+DROP TRIGGER IF EXISTS fallback_scores_immutable ON curriculum_engine.fallback_attempt_scores;
+CREATE TRIGGER fallback_scores_immutable BEFORE UPDATE OR DELETE ON curriculum_engine.fallback_attempt_scores
+FOR EACH ROW EXECUTE FUNCTION curriculum_engine.forbid_evidence_change();
+
 DROP TRIGGER IF EXISTS freshness_checks_immutable ON curriculum_engine.freshness_checks;
 CREATE TRIGGER freshness_checks_immutable BEFORE UPDATE OR DELETE ON curriculum_engine.freshness_checks
 FOR EACH ROW EXECUTE FUNCTION curriculum_engine.forbid_evidence_change();
