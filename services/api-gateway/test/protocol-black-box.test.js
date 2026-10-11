@@ -253,7 +253,9 @@ test('protocol registration idempotency replays failed upstream results and conf
 
 test('gateway bounds upstream requests and lets an ambiguous timeout retry reach the owner', async (t) => {
   const registryRequests = [];
-  const registry = await startRegistryStub(registryRequests, { registrationDelayMs: 100 });
+  // Leave enough time for Windows/CI scheduling to reach the upstream before
+  // timing out; the upstream response is still deliberately much slower.
+  const registry = await startRegistryStub(registryRequests, { registrationDelayMs: 2000 });
   process.env.AGENT_REGISTRY_URL = `http://127.0.0.1:${registry.address().port}`;
 
   const { createApp } = require('../index');
@@ -267,7 +269,7 @@ test('gateway bounds upstream requests and lets an ambiguous timeout retry reach
     messageId: 'timeout-registration-message',
     correlationId: 'timeout-registration-correlation',
     idempotencyKey: 'timeout-registration-idempotency',
-    timeoutMs: 20,
+    timeoutMs: 500,
     evidence: { mode: 'synthetic' },
     payload: registrationPayload('protocol-agent', 'slow-provider'),
   });

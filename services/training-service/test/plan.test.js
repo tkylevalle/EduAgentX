@@ -34,6 +34,14 @@ test('deliveryPlan carries each item kind, defaults to lesson, and refuses an un
   assert.equal(deliveryPlan(odd), null);
 });
 
+test('a pinned Curriculum Track controls delivery order even when module sequence differs', () => {
+  const packagePayload = payload();
+  packagePayload.curriculumTrack = { moduleIds: ['m2', 'm1'] };
+  assert.deepEqual(deliveryPlan(packagePayload).map(item => item.moduleId), ['m2', 'm2', 'm2', 'm1', 'm1']);
+  packagePayload.curriculumTrack.moduleIds = ['m2', 'm2'];
+  assert.equal(deliveryPlan(packagePayload), null);
+});
+
 test('completionPolicy validates its bounds and policyFromEnv fails fast on a bad value', () => {
   assert.deepEqual(completionPolicy(), {
     version: 'training-completion/1', minPracticeItemsPerModule: 1, maxResponseChars: 4000 });

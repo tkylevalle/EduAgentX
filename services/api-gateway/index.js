@@ -45,6 +45,7 @@ const TRAINING_INTERACTIONS = Object.freeze({
 function createApp({
   agentRegistryUrl = process.env.AGENT_REGISTRY_URL || 'http://agent-registry:4001',
   curriculumEngineUrl = process.env.CURRICULUM_ENGINE_URL || 'http://curriculum-engine:4002',
+  validationActivationUrl = process.env.VALIDATION_ACTIVATION_URL || 'http://validation-activation:4010',
   curriculumInternalKey = process.env.CURRICULUM_INTERNAL_KEY,
   trainingServiceUrl = process.env.TRAINING_SERVICE_URL || 'http://training-service:4004',
   trainingInternalKey = process.env.TRAINING_INTERNAL_KEY,
@@ -262,6 +263,7 @@ function createApp({
   const curriculumHeaders = (req) => ({
     'x-internal-service-key': curriculumInternalKey,
     'x-actor-subject': req.auth.subject,
+    'x-actor-role': req.auth.role,
   });
   app.post('/v1/admin/packages', requireRole('admin'), async (req, res) => {
     await proxyJson(req, res, `${curriculumEngineUrl}/internal/packages`, {
@@ -276,6 +278,30 @@ function createApp({
   app.get('/v1/admin/packages/:packageId/:version/events', requireRole('admin'), async (req, res) => {
     await proxyJson(req, res,
       `${curriculumEngineUrl}/internal/packages/${encodeURIComponent(req.params.packageId)}/${encodeURIComponent(req.params.version)}/events`,
+      { headers: curriculumHeaders(req) });
+  });
+
+  // Governance operations are forwarded only after Gateway JWT verification;
+  // the downstream service trusts the internal key and the derived subject.
+  app.post('/v1/admin/curriculum/packages', requireRole('admin'), async (req, res) => {
+    await proxyJson(req, res, `${validationActivationUrl}/packages`,
+      { method: 'POST', body: req.body, headers: curriculumHeaders(req) });
+  });
+  app.post('/v1/admin/curriculum/validate', requireRole('admin'), async (req, res) => {
+    await proxyJson(req, res, `${validationActivationUrl}/validate`,
+      { method: 'POST', body: req.body, headers: curriculumHeaders(req) });
+  });
+  app.post('/v1/curriculum/review', requireRole('reviewer', 'admin'), async (req, res) => {
+    await proxyJson(req, res, `${validationActivationUrl}/review`,
+      { method: 'POST', body: req.body, headers: curriculumHeaders(req) });
+  });
+  app.post('/v1/admin/curriculum/activate', requireRole('admin'), async (req, res) => {
+    await proxyJson(req, res, `${validationActivationUrl}/activate`,
+      { method: 'POST', body: req.body, headers: curriculumHeaders(req) });
+  });
+  app.get('/v1/admin/curriculum/packages/:packageId/:version', requireRole('admin', 'reviewer'), async (req, res) => {
+    await proxyJson(req, res,
+      `${validationActivationUrl}/packages/${encodeURIComponent(req.params.packageId)}?version=${encodeURIComponent(req.params.version)}`,
       { headers: curriculumHeaders(req) });
   });
 
@@ -357,6 +383,10 @@ function createApp({
   app.get('/v1/admin/training-completion-events', requireRole('admin'), async (req, res) => {
     if (!trainingInternalKey) return trainingUnavailable(req, res);
     await proxyJson(req, res, `${trainingServiceUrl}/internal/completion-events`, { headers: trainingHeaders(req) });
+  });
+  app.get('/v1/admin/training-completion-incidents', requireRole('admin'), async (req, res) => {
+    if (!trainingInternalKey) return trainingUnavailable(req, res);
+    await proxyJson(req, res, `${trainingServiceUrl}/internal/completion-incidents`, { headers: trainingHeaders(req) });
   });
 
   // The one human write route into Training: an operator assigns targeted

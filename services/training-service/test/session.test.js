@@ -212,6 +212,11 @@ test('a changed package digest blocks the session even while the package is Acti
   assert.deepEqual([blocked.outcome, blocked.reason, blocked.events.length], ['blocked', 'package_digest_changed', 1]);
 });
 
+test('pin mismatch rejects a changed version even when identity and digest are unchanged', () => {
+  assert.equal(pinMismatch({ id: 'pkg-a', version: '2.0.0', digest: 'same' },
+    { packageId: 'pkg-a', packageVersion: '1.0.0', packageDigest: 'same' }), 'package_version_changed');
+});
+
 test('a changed configuration fingerprint blocks the session', async () => {
   const ctx = await started();
   ctx.registry.setFingerprint(LEARNER, 'sha256:config-2');

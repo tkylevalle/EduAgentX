@@ -72,7 +72,10 @@ function selectFallback(pkg, { validationEvidence, reason, quarantinedScopes = [
       const module = (pkg.modules || []).find((candidate) => candidate.id === scope.scopeId);
       return module?.objectiveIds?.some((id) => bank.items.some((item) => item.objectiveIds.includes(id))) === true;
     }
-    if (scope.scopeType === 'delivery_item') return bank.items.some((item) => item.id === scope.scopeId);
+    if (scope.scopeType === 'delivery_item') {
+      const module = (pkg.modules || []).find(candidate => candidate.deliveryItems?.some(item => item.id === scope.scopeId));
+      return module?.objectiveIds?.some(id => bank.items.some(item => item.objectiveIds.includes(id))) === true;
+    }
     return true;
   });
   if (quarantined.length) return { error: 'fallback_scope_quarantined' };

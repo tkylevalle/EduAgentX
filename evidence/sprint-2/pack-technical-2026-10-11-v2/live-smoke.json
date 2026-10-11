@@ -1,0 +1,117 @@
+{
+  "schemaVersion": "1.0.0",
+  "kind": "technical-simulation-not-human-review",
+  "startedAt": "2026-10-11T17:14:38.617Z",
+  "status": "technical_pass",
+  "steps": [
+    {
+      "name": "unauthenticated_ingestion_blocked",
+      "status": 401
+    },
+    {
+      "name": "candidate_ingested",
+      "status": 201,
+      "digest": "48c878521e9f25dbf4f9a95367d2b16743953f72477d323d6810d8c7d5e8c52b"
+    },
+    {
+      "name": "six_gates",
+      "passed": [
+        "schema_manifest",
+        "source_traceability",
+        "objective_coverage",
+        "examination_policy",
+        "rubric_policy",
+        "fallback_readiness"
+      ]
+    },
+    {
+      "name": "synthetic_reviewer_1",
+      "status": 200,
+      "approvals": 1,
+      "mean": 4
+    },
+    {
+      "name": "synthetic_reviewer_2",
+      "status": 200,
+      "approvals": 2,
+      "mean": 4.25
+    },
+    {
+      "name": "technical_activation",
+      "status": 200,
+      "supersededId": "ai-safety-s2-b3e16dc8"
+    },
+    {
+      "name": "active_package",
+      "packageId": "ai-safety-s2-a082e348",
+      "version": "0.1.5-draft",
+      "moduleCount": 5,
+      "answersExposed": false
+    },
+    {
+      "name": "training_partial",
+      "sessionId": "291bb04e-d4f2-4e81-981b-b887f736aa5c",
+      "itemCount": 1
+    },
+    {
+      "name": "training_resumed_completed",
+      "sessionId": "291bb04e-d4f2-4e81-981b-b887f736aa5c",
+      "remainingItems": 9,
+      "moduleIds": [
+        "m1",
+        "m2",
+        "m3",
+        "m4",
+        "m5"
+      ]
+    },
+    {
+      "name": "index_rebuilt",
+      "chunkCount": 5
+    },
+    {
+      "name": "chroma_loss_verified_cache",
+      "mode": "cached-stale",
+      "moduleIds": [
+        "m4"
+      ]
+    },
+    {
+      "name": "substantive_candidate",
+      "candidateId": "ai-safety-s2-a082e348-refresh-202610111714-2e3e5709",
+      "classification": "Substantive"
+    },
+    {
+      "name": "active_preserved",
+      "packageId": "ai-safety-s2-a082e348"
+    },
+    {
+      "name": "critical_scope_quarantined",
+      "classification": "Critical",
+      "scope": {
+        "type": "delivery_item",
+        "id": "m4-lesson-1"
+      }
+    },
+    {
+      "name": "fallback_blocked_on_quarantine",
+      "status": 409,
+      "error": "fallback_scope_quarantined"
+    },
+    {
+      "name": "quarantined_content_excluded",
+      "mode": "live",
+      "resultCount": 4
+    },
+    {
+      "name": "postgres_loss_fails_closed",
+      "health": 503,
+      "activeRead": 503,
+      "indexQuery": 503
+    }
+  ],
+  "packageId": "ai-safety-s2-a082e348",
+  "packageVersion": "0.1.5-draft",
+  "packageDigest": "48c878521e9f25dbf4f9a95367d2b16743953f72477d323d6810d8c7d5e8c52b",
+  "completedAt": "2026-10-11T17:15:11.879Z"
+}

@@ -32,6 +32,7 @@ function pinGoverningPackage(pkg) {
 
 function pinMismatch(pkg, session) {
   if (pkg.id !== session.packageId) return 'package_identity_changed';
+  if (pkg.version !== session.packageVersion) return 'package_version_changed';
   if (pkg.digest !== session.packageDigest) return 'package_digest_changed';
   return null;
 }

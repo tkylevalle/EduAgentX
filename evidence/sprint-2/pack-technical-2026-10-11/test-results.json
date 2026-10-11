@@ -1,0 +1,153 @@
+{
+  "unit": {
+    "command": "C:\\Program Files\\nodejs\\node.exe scripts/run-unit-tests.js",
+    "exitCode": 0,
+    "outputSha256": "843e220fc6522b635b3b7af05898d660e47b2ef4d606def5392dc34443ad2576",
+    "outputTail": "n explicit outage reason\nok 19 - fallback selection requires prior passing validation, complete pinned bank, and an explicit outage reason\n  ---\n  duration_ms: 27.2173\n  type: 'test'\n  ...\n# Subtest: refresh candidate gets a separate identity, pins the observed source, and leaves active package unchanged\nok 20 - refresh candidate gets a separate identity, pins the observed source, and leaves active package unchanged\n  ---\n  duration_ms: 5.0545\n  type: 'test'\n  ...\n# Subtest: quarantine scope must resolve to a single exact package artifact\nok 21 - quarantine scope must resolve to a single exact package artifact\n  ---\n  duration_ms: 0.2836\n  type: 'test'\n  ...\n# Subtest: fallback selection requires an Active, prevalidated, source-linked pinned bank and fails closed on quarantine\nok 22 - fallback selection requires an Active, prevalidated, source-linked pinned bank and fails closed on quarantine\n  ---\n  duration_ms: 1.595\n  type: 'test'\n  ...\n1..22\n# tests 22\n# suites 0\n# pass 22\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 1156.1001\n\nWrote C:\\Users\\lulu_pc\\Projects\\EduAgentX-sprint2\\artifacts\\sprint1\\unit-tests.json\nUnit/contract/security result: passed; 183/183 passed.\n",
+    "error": null,
+    "totals": {
+      "tests": 183,
+      "passed": 183,
+      "failed": 0,
+      "skipped": 0
+    },
+    "result": "passed",
+    "components": [
+      {
+        "component": "external-agent-protocol",
+        "status": "passed",
+        "exitCode": 0,
+        "durationMs": 615,
+        "tests": 7,
+        "passed": 7,
+        "failed": 0,
+        "skipped": 0
+      },
+      {
+        "component": "telemetry",
+        "status": "passed",
+        "exitCode": 0,
+        "durationMs": 450,
+        "tests": 3,
+        "passed": 3,
+        "failed": 0,
+        "skipped": 0
+      },
+      {
+        "component": "agent-registry",
+        "status": "passed",
+        "exitCode": 0,
+        "durationMs": 1013,
+        "tests": 9,
+        "passed": 9,
+        "failed": 0,
+        "skipped": 0
+      },
+      {
+        "component": "api-gateway",
+        "status": "passed",
+        "exitCode": 0,
+        "durationMs": 4337,
+        "tests": 21,
+        "passed": 21,
+        "failed": 0,
+        "skipped": 0
+      },
+      {
+        "component": "assurance-console",
+        "status": "passed",
+        "exitCode": 0,
+        "durationMs": 951,
+        "tests": 5,
+        "passed": 5,
+        "failed": 0,
+        "skipped": 0
+      },
+      {
+        "component": "curriculum-engine",
+        "status": "passed",
+        "exitCode": 0,
+        "durationMs": 727,
+        "tests": 18,
+        "passed": 18,
+        "failed": 0,
+        "skipped": 0
+      },
+      {
+        "component": "curriculum-index",
+        "status": "passed",
+        "exitCode": 0,
+        "durationMs": 667,
+        "tests": 12,
+        "passed": 12,
+        "failed": 0,
+        "skipped": 0
+      },
+      {
+        "component": "synthetic-agent-learner",
+        "status": "passed",
+        "exitCode": 0,
+        "durationMs": 1008,
+        "tests": 11,
+        "passed": 11,
+        "failed": 0,
+        "skipped": 0
+      },
+      {
+        "component": "training-service",
+        "status": "passed",
+        "exitCode": 0,
+        "durationMs": 6273,
+        "tests": 75,
+        "passed": 75,
+        "failed": 0,
+        "skipped": 0
+      },
+      {
+        "component": "validation-activation",
+        "status": "passed",
+        "exitCode": 0,
+        "durationMs": 1364,
+        "tests": 22,
+        "passed": 22,
+        "failed": 0,
+        "skipped": 0
+      }
+    ]
+  },
+  "sprint1GatePython": {
+    "command": "python -m unittest discover -s scripts -p test_sprint1_gate.py",
+    "exitCode": 0,
+    "outputSha256": "aaeafceb2fdc5b54cbe8430d6452f4d0b29407763e4ec6f139fa90ac50c6b129",
+    "outputTail": "......\r\n----------------------------------------------------------------------\r\nRan 6 tests in 0.042s\r\n\r\nOK\r\n",
+    "error": null
+  },
+  "trainingKpiRun": {
+    "command": "C:\\Program Files\\nodejs\\node.exe services/training-service/kpi/measure.js --write",
+    "exitCode": 0,
+    "outputSha256": "561b99520b7792e1d30ba38f01c16e88eb1fed885ab542bbfe64758630dedf16",
+    "outputTail": ":200,\"durationMs\":0.3472,\"outcome\":\"completed\"}\n{\"timestamp\":\"2026-10-11T17:10:04.403Z\",\"service\":\"training-service\",\"event\":\"http_request_completed\",\"correlationId\":\"0c515ffc-c702-421a-8493-02dd53721516\",\"method\":\"GET\",\"path\":\"/internal/metrics\",\"statusCode\":200,\"durationMs\":0.2697,\"outcome\":\"completed\"}\n{\"timestamp\":\"2026-10-11T17:10:04.407Z\",\"service\":\"training-service\",\"event\":\"http_request_completed\",\"correlationId\":\"576e0db8-8718-40e7-bd04-814e17556b2c\",\"method\":\"POST\",\"path\":\"/internal/sessions/start\",\"statusCode\":201,\"durationMs\":0.402,\"outcome\":\"completed\"}\n{\"timestamp\":\"2026-10-11T17:10:04.409Z\",\"service\":\"training-service\",\"event\":\"http_request_completed\",\"correlationId\":\"768933b2-1965-4951-9cdb-dff7f9dd0e96\",\"method\":\"GET\",\"path\":\"/internal/sessions/:id\",\"statusCode\":200,\"durationMs\":0.2563,\"outcome\":\"completed\"}\n{\"timestamp\":\"2026-10-11T17:10:04.411Z\",\"service\":\"training-service\",\"event\":\"http_request_completed\",\"correlationId\":\"3c6cde60-0107-4698-a441-26a9c2e0d141\",\"method\":\"GET\",\"path\":\"/internal/metrics\",\"statusCode\":200,\"durationMs\":0.2018,\"outcome\":\"completed\"}\nexpected training completion 1, of completable 1 (Green), floor 0.9, target 0.95, invariants held: true\n",
+    "error": null
+  },
+  "trainingKpi": {
+    "dataset": {
+      "name": "training-completion",
+      "version": "1.0.0",
+      "digest": "sha256:c5863fbc78b08af8228249301ec738f86957405bb608e984dec431c546fcc0c7",
+      "scenarios": 36,
+      "expectedToComplete": 25
+    },
+    "expectedCompletion": 1,
+    "completionOfCompletable": 1,
+    "status": "Green",
+    "invariants": {
+      "falseCompletions": 0,
+      "duplicateCompletionEvents": 0,
+      "replaysThatAppended": 0,
+      "writesDuringOutage": 0,
+      "weightsNotConfirmedUnchanged": 0
+    },
+    "invariantsHeld": true,
+    "environment": "training-service createApp over HTTP, in-memory store, fake package and registry sources"
+  }
+}

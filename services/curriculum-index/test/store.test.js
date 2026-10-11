@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const os = require('node:os');
 const path = require('node:path');
+const fs = require('node:fs');
 
 process.env.INDEX_SNAPSHOT_PATH = path.join(os.tmpdir(), `curriculum-index-test-${process.pid}.json`);
 
@@ -21,34 +22,31 @@ function fakePool(packages) {
 // Minimal in-memory stand-in for the real ChromaDB client — just enough of
 // its API surface for rebuildIndex/queryIndex to exercise against.
 function fakeChromaClient() {
-  let collectionDocs = null;
+  let collectionDocs = [];
+  const collection = {
+    async upsert({ ids, documents, metadatas }) {
+      ids.forEach((id, i) => {
+        collectionDocs = collectionDocs.filter(item => item.id !== id);
+        collectionDocs.push({ id, document: documents[i], metadata: metadatas[i] });
+      });
+    },
+    async get() { return { ids: collectionDocs.map(item => item.id) }; },
+    async delete({ ids }) { collectionDocs = collectionDocs.filter(item => !ids.includes(item.id)); },
+    async query({ queryTexts }) {
+      const needle = queryTexts[0].toLowerCase();
+      const matched = collectionDocs.filter((d) => d.document.toLowerCase().includes(needle));
+      return { ids: [matched.map((d) => d.id)], documents: [matched.map((d) => d.document)] };
+    },
+  };
   return {
-    async deleteCollection() { collectionDocs = null; },
-    async createCollection() {
-      collectionDocs = [];
-      return {
-        async add({ ids, documents, metadatas }) {
-          ids.forEach((id, i) => collectionDocs.push({ id, document: documents[i], metadata: metadatas[i] }));
-        },
-      };
-    },
-    async getCollection() {
-      if (!collectionDocs) throw new Error('no collection');
-      return {
-        async query({ queryTexts }) {
-          const needle = queryTexts[0].toLowerCase();
-          const matched = collectionDocs.filter((d) => d.document.toLowerCase().includes(needle));
-          return { ids: [matched.map((d) => d.id)], documents: [matched.map((d) => d.document)] };
-        },
-      };
-    },
+    async getOrCreateCollection() { return collection; },
+    async getCollection() { return collection; },
   };
 }
 
 function unreachableChromaClient() {
   return {
-    async deleteCollection() {},
-    async createCollection() { throw new Error('chromadb unreachable'); },
+    async getOrCreateCollection() { throw new Error('chromadb unreachable'); },
     async getCollection() { throw new Error('chromadb unreachable'); },
   };
 }
@@ -98,4 +96,23 @@ test('stale cache is not used when current Active scope cannot be verified', asy
   await rebuildIndex({ pool: fakePool([samplePackage]), client: fakeChromaClient(), embeddingFunction: null });
   await assert.rejects(queryIndex({ pool: { query: async () => { throw new Error('postgres unavailable'); } },
     client: unreachableChromaClient(), embeddingFunction: null, text: 'Tool Misuse' }), /postgres unavailable/);
+});
+
+test('known vector ID with corrupted document bytes is excluded', async () => {
+  const pool = fakePool([samplePackage]);
+  const current = require('../model').extractChunks(samplePackage)[0];
+  const client = { getCollection: async () => ({ query: async () => ({
+    ids: [[current.chunkId]], documents: [['tampered lesson']],
+  }) }) };
+  const result = await queryIndex({ pool, client, text: 'lesson' });
+  assert.deepEqual(result.results.ids, [[]]);
+});
+
+test('tampered snapshot cannot be used during Chroma loss', async () => {
+  const pool = fakePool([samplePackage]);
+  await rebuildIndex({ pool, client: fakeChromaClient() });
+  const snapshot = JSON.parse(fs.readFileSync(process.env.INDEX_SNAPSHOT_PATH, 'utf8'));
+  snapshot.chunks[0].text = 'tampered lesson';
+  fs.writeFileSync(process.env.INDEX_SNAPSHOT_PATH, JSON.stringify(snapshot));
+  await assert.rejects(queryIndex({ pool, client: unreachableChromaClient(), text: 'lesson' }), /index_cache_integrity_failed/);
 });

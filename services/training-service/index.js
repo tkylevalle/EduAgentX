@@ -81,7 +81,7 @@ function createApp({
   // service is still in-memory, and a restart there must not permanently
   // block every running session.
   async function governingPackage(session, options) {
-    const pkg = await packageSource.getById(session.packageId, options);
+    const pkg = await packageSource.getById(session.packageId, session.packageVersion, options);
     if (!pkg) throw new HttpError(503, 'governing_package_unavailable');
     return pkg;
   }
@@ -170,6 +170,13 @@ function createApp({
     try {
       const events = await store.listCompletionEvents({ limit: MAX_COMPLETION_EVENTS });
       res.json({ apiVersion: API_VERSION, events, correlationId: req.correlationId });
+    } catch (error) { sendError(req, res, error); }
+  });
+
+  app.get('/internal/completion-incidents', async (req, res) => {
+    try {
+      const incidents = await store.listCompletionIncidents();
+      res.json({ apiVersion: API_VERSION, incidents, correlationId: req.correlationId });
     } catch (error) { sendError(req, res, error); }
   });
 

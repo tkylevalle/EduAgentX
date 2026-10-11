@@ -1,5 +1,5 @@
 'use strict';
-const { extractChunks } = require('./model');
+const { extractChunks, sha256 } = require('./model');
 const { getActivePackages } = require('./db');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -29,29 +29,35 @@ function chunksToChromaInput(chunks) {
 // note it never gets consulted for activation decisions, only for serving
 // previously-indexed content during degraded mode.
 function saveSnapshot(chunks) {
-  const snapshot = { builtAt: new Date().toISOString(), chunks };
+  const snapshot = { builtAt: new Date().toISOString(), chunks, digest: sha256(chunks) };
   fs.mkdirSync(path.dirname(SNAPSHOT_PATH), { recursive: true });
-  fs.writeFileSync(SNAPSHOT_PATH, JSON.stringify(snapshot, null, 2));
+  const temporary = `${SNAPSHOT_PATH}.${process.pid}.tmp`;
+  fs.writeFileSync(temporary, JSON.stringify(snapshot, null, 2));
+  fs.renameSync(temporary, SNAPSHOT_PATH);
   return snapshot;
 }
 
 function loadSnapshot() {
   if (!fs.existsSync(SNAPSHOT_PATH)) return null;
-  return JSON.parse(fs.readFileSync(SNAPSHOT_PATH, 'utf8'));
+  const snapshot = JSON.parse(fs.readFileSync(SNAPSHOT_PATH, 'utf8'));
+  if (!Array.isArray(snapshot.chunks) || snapshot.digest !== sha256(snapshot.chunks))
+    throw new Error('index_cache_integrity_failed');
+  return snapshot;
 }
 
-// Full rebuild: read every Active package straight from Postgres, re-derive
-// all chunks from scratch, and replace the entire ChromaDB collection.
-// Deliberately a full wipe-and-reinsert rather than an incremental diff —
-// simpler to reason about and test, and cheap enough at this package count
-// to run on every startup and on demand.
+// Reconcile the derived collection without deleting the last usable index
+// before the replacement succeeds. Queries still verify every returned byte
+// against current PostgreSQL-derived chunks.
 async function rebuildIndex({ pool, client, embeddingFunction }) {
   const packages = await getActivePackages(pool);
   const chunks = packages.flatMap((pkg) => extractChunks(pkg));
 
-  await client.deleteCollection({ name: COLLECTION_NAME }).catch(() => {});
-  const collection = await client.createCollection({ name: COLLECTION_NAME, embeddingFunction });
-  if (chunks.length) await collection.add(chunksToChromaInput(chunks));
+  const collection = await client.getOrCreateCollection({ name: COLLECTION_NAME, embeddingFunction });
+  if (chunks.length) await collection.upsert(chunksToChromaInput(chunks));
+  const existing = await collection.get();
+  const currentIds = new Set(chunks.map(chunk => chunk.chunkId));
+  const stale = (existing.ids || []).filter(id => !currentIds.has(id));
+  if (stale.length) await collection.delete({ ids: stale });
 
   const snapshot = saveSnapshot(chunks);
   return { chunkCount: chunks.length, builtAt: snapshot.builtAt, mode: 'rebuilt' };
@@ -67,7 +73,7 @@ async function queryIndex({ pool, client, embeddingFunction, text, limit = 5 }) 
   // scopes on every query. If Postgres is unavailable, stale content is not
   // safe to serve because a newer critical quarantine may be unknown.
   const activeChunks = (await getActivePackages(pool)).flatMap((pkg) => extractChunks(pkg));
-  const currentById = new Map(activeChunks.map((chunk) => [chunk.chunkId, chunk.digest]));
+  const currentById = new Map(activeChunks.map((chunk) => [chunk.chunkId, chunk]));
   try {
     const collection = await client.getCollection({ name: COLLECTION_NAME, embeddingFunction });
     const result = await collection.query({ queryTexts: [text], nResults: limit });
@@ -76,7 +82,8 @@ async function queryIndex({ pool, client, embeddingFunction, text, limit = 5 }) 
     const snapshot = loadSnapshot();
     if (!snapshot) throw new Error('index_unavailable_no_cache');
     const needle = text.toLowerCase();
-    const matches = snapshot.chunks.filter((c) => currentById.get(c.chunkId) === c.digest && c.text.toLowerCase().includes(needle)).slice(0, limit);
+    const matches = snapshot.chunks.filter((c) => currentById.get(c.chunkId)?.text === c.text &&
+      c.digest === sha256(c.text) && c.text.toLowerCase().includes(needle)).slice(0, limit);
     return { mode: 'cached-stale', builtAt: snapshot.builtAt, results: matches };
   }
 }
@@ -84,7 +91,14 @@ async function queryIndex({ pool, client, embeddingFunction, text, limit = 5 }) 
 function filterVectorResult(result, currentById) {
   const ids = result?.ids;
   if (!Array.isArray(ids) || ids.some((row) => !Array.isArray(row))) throw new Error('index_response_invalid');
-  const keep = ids.map((row) => row.map((id, index) => currentById.has(id) ? index : -1).filter((index) => index >= 0));
+  if (!Array.isArray(result.documents) || result.documents.length !== ids.length ||
+      result.documents.some((row, index) => !Array.isArray(row) || row.length !== ids[index].length))
+    throw new Error('index_response_invalid');
+  const keep = ids.map((row, rowIndex) => row.map((id, index) => {
+    const expected = currentById.get(id);
+    return expected && expected.text === result.documents[rowIndex][index] &&
+      expected.digest === sha256(result.documents[rowIndex][index]) ? index : -1;
+  }).filter((index) => index >= 0));
   const filtered = { ...result };
   for (const [key, value] of Object.entries(result)) {
     if (Array.isArray(value) && value.length === ids.length && value.every((row) => Array.isArray(row))) {

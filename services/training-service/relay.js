@@ -58,8 +58,9 @@ function createRelayClient(url) {
   return redis;
 }
 
-// Runs the relay in the background. A failed run is logged and retried on
-// the next tick; a tick is skipped while the previous one still runs.
+// Runs the relay in the background. Transient delivery attempts are accounted
+// for by the store and exhausted events are quarantined; infrastructure errors
+// are logged. A tick is skipped while the previous one still runs.
 function startCompletionRelay({ store, redis, stream = DEFAULT_STREAM, intervalMs = RELAY_INTERVAL_MS }) {
   let running = false;
   const timer = setInterval(async () => {

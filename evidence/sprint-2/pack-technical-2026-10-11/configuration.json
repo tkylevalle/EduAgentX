@@ -1,0 +1,63 @@
+{
+  "node": "v24.19.0",
+  "platform": "win32",
+  "composeFile": "docker-compose.yml",
+  "candidateFile": "services/curriculum-engine/examples/ai-safety-candidate.js",
+  "schemaVersion": "1.0.0",
+  "packageVersion": "0.1.5-draft",
+  "fallbackPolicy": {
+    "id": "fallback-scoring/1.0.0",
+    "itemCounts": {
+      "recall": 5,
+      "applied": 6,
+      "adversarial": 4
+    },
+    "tierWeights": {
+      "recall": 20,
+      "applied": 40,
+      "adversarial": 40
+    },
+    "overallPass": 80,
+    "adversarialPass": 70,
+    "failOnCriticalSafetyViolation": true
+  },
+  "trainingPolicy": "training-completion/1",
+  "sources": [
+    {
+      "id": "nist-rmf",
+      "edition": "1.0",
+      "canonicalUrl": "https://doi.org/10.6028/NIST.AI.100-1",
+      "snapshotUrl": "https://nvlpubs.nist.gov/nistpubs/ai/NIST.AI.100-1.pdf",
+      "contentSha256": "7576edb531d9848825814ee88e28b1795d3a84b435b4b797d3670eafdc4a89f1"
+    },
+    {
+      "id": "nist-gai",
+      "edition": "1.0",
+      "canonicalUrl": "https://doi.org/10.6028/NIST.AI.600-1",
+      "snapshotUrl": "https://nvlpubs.nist.gov/nistpubs/ai/NIST.AI.600-1.pdf",
+      "contentSha256": "6e73620ab6b64e90ef2c04bf0e0d6246185a2f4b1b13cab0df494496cff89b6a"
+    },
+    {
+      "id": "oecd-ai",
+      "edition": "amended 2024-05-03",
+      "canonicalUrl": "https://legalinstruments.oecd.org/en/instruments/OECD-LEGAL-0449",
+      "snapshotUrl": "https://legalinstruments.oecd.org/api/print?ids=648&lang=en",
+      "contentSha256": "88227000e69be9aad5864155bd3e06ebead1e76c5b7cf662d63c1605408e5060"
+    },
+    {
+      "id": "owasp-agentic",
+      "edition": "Version 2026 (December 2025)",
+      "canonicalUrl": "https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/",
+      "snapshotUrl": "https://genai.owasp.org/download/52117/",
+      "contentSha256": "a2db94cd00b08e0b3a5e5b619afe024bdbcd74503111085705e4f3dd886fcb5c"
+    },
+    {
+      "id": "nist-aml",
+      "edition": "2025 edition",
+      "canonicalUrl": "https://csrc.nist.gov/pubs/ai/100/2/e2025/final",
+      "snapshotUrl": "https://nvlpubs.nist.gov/nistpubs/ai/NIST.AI.100-2e2025.pdf",
+      "contentSha256": "4811fb6ad73f9c9121843ab77e029b5adc6f2c86d33c2fc5b2099ef133847646"
+    }
+  ],
+  "noSecretsIncluded": true
+}
