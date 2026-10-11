@@ -9,7 +9,7 @@ Branch: `sprint2/integrated-curriculum-training-evidence`, based on `origin/main
 | Curriculum-to-Training path | Training reads exact version with service key, honors pinned track order, checks version/digest, and synthetic driver walks ten lesson/practice items through Gateway, interrupting and resuming. | One live learner demonstrated. Controlled 36-scenario KPI uses fake Package/Registry sources and memory store. |
 | Quality | Mechanical traceability 20/20 and objective coverage 5/5 on Candidate; controlled expected completion 36/36 (25/25 completable) and invariants zero. | Known critical factual error count is **unknown**, not zero. Reviewer mean in live smoke is simulation only. |
 | Dependency loss | Index verifies live document bytes against PostgreSQL-derived chunks; persistent integrity-checked cache serves labelled stale results during Chroma loss, filters quarantine, and fails closed on PostgreSQL loss. Fallback refuses quarantined scope and scored attempts are unique. Redis completion relay durably records failed sends, quarantines after three attempts and exposes admin incident evidence. | Redis exhaustion has unit coverage but has not been exercised in this pack's live smoke; governed manual replay is not yet implemented. |
-| Reproducible pack | `evidence/sprint-2/pack-technical-2026-10-11` includes manifest hashes, test/KPI results, sanitized live observations, config and commands. Technical verifier passes. | Strict verifier intentionally exits nonzero pending human review and cumulative Sprint 1 prerequisites. |
+| Reproducible pack | `evidence/sprint-2/pack-technical-2026-10-11-v2` includes manifest hashes, test/KPI results, sanitized live observations, config and commands. Technical verifier passes against implementation commit `0a94e2d`. | Strict verifier intentionally exits nonzero pending human review and cumulative Sprint 1 prerequisites. The earlier pack is historical and sealed to its earlier code revision. |
 
 ## Tests actually run
 
@@ -17,7 +17,7 @@ Branch: `sprint2/integrated-curriculum-training-evidence`, based on `origin/main
 - `python -m unittest discover -s scripts -p test_sprint1_gate.py`: 6/6 passed.
 - `node services/training-service/kpi/measure.js --write`: Green, exact outcomes 36/36, completable 25/25, all five invariant counters zero. This is controlled/in-memory evidence, not a production deployment claim.
 - `node scripts/run-sprint2-live.js`: `technical_pass` in isolated Compose with real PostgreSQL, Chroma, Registry, Gateway, Training and synthetic learner. It stopped and restored Chroma and PostgreSQL. See the sealed live report for all steps.
-- `node scripts/verify-sprint2-pack.js evidence/sprint-2/pack-technical-2026-10-11 --technical-only`: exit 0.
+- `node scripts/verify-sprint2-pack.js evidence/sprint-2/pack-technical-2026-10-11-v2 --technical-only`: exit 0.
 - The same verifier without `--technical-only`: exit 1, `BLOCKED_HUMAN_REVIEW` as intended.
 
 ## Remaining blockers and decisions

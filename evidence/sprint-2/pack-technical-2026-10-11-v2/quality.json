@@ -1,0 +1,70 @@
+{
+  "package": {
+    "id": "ai-safety-fundamentals",
+    "version": "0.1.5-draft"
+  },
+  "gates": {
+    "passed": true,
+    "gates": [
+      {
+        "name": "schema_manifest",
+        "passed": true,
+        "reason": "Passed"
+      },
+      {
+        "name": "source_traceability",
+        "passed": true,
+        "reason": "Passed"
+      },
+      {
+        "name": "objective_coverage",
+        "passed": true,
+        "reason": "Passed"
+      },
+      {
+        "name": "examination_policy",
+        "passed": true,
+        "reason": "Passed"
+      },
+      {
+        "name": "rubric_policy",
+        "passed": true,
+        "reason": "Passed"
+      },
+      {
+        "name": "fallback_readiness",
+        "passed": true,
+        "reason": "Passed"
+      }
+    ]
+  },
+  "measurements": {
+    "schemaVersion": "1.0.0",
+    "packageId": "ai-safety-fundamentals",
+    "version": "0.1.5-draft",
+    "sourceTraceability": {
+      "numerator": 20,
+      "denominator": 20,
+      "ratio": 1,
+      "invariantMet": true
+    },
+    "objectiveCoverage": {
+      "numerator": 5,
+      "denominator": 5,
+      "ratio": 1,
+      "floorMet": true,
+      "targetMet": true
+    },
+    "reviewerQuality": {
+      "independentApprovals": 0,
+      "mean": null,
+      "floorMet": false,
+      "targetMet": false
+    },
+    "knownCriticalFactualErrors": null,
+    "criticalErrorStatus": "human_review_required"
+  },
+  "technicalSimulationReviewerMean": 4.25,
+  "factualReview": "not independently verified",
+  "formalReviewerApproval": "missing"
+}
