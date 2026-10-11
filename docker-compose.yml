@@ -7,6 +7,7 @@ networks:
 volumes:
   postgres-data:
   redis-data:
+  chromadb-data:
 
 services:
   postgres:
@@ -16,8 +17,11 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
+      REGISTRY_DB_PASSWORD: ${REGISTRY_DB_PASSWORD:?Run node scripts/setup-dev.js}
+      CURRICULUM_DB_PASSWORD: ${CURRICULUM_DB_PASSWORD:?Run node scripts/setup-dev.js}
+      TRAINING_DB_PASSWORD: ${TRAINING_DB_PASSWORD:?Run node scripts/setup-dev.js}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./db/init:/docker-entrypoint-initdb.d:ro
@@ -43,7 +47,7 @@ services:
     container_name: eduagentx-redis
     command: ["redis-server", "--appendonly", "yes"]
     ports:
-      - "${REDIS_PORT:-6379}:6379"
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
     volumes:
       - redis-data:/data
     healthcheck:
@@ -65,11 +69,12 @@ services:
 
   agent-registry:
     build:
-      context: ./services/agent-registry
+      context: .
+      dockerfile: services/agent-registry/Dockerfile
     container_name: eduagentx-agent-registry
     environment:
       PORT: 4001
-      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      DATABASE_URL: postgres://registry_owner:${REGISTRY_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://redis:6379
       SERVICE_NAME: agent-registry
     depends_on:
@@ -94,6 +99,126 @@ services:
           cpus: '0.1'
           memory: 64M
 
+  curriculum-engine:
+    build:
+      context: .
+      dockerfile: services/curriculum-engine/Dockerfile
+    container_name: eduagentx-curriculum-engine
+    environment:
+      PORT: 4002
+      DATABASE_URL: postgres://curriculum_owner:${CURRICULUM_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      CURRICULUM_INTERNAL_KEY: ${CURRICULUM_INTERNAL_KEY:?Run node scripts/setup-dev.js}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:4002/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    networks:
+      - eduagentx-net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+
+  chromadb:
+    image: ghcr.io/chroma-core/chroma:1.5.9
+    container_name: eduagentx-chromadb
+    environment:
+      IS_PERSISTENT: "TRUE"
+    volumes:
+      - chromadb-data:/chroma/chroma/
+    ports:
+      - "127.0.0.1:${CHROMADB_PORT:-8000}:8000"
+    networks:
+      - eduagentx-net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  curriculum-index:
+    build:
+      context: .
+      dockerfile: services/curriculum-index/Dockerfile
+    container_name: eduagentx-curriculum-index
+    environment:
+      PORT: 4003
+      DATABASE_URL: postgres://curriculum_owner:${CURRICULUM_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      CURRICULUM_INTERNAL_KEY: ${CURRICULUM_INTERNAL_KEY:?Run node scripts/setup-dev.js}
+      CHROMADB_HOST: chromadb
+      CHROMADB_PORT: 8000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      curriculum-engine:
+        condition: service_healthy
+      chromadb:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:4003/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    networks:
+      - eduagentx-net
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1024M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+
+  training-service:
+    build:
+      context: .
+      dockerfile: services/training-service/Dockerfile
+    container_name: eduagentx-training-service
+    environment:
+      PORT: 4004
+      DATABASE_URL: postgres://training_owner:${TRAINING_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      TRAINING_INTERNAL_KEY: ${TRAINING_INTERNAL_KEY:?Run node scripts/setup-dev.js}
+      VALIDATION_ACTIVATION_URL: http://validation-activation:4010
+      AGENT_REGISTRY_URL: http://agent-registry:4001
+      TRAINING_MIN_PRACTICE_PER_MODULE: ${TRAINING_MIN_PRACTICE_PER_MODULE:-1}
+      TRAINING_MAX_RESPONSE_CHARS: ${TRAINING_MAX_RESPONSE_CHARS:-4000}
+      TRAINING_SESSION_TIMEOUT_MINUTES: ${TRAINING_SESSION_TIMEOUT_MINUTES:-1440}
+      # The completion relay. Training starts without Redis; events wait in the outbox.
+      REDIS_URL: redis://redis:6379
+      TRAINING_COMPLETION_STREAM: ${TRAINING_COMPLETION_STREAM:-training.session.completed}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      validation-activation:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:4004/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    networks:
+      - eduagentx-net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+
   api-gateway:
     build:
       context: .
@@ -102,6 +227,10 @@ services:
     environment:
       PORT: 4000
       AGENT_REGISTRY_URL: http://agent-registry:4001
+      CURRICULUM_ENGINE_URL: http://curriculum-engine:4002
+      CURRICULUM_INTERNAL_KEY: ${CURRICULUM_INTERNAL_KEY:?Run node scripts/setup-dev.js}
+      TRAINING_SERVICE_URL: http://training-service:4004
+      TRAINING_INTERNAL_KEY: ${TRAINING_INTERNAL_KEY:?Run node scripts/setup-dev.js}
       SERVICE_NAME: api-gateway
       JWT_ISSUER: ${JWT_ISSUER}
       JWT_AUDIENCE: ${JWT_AUDIENCE}
@@ -115,9 +244,13 @@ services:
     volumes:
       - ./keys:/app/keys:ro
     ports:
-      - "${GATEWAY_PORT:-8080}:4000"
+      - "127.0.0.1:${GATEWAY_PORT:-8080}:4000"
     depends_on:
       agent-registry:
+        condition: service_healthy
+      curriculum-engine:
+        condition: service_healthy
+      training-service:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:4000/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
@@ -148,7 +281,7 @@ services:
       AGENT_CLIENT_ID: ${AGENT_CLIENT_ID}
       AGENT_CLIENT_SECRET: ${AGENT_CLIENT_SECRET}
     ports:
-      - "${SYNTHETIC_AGENT_PORT:-4200}:4200"
+      - "127.0.0.1:${SYNTHETIC_AGENT_PORT:-4200}:4200"
     depends_on:
       api-gateway:
         condition: service_healthy
@@ -160,10 +293,19 @@ services:
       start_period: 5s
     networks:
       - eduagentx-net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
 
   assurance-console:
     build:
-      context: ./services/assurance-console
+      context: .
+      dockerfile: services/assurance-console/Dockerfile
     container_name: eduagentx-assurance-console
     environment:
       PORT: 4100
@@ -172,7 +314,7 @@ services:
       ADMIN_CLIENT_ID: ${ADMIN_CLIENT_ID}
       ADMIN_CLIENT_SECRET: ${ADMIN_CLIENT_SECRET}
     ports:
-      - "${CONSOLE_PORT:-4173}:4100"
+      - "127.0.0.1:${CONSOLE_PORT:-4173}:4100"
     depends_on:
       api-gateway:
         condition: service_healthy
@@ -182,6 +324,89 @@ services:
       timeout: 5s
       retries: 10
       start_period: 5s
+    networks:
+      - eduagentx-net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+
+  health-prober:
+    image: prom/blackbox-exporter:v0.27.0
+    command: ['--config.file=/etc/blackbox/blackbox.yml']
+    volumes:
+      - ./monitoring/blackbox.yml:/etc/blackbox/blackbox.yml:ro
+    networks:
+      - eduagentx-net
+
+
+  validation-activation:
+    build:
+      context: ./services/validation-activation
+    container_name: eduagentx-validation-activation
+    environment:
+      PORT: 4010
+      SERVICE_NAME: validation-activation
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+    ports:
+      - "127.0.0.1:${VALIDATION_ACTIVATION_PORT:-4010}:4010"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      curriculum-engine:
+        condition: service_healthy
+    networks:
+      - eduagentx-net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:4010/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    container_name: eduagentx-prometheus
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "127.0.0.1:9090:9090"
+    networks:
+      - eduagentx-net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+
+  grafana:
+    image: grafana/grafana:12.1.1
+    container_name: eduagentx-grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Run node scripts/setup-dev.js}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      - prometheus
     networks:
       - eduagentx-net
     deploy:
