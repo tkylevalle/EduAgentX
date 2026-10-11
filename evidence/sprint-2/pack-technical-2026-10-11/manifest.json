@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "1.0.0",
+  "generatedAt": "2026-10-11T17:10:04.470Z",
+  "implementationCommit": "961d4fcd9f33258e4ae1ab3b688b52453f67f428",
+  "technicalResult": "PASS",
+  "formalExit": "BLOCKED_HUMAN_REVIEW",
+  "hashes": {
+    "test-results.json": "f216660ec682f04bc9532a4fe3010697095714c84bd54b282684603f5c6531aa",
+    "quality.json": "c262cda2523242203fa9545e5d7075baa4ee76fee358d6a12c5ae3dd993eec22",
+    "live-smoke.json": "421ad95850f1af8688fdf06061cfd30a5065daaf7d31b43e6bea84643224fcd6",
+    "configuration.json": "53c14e0216723b3970a470aa21d926a314fd1be887dc6ecc7e9343ea97b9c28a",
+    "README.md": "eba55f337d346555fbc46ca3fae9f874dfc31c8ad527c29af9f36a07ef9b92dd"
+  }
+}
