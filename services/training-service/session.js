@@ -89,6 +89,8 @@ function decideStart(pkg, registration, existing, input) {
   if (!isPinnable(pkg)) return rejected('package_not_pinnable');
   const plan = deliveryPlan(pkg.payload);
   if (!plan) return rejected('package_not_deliverable');
+  const quarantine = quarantineReason(pkg, plan);
+  if (quarantine) return rejected(quarantine);
   if (practiceShortfall(plan, input.policy).length) return rejected('insufficient_practice');
 
   const session = newSession(pkg, registration, input, { kind: 'standard', remediation: null, plan });
@@ -132,6 +134,8 @@ function decideRemediation(pkg, registration, { existingRequest = null, openSess
   if (input.objectiveIds.some((id) => !known.has(id))) return rejected('unknown_objectives');
   const targeted = targetPlan(plan, input.objectiveIds);
   if (!targeted.length) return rejected('no_targeted_content');
+  const quarantine = quarantineReason(pkg, targeted);
+  if (quarantine) return rejected(quarantine);
   if (practiceShortfall(targeted, input.policy).length) return rejected('insufficient_practice');
 
   const remediation = {
@@ -268,9 +272,29 @@ function blockReason(pkg, session, registration) {
   if (!CONTINUE_STATES.has(pkg.state)) return `package_state:${pkg.state}`;
   const changed = pinMismatch(pkg, session);
   if (changed) return changed;
+  const pinnedPlan = sessionPlan(pkg.payload, session);
+  const quarantine = pinnedPlan && quarantineReason(pkg, pinnedPlan);
+  if (quarantine) return quarantine;
   if (!registration) return 'registration_missing';
   // A reconfigured Agent Learner is different evidence, so it needs a new session.
   if (registration.configurationFingerprint !== session.configurationFingerprint) return 'configuration_changed';
+  return null;
+}
+
+function quarantineReason(pkg, plan) {
+  for (const scope of pkg?.quarantinedScopes || []) {
+    const affected = plan.filter((item) => {
+      if (scope.scopeType === 'delivery_item') return item.deliveryItemId === scope.scopeId;
+      if (scope.scopeType === 'objective') return item.objectiveIds.includes(scope.scopeId);
+      if (scope.scopeType === 'module') return item.moduleId === scope.scopeId;
+      if (scope.scopeType === 'source') {
+        const module = pkg.payload.modules?.find((candidate) => candidate.id === item.moduleId);
+        return module?.claims?.some((claim) => claim.sourceId === scope.scopeId) === true;
+      }
+      return true;
+    });
+    if (affected.length) return `quarantined_scope:${scope.scopeType}:${scope.scopeId}`;
+  }
   return null;
 }
 
@@ -358,5 +382,5 @@ const conflict = (reason) => ({ outcome: 'conflict', reason, events: [] });
 
 module.exports = {
   EVENT_TYPES, decideContinue, decideRemediation, decideStart, decideSubmit, decideTimeout, deliveryPlan,
-  deriveSessionState, nextItem, pinGoverningPackage, pinMismatch,
+  deriveSessionState, nextItem, pinGoverningPackage, pinMismatch, quarantineReason,
 };

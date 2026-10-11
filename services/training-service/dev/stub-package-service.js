@@ -53,7 +53,7 @@ const current = { packageId: 'demo-ai-safety', version: '1.0.0', digest: 'demo-d
 // The response shape clients.js maps with toPackageRecord.
 const packageBody = () => ({
   packageId: current.packageId, digest: current.digest, version: current.version, state: current.state,
-  objectives, modules,
+  objectives, modules, quarantinedScopes: [],
 });
 
 function send(res, status, body) {

@@ -27,6 +27,12 @@ Sprint 2 Training routes (training-service has no host port; the Gateway is its 
 | GET | `/v1/admin/training-completion-events` | Admin; the completion outbox, one `training.session.completed` envelope per completed session. The relay also publishes each one, at least once, to the Redis Stream `training.session.completed` (fields `eventId`, `envelope`) |
 | POST | `/v1/admin/training-remediations` | Admin; assigns targeted remediation for named objectives and keeps the causing evidence. An unknown field gets 400 `unexpected:<field>`. See [the Issue 13 handoff](../sprint-2/handoff-issue-13.md). |
 
+Sprint 2 also adds internal curriculum lifecycle routes to `validation-activation`
+for freshness checks, quarantine, and the prevalidated fallback bank. These
+routes are service-to-service only and do not pass through the public Gateway;
+see [the internal curriculum contract](curriculum-freshness.md). The public
+curriculum and certification APIs remain outside this contract.
+
 Detailed payloads and responses are in [the Registry contract](agent-registry.md) and [the External Agent Learner Protocol](external-agent-learner-protocol.md). Requests above 64 KiB are rejected. The local single-gateway limit is 600 requests per source IP per minute on `/v1/`; 429 includes `Retry-After` and correlation. Health is excluded. A multi-instance deployment needs a shared rate counter.
 
 Errors expose a stable `error` reason code and `correlationId`, with safe `message` and `details` where relevant. Every response includes `x-correlation-id`. Protocol correlation IDs must contain printable ASCII and fit within 256 characters. Version, identity, schema and header mismatches fail before mutation.
@@ -35,4 +41,4 @@ Registration envelope idempotency keys bind the authenticated identity and norma
 
 The Assurance Console on local port 4173 is an unauthenticated local demonstration UI with server-side read-only admin access. It is bound to loopback and must not be reverse-proxied or exposed externally. Grafana and the synthetic test adapter are also local-only tools.
 
-Curriculum, Training, Examination, Certification, Marketplace, Skill Gap and full Monitoring APIs belong to later sprints. No `/auth/login`, `/agents`, `/certify`, credential issuance, or marketplace endpoint is implemented by this Sprint 1 contract.
+Public Curriculum, Examination, Certification, Marketplace, Skill Gap and full Monitoring APIs belong to later sprints. No `/auth/login`, `/agents`, `/certify`, credential issuance, or marketplace endpoint is implemented by this Sprint 1 contract.

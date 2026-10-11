@@ -15,7 +15,14 @@ module.exports = { sha256, extractChunks };
 // digests — that's what makes rebuilds deterministic and verifiable.
 function extractChunks(pkg) {
   const { packageId, version, domain } = pkg.manifest;
-  const modules = pkg.modules || [];
+  const quarantined = pkg.quarantinedScopes || [];
+  const modules = (pkg.modules || []).filter((module) => !quarantined.some((scope) => {
+    if (scope.scopeType === 'module') return scope.scopeId === module.id;
+    if (scope.scopeType === 'objective') return module.objectiveIds?.includes(scope.scopeId) === true;
+    if (scope.scopeType === 'delivery_item') return module.deliveryItems?.some((item) => item.id === scope.scopeId) === true;
+    if (scope.scopeType === 'source') return module.claims?.some((claim) => claim.sourceId === scope.scopeId) === true;
+    return true;
+  }));
 
   return modules.map((module) => {
     const text = [module.title, module.content, ...(module.deliveryItems || []).map((item) => item.text)]

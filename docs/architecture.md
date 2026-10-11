@@ -33,7 +33,7 @@ Prometheus + blackbox-exporter ──▶ /health of every service ──▶ Graf
 | `curriculum-engine` | 4002 | Immutable Course Packages: candidate validation, content digests and lifecycle events (#9) |
 | `curriculum-index` | 4003 | Rebuildable ChromaDB index of Active package content. Never the source of truth (#11) |
 | `training-service` | 4004 | Event-sourced training sessions pinned to one Active package and configuration fingerprint (#12) |
-| `validation-activation` | 4010 (host 127.0.0.1 only) | Package gates, review records and activation state (#10). In memory in Sprint 2 |
+| `validation-activation` | 4010 (host 127.0.0.1 only) | Package validation, review and activation (#10), plus freshness evidence, scoped quarantine and fallback selection (#14). Lifecycle, freshness, scope and package evidence use the `curriculum_engine` PostgreSQL schema when `DATABASE_URL` is configured; in-memory storage is for tests/development without it. |
 | `assurance-console` | 4100 (host 4173) | Read-only page that shows the latest registration trace |
 | `synthetic-agent-learner` | 4200 | Deterministic test learner. Uses the public Gateway protocol like any external agent |
 
@@ -55,6 +55,10 @@ Prometheus + blackbox-exporter ──▶ /health of every service ──▶ Graf
 6. **`/health` checks real dependencies** and returns 503 when one is down.
 7. **Versioned contracts.** HTTP routes are under `/v1`; the agent protocol
    and events carry a version. See `docs/contracts/`.
+
+Curriculum freshness, quarantine and deterministic fallback routes are internal
+service APIs, not public Gateway routes. Their contract and trust boundaries are
+documented in [Curriculum freshness and fallback](contracts/curriculum-freshness.md).
 
 ## Adding a service (later sprints)
 

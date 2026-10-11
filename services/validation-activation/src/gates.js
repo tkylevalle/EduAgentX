@@ -3,6 +3,8 @@
  * Each gate returns { name, passed, reason }.
  */
 
+const { validateFallbackBank } = require('../../curriculum-engine/fallback');
+
 async function runValidationGates(pkg) {
   const gates = await Promise.all([
     gateSchema(pkg),
@@ -91,14 +93,18 @@ function gateRubricPolicy(pkg) {
 
 // Gate 6 — Fallback readiness
 function gateFallbackReadiness(pkg) {
-  const fallback = pkg.fallback_bank || {};
-  const hasItems = Array.isArray(fallback.items) && fallback.items.length >= 5;
-  const hasVersion = !!fallback.version;
-  const passed = hasItems && hasVersion;
+  const fallback = pkg.fallback_bank || pkg.fallbackBank || {};
+  const sources = pkg.sources || [];
+  const objectives = pkg.objectives || [];
+  const errors = validateFallbackBank(fallback, {
+    sourceIds: new Set(sources.map((source) => source?.id || source?.sourceId)),
+    objectiveIds: new Set(objectives.map((objective) => objective?.id || objective?.objectiveId)),
+  });
+  const passed = errors.length === 0;
   return {
     name: 'fallback_readiness',
     passed,
-    reason: passed ? 'Fallback bank ready' : 'Fallback bank missing items (min 5) or version'
+    reason: passed ? 'Exactly 15 immutable source-linked items pass the approved tier and scoring policy' : errors.join('; ')
   };
 }
 

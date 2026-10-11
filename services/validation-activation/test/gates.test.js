@@ -2,10 +2,19 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { runValidationGates } = require('../src/gates');
+const { FALLBACK_BANK } = require('../../curriculum-engine/fallback');
+
+const fallbackFixture = structuredClone(FALLBACK_BANK);
+fallbackFixture.items = fallbackFixture.items.map((item, index) => ({
+  ...item,
+  objectiveIds: [index < 5 ? 'o1' : 'o2'],
+  sourceLinks: [{ sourceId: index % 2 ? 'nist-rmf' : 'owasp-agentic', pinpoint: 'fixture source section' }],
+}));
 
 const validPackage = {
   id: 'pkg-001', version: '1.0.0',
   manifest: { title: 'AI Safety Course' },
+  sources: [{ id: 'nist-rmf' }, { id: 'owasp-agentic' }],
   modules: [
     { id: 'm1', source: 'NIST SP 800-53', source_hash: 'abc123' },
     { id: 'm2', source: 'OWASP Top 10 2021', source_hash: 'def456' },
@@ -19,7 +28,7 @@ const validPackage = {
   ],
   examination_template: { pass_threshold: 0.7, question_count: 10, tiers: [1, 2] },
   rubric: { score_floor: 3.5, score_target: 4.0, criteria: ['accuracy', 'coverage', 'traceability'] },
-  fallback_bank: { version: '1.0', items: ['f1','f2','f3','f4','f5'] }
+  fallback_bank: fallbackFixture
 };
 
 test('valid package passes all 6 gates', async () => {

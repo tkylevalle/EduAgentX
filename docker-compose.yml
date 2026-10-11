@@ -159,6 +159,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      curriculum-engine:
+        condition: service_healthy
       chromadb:
         condition: service_started
     healthcheck:
@@ -354,6 +356,8 @@ services:
       - "127.0.0.1:${VALIDATION_ACTIVATION_PORT:-4010}:4010"
     depends_on:
       postgres:
+        condition: service_healthy
+      curriculum-engine:
         condition: service_healthy
     networks:
       - eduagentx-net

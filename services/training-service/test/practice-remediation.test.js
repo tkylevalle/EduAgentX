@@ -82,6 +82,19 @@ test('a package without the configured practice per module cannot start a sessio
   assert.equal(twoNeeded.reason, 'insufficient_practice');
 });
 
+test('a scoped quarantine blocks only training plans that touch the quarantined content', () => {
+  const moduleQuarantine = pkg({ quarantinedScopes: [{ scopeType: 'module', scopeId: 'm1' }] });
+  const standard = decideStart(moduleQuarantine, registration, null,
+    input({ sessionId: 's-quarantined', agentLearnerKey: LEARNER }));
+  assert.deepEqual([standard.outcome, standard.reason], ['rejected', 'quarantined_scope:module:m1']);
+
+  const unrelated = decideRemediation(moduleQuarantine, registration, {}, remediationInput({ objectiveIds: ['o2'] }));
+  assert.equal(unrelated.outcome, 'ok', 'a remediation for an unrelated objective remains available');
+  const affected = decideRemediation(pkg({ quarantinedScopes: [{ scopeType: 'objective', scopeId: 'o2' }] }),
+    registration, {}, remediationInput({ objectiveIds: ['o2'] }));
+  assert.deepEqual([affected.outcome, affected.reason], ['rejected', 'quarantined_scope:objective:o2']);
+});
+
 test('practice is bounded: one accepted answer per item, a length cap, tied to module and objectives', () => {
   const ctx = startStandard(completionPolicy({ maxResponseChars: 50 }));
   ctx.next();

@@ -1,5 +1,4 @@
 'use strict';
-const { ChromaClient } = require('chromadb');
 const { extractChunks } = require('./model');
 const { getActivePackages } = require('./db');
 const fs = require('node:fs');
@@ -62,17 +61,36 @@ async function rebuildIndex({ pool, client, embeddingFunction }) {
 // to a plain substring match over the last saved snapshot and say so
 // explicitly via `mode` — callers must be able to tell cached results from
 // live ones, never silently treat them the same.
-async function queryIndex({ client, embeddingFunction, text, limit = 5 }) {
+async function queryIndex({ pool, client, embeddingFunction, text, limit = 5 }) {
+  if (!pool) throw new Error('index_unavailable_active_state_unverified');
+  // Re-check the authoritative active package and its current quarantine
+  // scopes on every query. If Postgres is unavailable, stale content is not
+  // safe to serve because a newer critical quarantine may be unknown.
+  const activeChunks = (await getActivePackages(pool)).flatMap((pkg) => extractChunks(pkg));
+  const currentById = new Map(activeChunks.map((chunk) => [chunk.chunkId, chunk.digest]));
   try {
     const collection = await client.getCollection({ name: COLLECTION_NAME, embeddingFunction });
     const result = await collection.query({ queryTexts: [text], nResults: limit });
-    return { mode: 'live', results: result };
+    return { mode: 'live', results: filterVectorResult(result, currentById) };
   } catch {
     const snapshot = loadSnapshot();
     if (!snapshot) throw new Error('index_unavailable_no_cache');
     const needle = text.toLowerCase();
-    const matches = snapshot.chunks.filter((c) => c.text.toLowerCase().includes(needle)).slice(0, limit);
+    const matches = snapshot.chunks.filter((c) => currentById.get(c.chunkId) === c.digest && c.text.toLowerCase().includes(needle)).slice(0, limit);
     return { mode: 'cached-stale', builtAt: snapshot.builtAt, results: matches };
   }
 }
-module.exports = { COLLECTION_NAME, chunksToChromaInput, saveSnapshot, loadSnapshot, rebuildIndex, queryIndex };
+
+function filterVectorResult(result, currentById) {
+  const ids = result?.ids;
+  if (!Array.isArray(ids) || ids.some((row) => !Array.isArray(row))) throw new Error('index_response_invalid');
+  const keep = ids.map((row) => row.map((id, index) => currentById.has(id) ? index : -1).filter((index) => index >= 0));
+  const filtered = { ...result };
+  for (const [key, value] of Object.entries(result)) {
+    if (Array.isArray(value) && value.length === ids.length && value.every((row) => Array.isArray(row))) {
+      filtered[key] = value.map((row, rowIndex) => keep[rowIndex].map((index) => row[index]));
+    }
+  }
+  return filtered;
+}
+module.exports = { COLLECTION_NAME, chunksToChromaInput, saveSnapshot, loadSnapshot, rebuildIndex, queryIndex, filterVectorResult };
