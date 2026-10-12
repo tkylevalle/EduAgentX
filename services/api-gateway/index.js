@@ -425,6 +425,22 @@ function createApp({
     await proxyJson(req, res, `${examinationEngineUrl}/internal/attempts`, { method: 'POST', body: req.body,
       headers: examinationHeaders(req) });
   });
+  // The Engine owns durable replay and state checks; the Gateway never caches
+  // an answer receipt or accepts a grading/finalization command publicly.
+  app.post('/v1/examinations/:attemptId/responses', requireRole('agent'), async (req, res) => {
+    const body = req.body;
+    if (!body || typeof body !== 'object' || Array.isArray(body) ||
+      Object.keys(body).some((name) => !['idempotencyKey', 'expectedSequence', 'itemId', 'response'].includes(name)) ||
+      typeof body.idempotencyKey !== 'string' || !TRAINING_IDENTIFIER.test(body.idempotencyKey) ||
+      !Number.isSafeInteger(body.expectedSequence) || body.expectedSequence < 1 ||
+      typeof body.itemId !== 'string' || !TRAINING_IDENTIFIER.test(body.itemId) ||
+      typeof body.response !== 'string' || !body.response.trim() || body.response.length > 16000)
+      return res.status(400).json({ apiVersion: 'v1', error: 'invalid_request', correlationId: req.correlationId });
+    if (!examinationInternalKey) return examinationUnavailable(req, res);
+    await proxyJson(req, res,
+      `${examinationEngineUrl}/internal/attempts/${encodeURIComponent(req.params.attemptId)}/responses`,
+      { method: 'POST', body, headers: examinationHeaders(req) });
+  });
   app.get('/v1/examinations/:attemptId', requireRole('agent'), async (req, res) => {
     if (!examinationInternalKey) return examinationUnavailable(req, res);
     await proxyJson(req, res, `${examinationEngineUrl}/internal/attempts/${encodeURIComponent(req.params.attemptId)}`,

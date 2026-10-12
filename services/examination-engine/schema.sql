@@ -34,3 +34,42 @@ FOR EACH ROW EXECUTE FUNCTION examination_engine.forbid_evidence_change();
 DROP TRIGGER IF EXISTS attempt_events_immutable ON examination_engine.attempt_events;
 CREATE TRIGGER attempt_events_immutable BEFORE UPDATE OR DELETE ON examination_engine.attempt_events
 FOR EACH ROW EXECUTE FUNCTION examination_engine.forbid_evidence_change();
+
+-- Additive Issue #17 migration: existing manifests and seq=1 events remain valid.
+ALTER TABLE examination_engine.attempt_events DROP CONSTRAINT IF EXISTS attempt_events_event_type_check;
+ALTER TABLE examination_engine.attempt_events ADD CONSTRAINT attempt_events_event_type_check
+  CHECK (event_type IN ('attempt_started','response_accepted','grade_recorded','attempt_completed','agent_failed','system_aborted'));
+ALTER TABLE examination_engine.attempt_events ADD COLUMN IF NOT EXISTS event_id text;
+ALTER TABLE examination_engine.attempt_events ADD COLUMN IF NOT EXISTS payload jsonb NOT NULL DEFAULT '{}';
+CREATE UNIQUE INDEX IF NOT EXISTS attempt_event_identity ON examination_engine.attempt_events(event_id) WHERE event_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS attempt_one_terminal ON examination_engine.attempt_events(attempt_id)
+  WHERE event_type IN ('attempt_completed','agent_failed','system_aborted');
+CREATE UNIQUE INDEX IF NOT EXISTS attempt_one_start ON examination_engine.attempt_events(attempt_id) WHERE event_type = 'attempt_started';
+
+-- Restricted evidence: only the Engine's database role and protected grading seam read answers.
+CREATE TABLE IF NOT EXISTS examination_engine.attempt_responses (
+  attempt_id uuid NOT NULL REFERENCES examination_engine.attempts(attempt_id),
+  item_id text NOT NULL,
+  response text NOT NULL CHECK (length(response) BETWEEN 1 AND 16000),
+  response_digest text NOT NULL,
+  accepted_at timestamptz NOT NULL,
+  seq integer NOT NULL,
+  receipt jsonb NOT NULL,
+  PRIMARY KEY (attempt_id, item_id),
+  FOREIGN KEY (attempt_id, seq) REFERENCES examination_engine.attempt_events(attempt_id, seq)
+);
+CREATE TABLE IF NOT EXISTS examination_engine.attempt_commands (
+  attempt_id uuid NOT NULL REFERENCES examination_engine.attempts(attempt_id),
+  idempotency_key text NOT NULL,
+  command_digest text NOT NULL,
+  event_id text UNIQUE,
+  receipt jsonb NOT NULL,
+  PRIMARY KEY (attempt_id, idempotency_key)
+);
+REVOKE ALL ON examination_engine.attempt_responses, examination_engine.attempt_commands FROM PUBLIC;
+DROP TRIGGER IF EXISTS attempt_responses_immutable ON examination_engine.attempt_responses;
+CREATE TRIGGER attempt_responses_immutable BEFORE UPDATE OR DELETE ON examination_engine.attempt_responses
+FOR EACH ROW EXECUTE FUNCTION examination_engine.forbid_evidence_change();
+DROP TRIGGER IF EXISTS attempt_commands_immutable ON examination_engine.attempt_commands;
+CREATE TRIGGER attempt_commands_immutable BEFORE UPDATE OR DELETE ON examination_engine.attempt_commands
+FOR EACH ROW EXECUTE FUNCTION examination_engine.forbid_evidence_change();

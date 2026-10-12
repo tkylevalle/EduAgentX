@@ -13,3 +13,9 @@ docs
 **/*.log
 **/__pycache__
 *.zip
+
+# Checkout-local environment and historical context never enter build contexts.
+.agents
+.aws
+.codex
+.local-context
