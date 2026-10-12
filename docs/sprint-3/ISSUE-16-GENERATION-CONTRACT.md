@@ -1,30 +1,24 @@
-# Issue #16 — examination generation boundary
+# Issue #16 — examination generation and delivery contract
 
-This branch starts Issue #16 from merged Sprint 2 `main` (`4dbe172`). It does **not** complete Sprint 3 or override the missing independent Sprint 2 reviews. The canonical work package is GitHub Issue #16; Issues #17 and #18 own attempt persistence and grading.
+This branch starts from merged Sprint 2 `main` (`4dbe172`). It implements the technical Issue #16 generation and delivery path. It does **not** assert Sprint 2 or Sprint 3 formal exit: independent package/content review and cumulative gates remain separate human decisions.
 
-## Implemented seam
+## Production path
 
-`services/examination-engine/generation.js` accepts three authoritative inputs and an injectable item generator:
+1. `POST /v1/examinations` at the authenticated Gateway accepts only `idempotencyKey`; learner identity comes from the JWT. `GET /v1/examinations/:attemptId` is owner-only. The admin route `GET /v1/admin/examinations/:attemptId` and local Assurance Console `/examinations/:attemptId` show governing identifiers and item references without prompts or answers.
+2. The Examination Engine fetches the Active, non-quarantined package from Validation/Activation, current Registry record, and a committed Training completion from Training's exact package/learner lookup. None of these records is accepted from the public body.
+3. `standard-generator.js` constructs 15 deterministic, provider-free prompts from the pinned template, objectives, modules, and source links. It never reads the fallback bank. `generation.js` validates exact slot counts and 20/40/40 weights, objective/tier/source-pinpoint/critical-rule coverage, unique prompts/IDs, policy hashes, and an allowlist of item fields. Missing or malformed outputs fail closed.
+4. The Examination Engine atomically inserts the validated form and its governing identities into its own PostgreSQL schema, plus an `attempt_started` event, **before** learner delivery. A per-key advisory transaction lock and unique constraint make concurrent retries converge on the same attempt. Immutable triggers reject updates and deletes. `EXAM_DURATION_MINUTES` defaults to 60 for local technical runs; the team must approve the release duration.
+5. Agent reads and retries recheck active-package and fingerprint governance; expiry and quarantine stop further delivery. The admin projection is identifier-only. There is no response or grade route in Issue #16.
 
-- The Validation/Activation service's internal `/packages/active` response, including exact package ID/version/digest, template, rubric, objectives, modules, source pins and quarantine state. This branch adds the already-persisted source records to that internal response; it does not expose them through a public learner route.
-- The Registry record for the authenticated Agent Learner, including configuration fingerprint.
-- An authoritative `training.session.completed` envelope for the same learner, fingerprint and exact package. A caller must fetch this from Training's owned store, not accept it from a request body.
+## Issue #17 handoff
 
-The pure `generateStandardForm` callback receives the pinned package artifacts and returns 15 proposed items. The validator rejects missing/unavailable generators, Candidate/quarantined packages, mismatched Training evidence, noncanonical template counts or weights, missing or duplicated slots/prompts, altered objectives, invented source pinpoints, missing critical-rule links, and extra item fields (including answer material). Errors expose only fixed codes, not the raw generator response. A test-only injected generator proves the zero-paid replay seam; it is **not** an independently reviewed live question generator.
+Salman and Timothy should extend the one Examination Engine aggregate, not replace it with another attempt store. `examination_engine.attempts` is the immutable manifest and `attempt_events` starts at sequence 1. Issue #17 owns response and completion transitions, timeout/System-Aborted versus Agent-Failed state, sequence/idempotency checks for those transitions, and restart/race tests. Preserve the start/read contracts and pinned form hashes. Coordinate schema evolution before merging concurrent edits.
 
-The returned form binds package/template/rubric digests, policy hash, Training event, learner fingerprint, weights and item references. `publicForm` is an allowlisted projection. Neither function writes an attempt or exposes a public route.
+Issue #18 grades only a persisted, complete attempt against its pinned rubric. Issue #20 owns a distinct fallback attempt from the prevalidated bank; standard generation must never quietly reuse that bank.
 
-## Integration contract for other work packages
+## Verification and limits
 
-Issue #17 must own a single Examination Engine attempt aggregate. Before any public delivery, it must obtain the Active package, Registry identity and authoritative Training completion, invoke this validator, then atomically persist the form's immutable governing fields, item IDs/hashes, assessment mode and deadline. Its retry and state machine must not regenerate a different form under the same attempt ID. A safe read-only console view may expose the form manifest and identifiers but must not expose raw answers, hidden grader material or generator context. Issue #16's public delivery criterion remains **open** until this atomic admission and Gateway route are integrated.
-
-Issue #18 grades only a persisted, complete attempt against the same pinned rubric and must never treat this pre-admission form as gradable evidence. Issue #20 owns a distinct fallback attempt over the pre-authored bank; the standard generator must not reuse that bank as a standard form.
-
-## Remaining Issue #16 work
-
-1. Agree the item-generator implementation and authored/replay source with the team. No paid provider or unreviewed draft prompts are silently promoted to a formal examination.
-2. Integrate with Issue #17's durable attempt admission and then expose the authenticated public Examination start/read workflow and admin-only read-only console view.
-3. Run real-service and failure-path tests across Validation, Registry, Training, Examination and Gateway. Current tests prove the pure validation seam and the internal source contract, not end-to-end delivery.
-4. Obtain independent content, security-critical and cumulative gate reviews before claiming a formal Sprint 3 pass.
-
-Run `node --test services/examination-engine/test/generation.test.js` for the focused replay/negative tests, or `node scripts/run-unit-tests.js` for the full component suite.
+- `node scripts/run-unit-tests.js`: 196/196 passed on 2026-10-12, including generation, Gateway, Training lookup, Examination route, console projection, and failure-path tests.
+- `EXAMINATION_TEST_DATABASE_URL=<isolated PostgreSQL URL> node --test services/examination-engine/integration/postgres.test.js`: passed against a temporary PostgreSQL 16 container using the dedicated `examination_owner` role. Verified concurrent admission, restart read, single start event, and immutable-row rejection.
+- `docker build -f services/examination-engine/Dockerfile -t eduagentx-examination-verify .`: passed. `docker compose config --quiet`: passed after checkout-local setup.
+- These tests are technical evidence, not independent factual/content approval. The existing domain package's authored examination policy explicitly calls for independent review before examination use. A full approved-package, real-service Compose demonstration has not been run from this branch; the separate Sprint 2 stack was already running under another checkout and was not displaced.
