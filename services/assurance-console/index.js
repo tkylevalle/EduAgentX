@@ -74,17 +74,27 @@ async function readExamination(attemptId) {
   return get(`/v1/admin/examinations/${encodeURIComponent(attemptId)}`);
 }
 function safeExamination(attempt) {
+  if (!['in_progress', 'complete', 'system_aborted', 'agent_failed'].includes(attempt.status))
+    throw new Error('invalid examination state');
+  const governingReference = (reference) => reference && ({
+    id: reference.id, version: reference.version, digest: reference.digest,
+  });
   return {
     attemptId: attempt.attemptId, status: attempt.status, mode: attempt.mode,
+    sequence: attempt.sequence, responsesReceived: attempt.responsesReceived,
+    responseCollectionComplete: attempt.responseCollectionComplete,
+    terminalReason: attempt.terminalReason,
+    completedAt: attempt.completedAt, failedAt: attempt.failedAt, abortedAt: attempt.abortedAt,
     agentLearnerKey: attempt.agentLearnerKey,
     configurationFingerprint: attempt.configurationFingerprint,
-    package: attempt.package, template: attempt.template, rubric: attempt.rubric,
+    package: governingReference(attempt.package), template: governingReference(attempt.template),
+    rubric: governingReference(attempt.rubric),
     generationPolicySha256: attempt.generationPolicySha256,
     trainingEventId: attempt.trainingEventId, formDigest: attempt.formDigest,
     startedAt: attempt.startedAt, deadlineAt: attempt.deadlineAt,
     itemReferences: (attempt.itemReferences || []).map((item) => ({
       id: item.id, slotId: item.slotId, tier: item.tier, moduleIds: item.moduleIds,
-      promptSha256: item.promptSha256,
+      objectiveIds: item.objectiveIds, promptSha256: item.promptSha256,
     })),
   };
 }
@@ -326,9 +336,14 @@ function renderPage(gatewayStatus, trace, training) {
 </html>`;
 }
 
-function renderExamination(attempt) {
+function renderExamination(input) {
+  const attempt = safeExamination(input);
   const entries = [
     ['Attempt', attempt.attemptId], ['Status', attempt.status], ['Mode', attempt.mode],
+    ['Sequence', attempt.sequence], ['Responses received', attempt.responsesReceived],
+    ['Response collection complete', attempt.responseCollectionComplete],
+    ['Terminal reason', attempt.terminalReason],
+    ['Completed', attempt.completedAt], ['Failed', attempt.failedAt], ['Aborted', attempt.abortedAt],
     ['Agent Learner', attempt.agentLearnerKey], ['Fingerprint', attempt.configurationFingerprint],
     ['Package', `${attempt.package?.id} ${attempt.package?.version} (${attempt.package?.digest})`],
     ['Template', `${attempt.template?.id} ${attempt.template?.version} (${attempt.template?.digest})`],
@@ -364,4 +379,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, escapeHtml, renderPage, renderExamination };
+module.exports = { app, escapeHtml, renderPage, renderExamination, safeExamination };
