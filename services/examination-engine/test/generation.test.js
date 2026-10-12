@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const { sha256 } = require('../../curriculum-engine/model');
 const candidate = require('../../curriculum-engine/examples/ai-safety-candidate');
 const { generateStandardForm, publicForm, validateGeneratedForm } = require('../generation');
+const { createStandardItems } = require('../standard-generator');
 
 function fixture() {
   const pkg = structuredClone(candidate);
@@ -33,7 +34,7 @@ function fixture() {
       promptSha256: sha256(prompt), templateId: pkg.examTemplate.id,
       templateVersion: pkg.examTemplate.version,
       generationPolicySha256: sha256(pkg.examTemplate.generationPolicy),
-      objectiveIds: [...slot.objectiveIds],
+      moduleIds: [...objective.moduleIds], objectiveIds: [...slot.objectiveIds],
       sourceLinks: [{ sourceId: source.id, sourceVersion: source.version,
         sourceDigest: source.contentSha256, pinpoint: claim.pinpoint }],
       criticalSafety: objective.safetyCritical,
@@ -90,6 +91,9 @@ test('invalid count, duplicate slot, policy weakening, missing source and safety
   input.items[0].sourceLinks[0].pinpoint = 'invented';
   assert.throws(() => validateGeneratedForm(input), { code: 'invalid_item_source_or_safety_link' });
   input.items = fixture().items;
+  input.items[0].moduleIds = ['m2'];
+  assert.throws(() => validateGeneratedForm(input), { code: 'invalid_item_coverage' });
+  input.items = fixture().items;
   input.items.find((item) => item.slotId === 'v1').criticalSafety = false;
   assert.throws(() => validateGeneratedForm(input), { code: 'invalid_item_coverage' });
   input.items = fixture().items;
@@ -105,8 +109,23 @@ test('template and objective coverage cannot be weakened', () => {
   input.pkg.examTemplate.slots.find((slot) => slot.id === 'r1').objectiveIds = ['o2'];
   const changed = input.items.find((item) => item.slotId === 'r1');
   changed.objectiveIds = ['o2'];
+  changed.moduleIds = ['m2'];
   const source = input.pkg.sources.find((value) => value.id === 'nist-rmf');
   changed.sourceLinks = [{ sourceId: source.id, sourceVersion: source.version,
     sourceDigest: source.contentSha256, pinpoint: input.pkg.modules[1].claims[0].pinpoint }];
   assert.throws(() => validateGeneratedForm(input), { code: 'insufficient_objective_coverage' });
+});
+
+test('provider-free standard generator uses activated package pins, not the fallback bank', async () => {
+  const input = fixture();
+  const form = await generateStandardForm({ ...input, generateItems: createStandardItems });
+  assert.equal(form.items.length, 15);
+  assert.deepEqual(form.items.map((item) => item.slotId), input.pkg.examTemplate.slots.map((slot) => slot.id));
+  assert.ok(form.items.every((item) => item.sourceLinks.length && !item.prompt.includes('Technical replay prompt')));
+  assert.ok(form.items.every((item) => !input.pkg.fallbackBank.items.some((fallback) => fallback.id === item.id)));
+  const again = await generateStandardForm({ ...input, generateItems: createStandardItems });
+  assert.deepEqual(again, form);
+  input.pkg.modules[0].claims = [];
+  await assert.rejects(generateStandardForm({ ...input, generateItems: createStandardItems }),
+    { code: 'generator_unavailable' });
 });

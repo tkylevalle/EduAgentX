@@ -10,7 +10,7 @@ const COUNTS = Object.freeze({ recall: 5, applied: 6, adversarial: 4 });
 const WEIGHTS = Object.freeze({ recall: 20, applied: 40, adversarial: 40 });
 const ITEM_FIELDS = Object.freeze([
   'id', 'slotId', 'tier', 'prompt', 'promptSha256', 'templateId', 'templateVersion',
-  'generationPolicySha256', 'objectiveIds', 'sourceLinks', 'criticalSafety',
+  'generationPolicySha256', 'moduleIds', 'objectiveIds', 'sourceLinks', 'criticalSafety',
   'criticalViolationRuleIds', 'rubricCriterionIds',
 ]);
 const SOURCE_LINK_FIELDS = Object.freeze(['sourceId', 'sourceVersion', 'sourceDigest', 'pinpoint']);
@@ -70,6 +70,7 @@ function validateGeneratedForm({ pkg, registration, completion, items }) {
   if (!Array.isArray(items) || items.length !== 15) fail('invalid_generated_form');
   const slots = new Map(template.slots.map((slot) => [slot.id, slot]));
   const objectives = new Map(pkg.objectives.map((objective) => [objective.id, objective]));
+  const modules = new Map(pkg.modules.map((module) => [module.id, module]));
   const sources = new Map(pkg.sources.map((source) => [source.id, source]));
   const allowedLinks = new Map();
   for (const module of pkg.modules) for (const claim of module.claims || []) {
@@ -91,13 +92,19 @@ function validateGeneratedForm({ pkg, registration, completion, items }) {
       !sameIds(item.objectiveIds, slot.objectiveIds)) fail('invalid_generated_item');
     seenSlots.add(item.slotId); seenIds.add(item.id); seenPrompts.add(item.promptSha256);
     const critical = slot.objectiveIds.some((id) => objectives.get(id)?.safetyCritical === true);
+    const expectedModules = [...new Set(slot.objectiveIds.flatMap((id) => objectives.get(id)?.moduleIds || []))];
     if (slot.objectiveIds.some((id) => !objectives.has(id)) || item.criticalSafety !== critical ||
+      !expectedModules.length || expectedModules.some((id) => !modules.has(id)) ||
+      !sameIds(item.moduleIds, expectedModules) ||
       !Array.isArray(item.rubricCriterionIds) || !item.rubricCriterionIds.length ||
       new Set(item.rubricCriterionIds).size !== item.rubricCriterionIds.length ||
       item.rubricCriterionIds.some((id) => !criterionIds.has(id))) fail('invalid_item_coverage');
     const expectedRules = [...new Set(slot.objectiveIds.flatMap((id) => objectives.get(id)?.criticalViolationRuleIds || []))];
     if (!sameIds(item.criticalViolationRuleIds, expectedRules) ||
       !Array.isArray(item.sourceLinks) || !item.sourceLinks.length ||
+      new Set(item.sourceLinks.map((link) => `${link?.sourceId}:${link?.pinpoint}`)).size !== item.sourceLinks.length ||
+      slot.objectiveIds.some((id) => !item.sourceLinks.some((link) =>
+        allowedLinks.has(`${id}:${link.sourceId}:${link.pinpoint}`))) ||
       item.sourceLinks.some((link) => {
         const source = sources.get(link?.sourceId);
         return !source || Object.keys(link).some((name) => !SOURCE_LINK_FIELDS.includes(name)) ||
@@ -153,7 +160,8 @@ function publicForm(form) {
     template: form.template, rubric: form.rubric, generationPolicySha256: form.generationPolicySha256,
     itemCounts: form.itemCounts, tierWeights: form.tierWeights,
     items: form.items.map((item) => ({ id: item.id, slotId: item.slotId, tier: item.tier,
-      prompt: item.prompt, promptSha256: item.promptSha256, objectiveIds: item.objectiveIds,
+      prompt: item.prompt, promptSha256: item.promptSha256, moduleIds: item.moduleIds,
+      objectiveIds: item.objectiveIds,
       sourceLinks: item.sourceLinks.map((link) => ({ sourceId: link.sourceId,
         sourceVersion: link.sourceVersion, sourceDigest: link.sourceDigest, pinpoint: link.pinpoint })),
       criticalSafety: item.criticalSafety })),
