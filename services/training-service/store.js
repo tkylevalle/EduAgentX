@@ -208,6 +208,16 @@ function createPgStore(pool) {
         'SELECT envelope FROM training_service.completion_events ORDER BY occurred_at DESC, event_id LIMIT $1', [limit]);
       return result.rows.map((row) => row.envelope);
     },
+    async findCompletion({ agentLearnerKey, packageId, packageVersion, packageDigest }) {
+      const result = await pool.query(
+        `SELECT c.envelope FROM training_service.completion_events c
+         JOIN training_service.sessions s ON s.session_id = c.session_id
+         WHERE s.agent_learner_key = $1 AND s.package_id = $2 AND s.package_version = $3
+           AND s.package_digest = $4
+         ORDER BY c.occurred_at DESC, c.event_id DESC LIMIT 1`,
+        [agentLearnerKey, packageId, packageVersion, packageDigest]);
+      return result.rows[0]?.envelope || null;
+    },
     // Started sessions with no terminal event and no event since `cutoff`, oldest first.
     async listIdleOpenSessions(cutoff, limit = 100) {
       const result = await pool.query(
@@ -385,6 +395,12 @@ function createMemoryStore() {
     },
     async metricsInput() { return store.listSessions(); },
     async listCompletionEvents() { return structuredClone([...completions.values()].reverse()); },
+    async findCompletion({ agentLearnerKey, packageId, packageVersion, packageDigest }) {
+      const match = [...completions.values()].reverse().find((event) =>
+        event.agentLearnerKey === agentLearnerKey && event.package?.id === packageId &&
+        event.package?.version === packageVersion && event.package?.digest === packageDigest);
+      return match ? structuredClone(match) : null;
+    },
     async listIdleOpenSessions(cutoff, limit = 100) {
       const before = new Date(cutoff).getTime();
       return [...sessions.values()]

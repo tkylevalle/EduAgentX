@@ -48,6 +48,8 @@ test('governance requires authenticated independent reviewers and rejects a raci
   assert.deepEqual(activated.map(result => result.status).sort(), [200, 409]);
   const active = await fetch(`${base}/packages/active`, { headers: headers('training-service') }).then(r => r.json());
   assert.equal([first, second].includes(active.packageId), true);
+  assert.equal(active.sources.length, 5, 'internal Examination consumer receives source pins');
+  assert.equal(active.sources.every(source => source.contentSha256 && source.edition), true);
   assert.equal(JSON.stringify(active).includes('expectedAnswer'), false);
 });
 

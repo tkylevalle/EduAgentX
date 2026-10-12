@@ -173,6 +173,20 @@ function createApp({
     } catch (error) { sendError(req, res, error); }
   });
 
+  // Exact authoritative lookup for Examination. The caller never supplies a
+  // completion envelope; this reads Training's committed completion outbox.
+  app.get('/internal/completions/latest', async (req, res) => {
+    try {
+      const names = ['agentLearnerKey', 'packageId', 'packageVersion', 'packageDigest'];
+      if (names.some((name) => !IDENTIFIER.test(req.query[name] || '')) ||
+        Object.keys(req.query).some((name) => !names.includes(name)))
+        throw new HttpError(400, 'invalid_request');
+      const completion = await store.findCompletion(req.query);
+      if (!completion) throw new HttpError(404, 'completion_not_found');
+      res.json({ apiVersion: API_VERSION, completion, correlationId: req.correlationId });
+    } catch (error) { sendError(req, res, error); }
+  });
+
   app.get('/internal/completion-incidents', async (req, res) => {
     try {
       const incidents = await store.listCompletionIncidents();

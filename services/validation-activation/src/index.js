@@ -123,6 +123,7 @@ route('get', '/packages/active', requireInternalActor, async (req, res) => {
     state: pkg.state,
     examTemplate: pkg.examTemplate || pkg.examination_template,
     curriculumTrack: pkg.curriculumTrack,
+    sources: pkg.sources,
     objectives: pkg.objectives,
     modules: pkg.modules,
     rubric: pkg.rubric,

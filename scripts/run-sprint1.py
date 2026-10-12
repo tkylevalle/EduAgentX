@@ -48,6 +48,7 @@ SOURCE_FILES = ['docker-compose.yml', '.env.example', 'Makefile', '.dockerignore
 # Fresh random values for each run; they must never appear in any log.
 GENERATED_SECRETS = ['POSTGRES_PASSWORD', 'REGISTRY_DB_PASSWORD', 'CURRICULUM_DB_PASSWORD',
                      'CURRICULUM_INTERNAL_KEY', 'TRAINING_DB_PASSWORD', 'TRAINING_INTERNAL_KEY',
+                     'EXAMINATION_DB_PASSWORD', 'EXAMINATION_INTERNAL_KEY',
                      'AGENT_CLIENT_SECRET', 'ADMIN_CLIENT_SECRET',
                      'GRAFANA_ADMIN_PASSWORD']
 PERSISTENCE_CHECKS = ['consumer_recovery', 'poison_out_of_order', 'durable_idempotency',
@@ -182,10 +183,12 @@ class EvidenceRun:
 
     def command(self, argv, logname=None, check=True):
         argv = [shutil.which(argv[0]) or argv[0], *argv[1:]]
-        result = subprocess.run(argv, cwd=ROOT, env=self.env, text=True, capture_output=True,
-                                timeout=COMMAND_TIMEOUT_SECONDS)
+        # Docker/Node output is UTF-8 even when a Windows shell defaults to a
+        # legacy code page. A log must not crash the evidence run or cleanup.
+        result = subprocess.run(argv, cwd=ROOT, env=self.env, text=True, encoding='utf-8',
+                                errors='replace', capture_output=True, timeout=COMMAND_TIMEOUT_SECONDS)
         if logname:
-            (self.out / logname).write_text(result.stdout + result.stderr)
+            (self.out / logname).write_text(result.stdout + result.stderr, encoding='utf-8')
         if check and result.returncode:
             raise RuntimeError('Command failed: ' + ' '.join(argv[:4]) + ('; see ' + logname if logname else ''))
         return result
@@ -246,7 +249,7 @@ class EvidenceRun:
         return self.http('/v1/registrations?agentLearnerKey=' + client, token=token)
 
     def write_config(self):
-        self.config_path.write_text(json.dumps(self.config))
+        self.config_path.write_text(json.dumps(self.config), encoding='utf-8')
         self.config_path.chmod(0o600)
 
     @property
@@ -273,13 +276,17 @@ class EvidenceRun:
         self.report['git_commit'] = self.command(['git', 'rev-parse', 'HEAD'], check=False).stdout.strip()
 
     def run_component_tests(self):
-        self.command([sys.executable, '-m', 'unittest', 'discover', '-s', 'scripts', '-p', 'test_sprint1_gate.py'],
+        self.command([sys.executable, '-m', 'unittest', 'discover', '-s', 'scripts', '-p', 'test_sprint1_*.py'],
                      'gate-unit-tests.txt')
         self.command(['node', 'scripts/generate-test-keys.js'], 'key-setup.txt')
+        # Cross-service integration tests import sibling components. Install all
+        # dependencies first so a clean checkout does not depend on test order.
         for name, directory in COMPONENTS.items():
-            print('Component tests: ' + name, flush=True)
+            print('Component install: ' + name, flush=True)
             self.command(['npm', 'ci', '--ignore-scripts', '--no-audit', '--no-fund', '--prefix', str(directory)],
                          name + '-install.txt')
+        for name, directory in COMPONENTS.items():
+            print('Component tests: ' + name, flush=True)
             tests = [str(p) for p in sorted((directory / 'test').glob('*.test.js'))]
             result = self.command(['node', '--test', '--test-reporter=tap', *tests], name + '-tests.tap')
             require(re.search(r'^# fail 0$', result.stdout, re.M)
@@ -319,14 +326,14 @@ class EvidenceRun:
         dependencies = self.wait_health().get('dependencies', {})
         require(dependencies.get('redis') == 'ok', 'Redis health evidence missing')
         require(dependencies.get('postgres') == 'ok', 'Postgres health evidence missing')
-        (self.out / 'images.json').write_text(self.dc('images', '--format', 'json').stdout)
+        (self.out / 'images.json').write_text(self.dc('images', '--format', 'json').stdout, encoding='utf-8')
         self.report['container_versions'] = {
             service: json.loads(self.dc('exec', '-T', service, 'npm', 'ls', '--json', '--depth=0').stdout)
             for service in ['agent-registry', 'api-gateway']}
 
     def check_synthetic_console(self):
         workflow = self.dc('exec', '-T', 'agent-registry', 'node', '-e', SYNTHETIC_CONSOLE_SCRIPT)
-        (self.out / 'synthetic-console.json').write_text(workflow.stdout)
+        (self.out / 'synthetic-console.json').write_text(workflow.stdout, encoding='utf-8')
         self.checks['synthetic_console'] = True
 
     def check_rejection_before_create(self, client, token):
@@ -340,7 +347,7 @@ class EvidenceRun:
         """Retry, rejection and restart must not change the first registration."""
         ident = message['messageId']
         self.checks['fresh_registration'] = True
-        (self.out / 'first-registration.json').write_text(json.dumps(data, indent=2) + '\n')
+        (self.out / 'first-registration.json').write_text(json.dumps(data, indent=2) + '\n', encoding='utf-8')
         created_state = self.read_registration(client, token)[1]['registration']
         retry_status, replay, _ = self.http(REGISTRATIONS, message, token, ident)
         require(retry_status == 201 and replay == data, 'Retry changed original result')
@@ -363,7 +370,7 @@ class EvidenceRun:
              'configurationVersion': 1},
             {'scenario': 'retry', 'exact_response_equal': True},
             {'scenario': 'rejected', 'state_unchanged': True}]
-        (self.out / 'demonstration.json').write_text(json.dumps(demonstration, indent=2))
+        (self.out / 'demonstration.json').write_text(json.dumps(demonstration, indent=2), encoding='utf-8')
 
     def measure_registrations(self):
         """Each sample registers a brand-new identity; the first also runs the behavior checks."""
@@ -428,7 +435,7 @@ class EvidenceRun:
         persistence = verify_persistence(
             dc=self.dc, config=self.config, write_config=self.write_config, http=self.http, token=self.token,
             message=self.message, client=client, secret=secret, require=require, wait_health=self.wait_health)
-        (self.out / 'persistence.json').write_text(json.dumps(persistence, indent=2) + '\n')
+        (self.out / 'persistence.json').write_text(json.dumps(persistence, indent=2) + '\n', encoding='utf-8')
         for name in PERSISTENCE_CHECKS:
             self.checks[name] = persistence[name]
 
@@ -436,7 +443,7 @@ class EvidenceRun:
         print('Checking Prometheus probes and Grafana...', flush=True)
         script = MONITORING_SCRIPT.replace('EXPECTED_TARGETS', json.dumps(health_targets()))
         monitor = self.dc('exec', '-T', 'agent-registry', 'node', '-e', script)
-        (self.out / 'monitoring.json').write_text(monitor.stdout)
+        (self.out / 'monitoring.json').write_text(monitor.stdout, encoding='utf-8')
         self.checks['monitoring'] = True
 
     def service_logs(self):
@@ -476,7 +483,7 @@ class EvidenceRun:
         require(any(r.get('event') == 'dependency_operation' and r.get('dependency') == 'postgres'
                     and r.get('outcome') == 'error' for r in records), 'Missing dependency failure telemetry')
         self.checks['redaction'] = self.checks['correlation'] = True
-        (self.out / 'telemetry.jsonl').write_text('\n'.join(json.dumps(r) for r in records) + '\n')
+        (self.out / 'telemetry.jsonl').write_text('\n'.join(json.dumps(r) for r in records) + '\n', encoding='utf-8')
 
     def redact(self, text):
         for value in self.secrets:
@@ -485,7 +492,7 @@ class EvidenceRun:
 
     def tear_down_stack(self):
         # Keep sanitized startup/failure logs before removing only this project.
-        (self.out / 'compose-logs.txt').write_text(self.redact(self.dc('logs', '--no-color', check=False).stdout))
+        (self.out / 'compose-logs.txt').write_text(self.redact(self.dc('logs', '--no-color', check=False).stdout), encoding='utf-8')
         # This project and its volumes were created by this invocation only.
         self.checks['cleanup'] = self.dc('down', '--volumes', '--remove-orphans', check=False).returncode == 0
 
@@ -520,8 +527,8 @@ class EvidenceRun:
             gate = evaluate(self.report, record(self.args.prerequisites), record(self.args.review), self.out)
         except Exception:
             gate = {'status': 'FAIL', 'errors': ['Invalid review/prerequisite record']}
-        (self.out / 'run.json').write_text(json.dumps(self.report, indent=2) + '\n')
-        (self.out / 'gate.json').write_text(json.dumps(gate, indent=2) + '\n')
+        (self.out / 'run.json').write_text(json.dumps(self.report, indent=2) + '\n', encoding='utf-8')
+        (self.out / 'gate.json').write_text(json.dumps(gate, indent=2) + '\n', encoding='utf-8')
         print(json.dumps(gate, indent=2))
         print('Evidence: ' + str(self.out))
         return gate
@@ -534,7 +541,7 @@ class EvidenceRun:
         except (Exception, KeyboardInterrupt) as error:
             self.report['failure'] = type(error).__name__ + ': ' + str(error)
             print('Run stopped: ' + self.report['failure'], file=sys.stderr)
-            (self.out / 'failure.txt').write_text(self.redact(traceback.format_exc()))
+            (self.out / 'failure.txt').write_text(self.redact(traceback.format_exc()), encoding='utf-8')
         return self.finish()
 
 

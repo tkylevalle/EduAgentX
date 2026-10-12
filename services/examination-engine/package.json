@@ -1,0 +1,15 @@
+{
+  "name": "eduagentx-examination-engine",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Policy-bound examination generation and durable admission",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "pg": "^8.11.5"
+  }
+}
