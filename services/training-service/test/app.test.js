@@ -281,6 +281,13 @@ test('completion emits exactly one completion event, readable from the outbox', 
   const outbox = (await ctx.call('GET', '/internal/completion-events')).body.events;
   assert.deepEqual(outbox.map((e) => [e.eventId, e.sessionKind, e.completion.practiceCompleted]),
     [[`training.session.completed:${id}`, 'standard', 2]]);
+  const query = new URLSearchParams({ agentLearnerKey: LEARNER, packageId: 'pkg-a',
+    packageVersion: '1.0.0', packageDigest: 'digest-1' });
+  const exact = await ctx.call('GET', `/internal/completions/latest?${query}`);
+  assert.deepEqual([exact.status, exact.body.completion.eventId], [200, `training.session.completed:${id}`]);
+  query.set('packageDigest', 'other');
+  assert.deepEqual([(await ctx.call('GET', `/internal/completions/latest?${query}`)).status,
+    (await ctx.call('GET', '/internal/completions/latest')).status], [404, 400]);
 });
 
 test('submit enforces the response cap and refuses unexpected body fields', async (t) => {
