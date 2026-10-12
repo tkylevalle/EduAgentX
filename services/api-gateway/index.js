@@ -49,6 +49,8 @@ function createApp({
   curriculumInternalKey = process.env.CURRICULUM_INTERNAL_KEY,
   trainingServiceUrl = process.env.TRAINING_SERVICE_URL || 'http://training-service:4004',
   trainingInternalKey = process.env.TRAINING_INTERNAL_KEY,
+  examinationEngineUrl = process.env.EXAMINATION_ENGINE_URL || 'http://examination-engine:4005',
+  examinationInternalKey = process.env.EXAMINATION_INTERNAL_KEY,
   protocolIdempotencyStore = new Map(),
   rateLimit,
 } = {}) {
@@ -405,6 +407,33 @@ function createApp({
     if (!trainingInternalKey) return trainingUnavailable(req, res);
     await proxyJson(req, res, `${trainingServiceUrl}/internal/remediations`,
       { method: 'POST', body, headers: trainingHeaders(req) });
+  });
+
+  // Issue #16: public Exam delivery is possible only after the Examination
+  // Engine has committed an immutable attempt. No caller-supplied package,
+  // completion event, learner key, or generated questions cross this boundary.
+  const examinationHeaders = (req) => ({ 'x-internal-service-key': examinationInternalKey,
+    'x-actor-subject': req.auth.subject, 'x-actor-role': req.auth.role });
+  const examinationUnavailable = (req, res) => res.status(503).json({ apiVersion: 'v1',
+    error: 'examination_unavailable', correlationId: req.correlationId });
+  app.post('/v1/examinations', requireRole('agent'), async (req, res) => {
+    if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body) ||
+      Object.keys(req.body).some((name) => name !== 'idempotencyKey') ||
+      !TRAINING_IDENTIFIER.test(req.body.idempotencyKey || ''))
+      return res.status(400).json({ apiVersion: 'v1', error: 'invalid_request', correlationId: req.correlationId });
+    if (!examinationInternalKey) return examinationUnavailable(req, res);
+    await proxyJson(req, res, `${examinationEngineUrl}/internal/attempts`, { method: 'POST', body: req.body,
+      headers: examinationHeaders(req) });
+  });
+  app.get('/v1/examinations/:attemptId', requireRole('agent'), async (req, res) => {
+    if (!examinationInternalKey) return examinationUnavailable(req, res);
+    await proxyJson(req, res, `${examinationEngineUrl}/internal/attempts/${encodeURIComponent(req.params.attemptId)}`,
+      { headers: examinationHeaders(req) });
+  });
+  app.get('/v1/admin/examinations/:attemptId', requireRole('admin'), async (req, res) => {
+    if (!examinationInternalKey) return examinationUnavailable(req, res);
+    await proxyJson(req, res, `${examinationEngineUrl}/internal/admin/attempts/${encodeURIComponent(req.params.attemptId)}`,
+      { headers: examinationHeaders(req) });
   });
 
   app.use((error, req, res, next) => {

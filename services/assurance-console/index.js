@@ -67,6 +67,48 @@ app.get('/api/training-sessions/:sessionId', async (req, res) => {
   }
 });
 
+// Examination's identifier-only admin projection. Never fetch or render the
+// learner form here; the Gateway's admin route has already removed prompts.
+async function readExamination(attemptId) {
+  const get = await adminClient(`console-examination-${randomUUID()}`);
+  return get(`/v1/admin/examinations/${encodeURIComponent(attemptId)}`);
+}
+function safeExamination(attempt) {
+  return {
+    attemptId: attempt.attemptId, status: attempt.status, mode: attempt.mode,
+    agentLearnerKey: attempt.agentLearnerKey,
+    configurationFingerprint: attempt.configurationFingerprint,
+    package: attempt.package, template: attempt.template, rubric: attempt.rubric,
+    generationPolicySha256: attempt.generationPolicySha256,
+    trainingEventId: attempt.trainingEventId, formDigest: attempt.formDigest,
+    startedAt: attempt.startedAt, deadlineAt: attempt.deadlineAt,
+    itemReferences: (attempt.itemReferences || []).map((item) => ({
+      id: item.id, slotId: item.slotId, tier: item.tier, moduleIds: item.moduleIds,
+      promptSha256: item.promptSha256,
+    })),
+  };
+}
+app.get('/api/examinations/:attemptId', async (req, res) => {
+  try {
+    const detail = await readExamination(req.params.attemptId);
+    if (detail.status === 404) return res.status(404).json({ apiVersion: 'v1', error: 'attempt_not_found' });
+    if (!detail.ok || !detail.body.attempt) throw new Error(`examination request returned ${detail.status}`);
+    return res.status(200).json({ apiVersion: 'v1', attempt: safeExamination(detail.body.attempt) });
+  } catch {
+    return res.status(503).json({ apiVersion: 'v1', error: 'examination_unavailable' });
+  }
+});
+app.get('/examinations/:attemptId', async (req, res) => {
+  try {
+    const detail = await readExamination(req.params.attemptId);
+    if (detail.status === 404) return res.status(404).send('Examination attempt not found');
+    if (!detail.ok || !detail.body.attempt) throw new Error(`examination request returned ${detail.status}`);
+    return res.status(200).type('html').send(renderExamination(safeExamination(detail.body.attempt)));
+  } catch {
+    return res.status(503).send('Examination view unavailable');
+  }
+});
+
 app.get('/', async (req, res) => {
   let gatewayStatus = 'unknown';
   try {
@@ -278,8 +320,29 @@ function renderPage(gatewayStatus, trace, training) {
     ${traceContent}
     <h2>Training Sessions</h2>
     ${renderTrainingSessions(training)}
+    <h2>Examination attempt</h2>
+    <p>Read-only identifiers are available at <code>/examinations/&lt;attempt-id&gt;</code>.</p>
   </body>
 </html>`;
+}
+
+function renderExamination(attempt) {
+  const entries = [
+    ['Attempt', attempt.attemptId], ['Status', attempt.status], ['Mode', attempt.mode],
+    ['Agent Learner', attempt.agentLearnerKey], ['Fingerprint', attempt.configurationFingerprint],
+    ['Package', `${attempt.package?.id} ${attempt.package?.version} (${attempt.package?.digest})`],
+    ['Template', `${attempt.template?.id} ${attempt.template?.version} (${attempt.template?.digest})`],
+    ['Rubric', `${attempt.rubric?.id} ${attempt.rubric?.version} (${attempt.rubric?.digest})`],
+    ['Generation policy hash', attempt.generationPolicySha256], ['Training event', attempt.trainingEventId],
+    ['Form digest', attempt.formDigest], ['Started', attempt.startedAt], ['Deadline', attempt.deadlineAt],
+  ];
+  const references = Array.isArray(attempt.itemReferences) ? attempt.itemReferences : [];
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Examination attempt</title></head>
+    <body><h1>Examination attempt — identifiers only</h1>
+    <dl>${entries.map(([label, value]) => `<dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd>`).join('')}</dl>
+    <h2>Item references</h2><ol>${references.map((item) =>
+      `<li>${escapeHtml(item.slotId)} — ${escapeHtml(item.id)} — ${escapeHtml(item.tier)} — ${escapeHtml(item.promptSha256)}</li>`).join('')}</ol>
+    <p>Prompts, answers and grader context are intentionally omitted.</p></body></html>`;
 }
 
 function escapeHtml(value) {
@@ -301,4 +364,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, escapeHtml, renderPage };
+module.exports = { app, escapeHtml, renderPage, renderExamination };
