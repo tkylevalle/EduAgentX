@@ -276,13 +276,17 @@ class EvidenceRun:
         self.report['git_commit'] = self.command(['git', 'rev-parse', 'HEAD'], check=False).stdout.strip()
 
     def run_component_tests(self):
-        self.command([sys.executable, '-m', 'unittest', 'discover', '-s', 'scripts', '-p', 'test_sprint1_gate.py'],
+        self.command([sys.executable, '-m', 'unittest', 'discover', '-s', 'scripts', '-p', 'test_sprint1_*.py'],
                      'gate-unit-tests.txt')
         self.command(['node', 'scripts/generate-test-keys.js'], 'key-setup.txt')
+        # Cross-service integration tests import sibling components. Install all
+        # dependencies first so a clean checkout does not depend on test order.
         for name, directory in COMPONENTS.items():
-            print('Component tests: ' + name, flush=True)
+            print('Component install: ' + name, flush=True)
             self.command(['npm', 'ci', '--ignore-scripts', '--no-audit', '--no-fund', '--prefix', str(directory)],
                          name + '-install.txt')
+        for name, directory in COMPONENTS.items():
+            print('Component tests: ' + name, flush=True)
             tests = [str(p) for p in sorted((directory / 'test').glob('*.test.js'))]
             result = self.command(['node', '--test', '--test-reporter=tap', *tests], name + '-tests.tap')
             require(re.search(r'^# fail 0$', result.stdout, re.M)
