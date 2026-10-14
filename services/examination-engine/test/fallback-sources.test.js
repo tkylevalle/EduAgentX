@@ -6,7 +6,7 @@ const http = require('node:http');
 const { randomUUID } = require('node:crypto');
 const candidate = require('../../curriculum-engine/examples/ai-safety-candidate');
 const { DependencyError } = require('../sources');
-const { createFallbackSelect } = require('../fallback-sources');
+const { createFallbackSelect, createFallbackScore } = require('../fallback-sources');
 
 const PKG = { packageId: candidate.manifest.packageId, version: candidate.manifest.version, digest: 'd'.repeat(64) };
 const REASON = 'standard_grading_unavailable';
@@ -35,8 +35,9 @@ async function stub(t) {
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   // A hanging handler keeps its socket open, so close connections explicitly.
   t.after(() => new Promise((resolve) => { server.closeAllConnections(); server.close(resolve); }));
-  ctx.select = createFallbackSelect({ validationUrl: `http://127.0.0.1:${server.address().port}`,
-    curriculumKey: 'curriculum-key', timeoutMs: 200 });
+  const options = { validationUrl: `http://127.0.0.1:${server.address().port}`, curriculumKey: 'curriculum-key', timeoutMs: 200 };
+  ctx.select = createFallbackSelect(options);
+  ctx.score = createFallbackScore(options);
   return ctx;
 }
 const json = (status, body) => (_req, res) => {
@@ -118,4 +119,71 @@ test('a package without id, version or digest is refused before any call', async
     await assert.rejects(ctx.select({ pkg, reason: REASON }), { code: 'active_package_required', status: 409 });
   assert.equal(ctx.calls.length, 0);
   assert.throws(() => createFallbackSelect({ validationUrl: 'http://127.0.0.1:1', curriculumKey: '' }), /curriculum key required/);
+});
+
+test('a select refusal without an error field keeps its own fallback code', async (t) => {
+  const ctx = await stub(t);
+  ctx.reply = (_req, res) => { res.statusCode = 409; res.end('not json'); };
+  await assert.rejects(ctx.select({ pkg: PKG, reason: REASON }), { code: 'fallback_select_refused', upstreamStatus: 409 });
+});
+
+// scoreFallback: the network client only; mapFallbackResult judges the result.
+const SELECTION_ID = randomUUID();
+const RESPONSES = candidate.fallbackBank.items.map((item) => ({ itemId: item.id, answer: item.expectedAnswer }));
+
+test('a valid score response is returned exactly as sent, from the exact request', async (t) => {
+  const ctx = await stub(t);
+  const result = { valid: true, results: [], tierScores: { recall: 100, applied: 100, adversarial: 100 }, overall: 100,
+    passed: true, criticalViolation: false, policyId: 'fallback-scoring/1.0.0' };
+  ctx.reply = json(200, result);
+  assert.deepEqual(await ctx.score({ pkg: PKG, vaSelectionId: SELECTION_ID, responses: RESPONSES, correlationId: 'corr-s' }), result);
+  const [call] = ctx.calls;
+  assert.deepEqual([call.method, call.url], ['POST', '/fallback/score']);
+  assert.deepEqual(call.body, { package_id: PKG.packageId, attemptId: SELECTION_ID, responses: RESPONSES });
+  assert.deepEqual([call.headers['x-internal-service-key'], call.headers['x-actor-subject'], call.headers['x-correlation-id']],
+    ['curriculum-key', 'examination-engine', 'corr-s']);
+});
+
+test('already-scored and quarantine 409s are refusals carrying the upstream code, not DependencyErrors', async (t) => {
+  const ctx = await stub(t);
+  for (const code of ['fallback_attempt_already_scored', 'fallback_scope_quarantined']) {
+    ctx.reply = json(409, { error: code });
+    await assert.rejects(ctx.score({ pkg: PKG, vaSelectionId: SELECTION_ID, responses: RESPONSES }), (error) => {
+      assert.equal(error instanceof DependencyError, false);
+      assert.deepEqual([error.code, error.status, error.upstreamStatus, error.source], [code, 409, 409, 'validation-activation']);
+      return true;
+    });
+  }
+  ctx.reply = json(422, { error: 'incomplete_fallback_attempt' });
+  await assert.rejects(ctx.score({ pkg: PKG, vaSelectionId: SELECTION_ID, responses: [] }),
+    { code: 'incomplete_fallback_attempt', upstreamStatus: 422 });
+  ctx.reply = (_req, res) => { res.statusCode = 409; res.end('not json'); };
+  await assert.rejects(ctx.score({ pkg: PKG, vaSelectionId: SELECTION_ID, responses: RESPONSES }),
+    { code: 'fallback_score_refused', upstreamStatus: 409 });
+});
+
+test('a score 5xx, timeout or refused connection is a DependencyError', async (t) => {
+  const ctx = await stub(t);
+  ctx.reply = json(503, { error: 'dependency_unavailable' });
+  await assert.rejects(ctx.score({ pkg: PKG, vaSelectionId: SELECTION_ID, responses: RESPONSES }),
+    (error) => error instanceof DependencyError && error.status === 502);
+  ctx.reply = () => {};
+  await assert.rejects(ctx.score({ pkg: PKG, vaSelectionId: SELECTION_ID, responses: RESPONSES }),
+    (error) => error instanceof DependencyError && error.status === 503);
+  const unreachable = createFallbackScore({ validationUrl: 'http://127.0.0.1:1', curriculumKey: 'curriculum-key' });
+  await assert.rejects(unreachable({ pkg: PKG, vaSelectionId: SELECTION_ID, responses: RESPONSES }), DependencyError);
+});
+
+test('a malformed 200 is returned as-is for the caller to judge; missing identifiers are refused before any call', async (t) => {
+  const ctx = await stub(t);
+  ctx.reply = (_req, res) => { res.statusCode = 200; res.end('not json'); };
+  assert.equal(await ctx.score({ pkg: PKG, vaSelectionId: SELECTION_ID, responses: RESPONSES }), 'not json');
+  ctx.reply = json(200, { unexpected: true });
+  assert.deepEqual(await ctx.score({ pkg: PKG, vaSelectionId: SELECTION_ID, responses: RESPONSES }), { unexpected: true });
+  const calls = ctx.calls.length;
+  await assert.rejects(ctx.score({ pkg: { version: '1' }, vaSelectionId: SELECTION_ID, responses: RESPONSES }),
+    { code: 'active_package_required' });
+  for (const vaSelectionId of [undefined, '', '  '])
+    await assert.rejects(ctx.score({ pkg: PKG, vaSelectionId, responses: RESPONSES }), { code: 'fallback_selection_required' });
+  assert.equal(ctx.calls.length, calls);
 });

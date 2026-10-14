@@ -69,8 +69,8 @@ test('fallback form is deeply frozen, package-bound and carries no expected answ
   assert.deepEqual(form.rubric, { id: 'fallback-scoring/1.0.0', version: '1.0.0', digest: sha256(POLICY) });
   assert.equal(form.rubric.version, POLICY.id.split('/')[1]);
   assert.deepEqual(form.training, { eventId: null });
-  assert.deepEqual([form.bankId, form.bankVersion, form.causeAttemptId, form.reason],
-    [input.selection.bankId, input.selection.bankVersion, input.causeAttemptId, input.reason]);
+  assert.deepEqual([form.bankId, form.bankVersion, form.causeAttemptId, form.reason, form.vaSelectionId],
+    [input.selection.bankId, input.selection.bankVersion, input.causeAttemptId, input.reason, input.selection.attemptId]);
   assert.equal(form.items.length, 15);
   assert.equal(JSON.stringify(form).includes('expectedAnswer'), false);
   assert.equal(JSON.stringify(form).includes('LEAKED_KEY'), false);
@@ -84,6 +84,21 @@ test('fallback form is deeply frozen, package-bound and carries no expected answ
   assert.throws(() => buildFallbackForm(formInput(short)), { code: 'invalid_fallback_selection' });
   for (const change of [{ agentLearnerKey: undefined }, { configurationFingerprint: '' }, { agentLearnerKey: 42 }])
     assert.throws(() => buildFallbackForm({ ...formInput(), ...change }), { code: 'registration_required' });
+  // Without validation-activation's selection id the attempt could never be scored.
+  for (const attemptId of [undefined, '', '   ', 42]) {
+    const selection = selectResponse();
+    selection.attemptId = attemptId;
+    assert.throws(() => buildFallbackForm(formInput(selection)), { code: 'invalid_fallback_selection' });
+  }
+});
+
+test('the validation-activation selection id never reaches the learner projection', () => {
+  const input = formInput();
+  const form = buildFallbackForm(input);
+  assert.equal(form.vaSelectionId, input.selection.attemptId);
+  const view = publicFallbackForm(form);
+  assert.equal(Object.hasOwn(view, 'vaSelectionId'), false);
+  assert.equal(JSON.stringify(view).includes(input.selection.attemptId), false);
 });
 
 test('subject, rubric and training are deep-frozen and cannot be mutated', () => {
