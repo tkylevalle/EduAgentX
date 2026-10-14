@@ -10,6 +10,9 @@ const { createStandardItems } = require('./standard-generator');
 const { createPgStore } = require('./store');
 const { createSources, DependencyError } = require('./sources');
 const { fail, validateCommand } = require('./lifecycle');
+const { sha256 } = require('../curriculum-engine/model');
+const { buildFallbackForm, publicFallbackForm } = require('./fallback-form');
+const { createFallbackSelect } = require('./fallback-sources');
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const KEY = /^[\x20-\x7e]{1,256}$/;
@@ -22,7 +25,7 @@ const matchesSecret = (a, b) => {
 function createApp({ store, sources, internalKey = process.env.EXAMINATION_INTERNAL_KEY,
   gradingKey = process.env.EXAMINATION_GRADING_KEY,
   clock = () => new Date().toISOString(), durationMinutes = Number(process.env.EXAM_DURATION_MINUTES || 60),
-  generateItems = createStandardItems } = {}) {
+  generateItems = createStandardItems, selectFallback } = {}) {
   if (!store || !sources || !internalKey || !Number.isInteger(durationMinutes) || durationMinutes < 1 || durationMinutes > 1440)
     throw new Error('store, sources, internal key and valid duration required');
   const app = express();
@@ -103,6 +106,75 @@ function createApp({ store, sources, internalKey = process.env.EXAMINATION_INTER
         attempt: learnerView(attempt, clock()), correlationId: req.correlationId });
     } catch (error) { sendError(req, res, error); }
   });
+  // Issue #20: a Deterministic Fallback Examination starts only through this
+  // trusted operator route, never automatically, and always as a new attempt.
+  // Reasons are validation-activation's selection vocabulary, not the Engine's
+  // own abort REASONS.
+  const FALLBACK_REASONS = ['standard_grading_unavailable', 'standard_generation_unavailable'];
+  const FALLBACK_FIELDS = ['idempotencyKey', 'agentLearnerKey', 'reason', 'causeAttemptId'];
+  app.post('/internal/attempts/fallback', trusted, async (req, res) => {
+    if (!selectFallback) return res.status(503).json({ apiVersion: 'v1', error: 'fallback_not_configured', correlationId: req.correlationId });
+    try {
+      const body = req.body;
+      const { idempotencyKey, agentLearnerKey, reason } = body || {};
+      const causeAttemptId = body?.causeAttemptId ?? null;
+      // A grading outage must name the aborted attempt it replaces; a generation
+      // outage never produced one.
+      if (!body || Array.isArray(body) || Object.keys(body).some((name) => !FALLBACK_FIELDS.includes(name)) ||
+        typeof idempotencyKey !== 'string' || !KEY.test(idempotencyKey) ||
+        typeof agentLearnerKey !== 'string' || !agentLearnerKey.trim() || !FALLBACK_REASONS.includes(reason) ||
+        (reason === 'standard_grading_unavailable' ? typeof causeAttemptId !== 'string' || !UUID.test(causeAttemptId)
+          : causeAttemptId !== null)) throw fail('invalid_request', 400);
+      // Replay before any dependency call, so a retry never selects a second bank.
+      const existing = await store.findByKey(agentLearnerKey, idempotencyKey);
+      if (existing) {
+        if (existing.mode !== 'fallback' || existing.fallbackReason !== reason ||
+          existing.fallbackCauseAttemptId !== causeAttemptId) throw fail('idempotency_conflict');
+        await abortOnGovernance(existing, req.correlationId);
+        const attempt = await reconcile(existing, req);
+        return res.json({ apiVersion: 'v1', outcome: 'replay', attempt: learnerView(attempt, clock()), correlationId: req.correlationId });
+      }
+      let cause = null;
+      if (causeAttemptId) {
+        cause = await store.get(causeAttemptId);
+        if (!cause) throw fail('fallback_cause_not_found', 404);
+        // Checked first so another learner's attempt state is never disclosed.
+        if (cause.agentLearnerKey !== agentLearnerKey) throw fail('fallback_cause_wrong_learner');
+        if (cause.mode !== 'standard') throw fail('fallback_cause_not_standard');
+        if (cause.status !== 'system_aborted') throw fail('fallback_cause_not_aborted');
+        // derive() takes terminalReason from the system_aborted event's payload.reason.
+        if (cause.terminalReason !== 'grading_unavailable') throw fail('fallback_cause_reason_mismatch');
+      }
+      const pkg = await active(req.correlationId);
+      const registration = await sources.registration(agentLearnerKey, req.correlationId);
+      if (!registration?.configurationFingerprint) throw fail('registration_required');
+      // A changed configuration is a different Agent Learner state; it never carries over.
+      if (cause && cause.configurationFingerprint !== registration.configurationFingerprint)
+        throw fail('fallback_cause_fingerprint_changed');
+      const selected = await selectFallback({ pkg, reason, correlationId: req.correlationId });
+      // /fallback/select returns no version or digest, so confirm governance did not move during the call.
+      const confirmed = await active(req.correlationId);
+      if (confirmed.packageId !== pkg.packageId || confirmed.version !== selected.packageVersion ||
+        confirmed.digest !== selected.packageDigest) throw fail('fallback_governance_changed');
+      const form = buildFallbackForm({ selection: selected.selection, packageId: confirmed.packageId,
+        packageVersion: confirmed.version, packageDigest: confirmed.digest, agentLearnerKey,
+        configurationFingerprint: registration.configurationFingerprint, causeAttemptId, reason });
+      const { selection } = selected;
+      const now = clock();
+      const admitted = await store.admitFallback({ actor: agentLearnerKey, key: idempotencyKey, form, now,
+        deadlineAt: new Date(Date.parse(now) + durationMinutes * 60000).toISOString(), correlationId: req.correlationId,
+        causeAttemptId, reason, bankId: selection.bankId, bankVersion: selection.bankVersion,
+        // Select returns no bank digest: this pins exactly what was served (no
+        // answers). It is not the manifest's fallbackBankPin, which the Engine cannot see.
+        bankDigest: sha256({ bankId: selection.bankId, bankVersion: selection.bankVersion,
+          scoringPolicy: selection.scoringPolicy, items: selection.items }) });
+      // Same post-admission governance re-check as standard admission.
+      await abortOnGovernance(admitted.attempt, req.correlationId);
+      const attempt = await reconcile(admitted.attempt, req);
+      res.status(admitted.replay ? 200 : 201).json({ apiVersion: 'v1', outcome: admitted.replay ? 'replay' : 'started',
+        attempt: learnerView(attempt, clock()), correlationId: req.correlationId });
+    } catch (error) { sendError(req, res, error); }
+  });
   app.get('/internal/attempts/:id', async (req, res) => {
     try {
       if (req.header('x-actor-role') !== 'agent') throw fail('forbidden', 403);
@@ -165,7 +237,9 @@ function lifecycleView(attempt) {
 }
 function learnerView(attempt, now = attempt.startedAt) {
   const deliver = attempt.status === 'in_progress' && Date.parse(now) < Date.parse(attempt.deadlineAt);
-  return { ...lifecycleView(attempt), ...(deliver ? { form: publicForm(attempt.form) } : {}) };
+  // Each mode has its own projection; the standard one would drop answerType/choices.
+  const project = attempt.mode === 'fallback' ? publicFallbackForm : publicForm;
+  return { ...lifecycleView(attempt), ...(deliver ? { form: project(attempt.form) } : {}) };
 }
 function consoleView(attempt) {
   return { ...lifecycleView(attempt), agentLearnerKey: attempt.agentLearnerKey, configurationFingerprint: attempt.configurationFingerprint,
@@ -199,7 +273,7 @@ async function start() {
     finally { sweeping = false; }
   }, 30000);
   timer.unref();
-  const server = createApp({ store, sources: createSources() }).listen(process.env.PORT || 4005);
+  const server = createApp({ store, sources: createSources(), selectFallback: createFallbackSelect() }).listen(process.env.PORT || 4005);
   server.on('close', () => { clearInterval(timer); void pool.end(); });
 }
 if (require.main === module) start().catch((error) => {
