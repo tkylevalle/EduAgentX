@@ -73,3 +73,23 @@ FOR EACH ROW EXECUTE FUNCTION examination_engine.forbid_evidence_change();
 DROP TRIGGER IF EXISTS attempt_commands_immutable ON examination_engine.attempt_commands;
 CREATE TRIGGER attempt_commands_immutable BEFORE UPDATE OR DELETE ON examination_engine.attempt_commands
 FOR EACH ROW EXECUTE FUNCTION examination_engine.forbid_evidence_change();
+
+-- Additive Issue #20 migration: a Deterministic Fallback Examination is a new
+-- labelled attempt. Existing standard manifests keep every fallback column null.
+ALTER TABLE examination_engine.attempts DROP CONSTRAINT IF EXISTS attempts_mode_check;
+ALTER TABLE examination_engine.attempts ADD CONSTRAINT attempts_mode_check CHECK (mode IN ('standard','fallback'));
+ALTER TABLE examination_engine.attempts ADD COLUMN IF NOT EXISTS fallback_cause_attempt_id uuid
+  REFERENCES examination_engine.attempts(attempt_id);
+ALTER TABLE examination_engine.attempts ADD COLUMN IF NOT EXISTS fallback_reason text;
+ALTER TABLE examination_engine.attempts ADD COLUMN IF NOT EXISTS fallback_bank_id text;
+ALTER TABLE examination_engine.attempts ADD COLUMN IF NOT EXISTS fallback_bank_version text;
+ALTER TABLE examination_engine.attempts ADD COLUMN IF NOT EXISTS fallback_bank_digest text;
+ALTER TABLE examination_engine.attempts DROP CONSTRAINT IF EXISTS attempts_fallback_fields_check;
+ALTER TABLE examination_engine.attempts ADD CONSTRAINT attempts_fallback_fields_check CHECK (
+  (mode = 'fallback' AND fallback_reason IS NOT NULL AND fallback_bank_id IS NOT NULL
+    AND fallback_bank_version IS NOT NULL AND fallback_bank_digest IS NOT NULL)
+  OR (mode = 'standard' AND fallback_cause_attempt_id IS NULL AND fallback_reason IS NULL
+    AND fallback_bank_id IS NULL AND fallback_bank_version IS NULL AND fallback_bank_digest IS NULL));
+-- One aborted attempt can cause at most one fallback attempt.
+CREATE UNIQUE INDEX IF NOT EXISTS attempt_fallback_one_per_cause ON examination_engine.attempts(fallback_cause_attempt_id)
+  WHERE fallback_cause_attempt_id IS NOT NULL;
