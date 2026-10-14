@@ -64,6 +64,9 @@ function buildFallbackForm({ selection, packageId, packageVersion, packageDigest
   // A selection for another package must never become this package's form.
   if (!checked.valid || selection.packageId !== packageId)
     throw Object.assign(new Error('invalid_fallback_selection'), { code: 'invalid_fallback_selection', status: 409 });
+  // /fallback/score finds the selection only by this id, so a form without it could never be scored.
+  if (!nonempty(selection.attemptId))
+    throw Object.assign(new Error('invalid_fallback_selection'), { code: 'invalid_fallback_selection', status: 409 });
   // Copy an allowlist of fields so nothing else (e.g. an expected answer) is kept.
   return deepFreeze({
     schemaVersion: SCHEMA_VERSION, mode: 'fallback',
@@ -75,14 +78,17 @@ function buildFallbackForm({ selection, packageId, packageVersion, packageDigest
     // A fallback attempt has no Training event of its own; null, never invented.
     training: { eventId: null },
     bankId: selection.bankId, bankVersion: selection.bankVersion, causeAttemptId, reason,
+    // validation-activation's own id for this bank selection (not an Engine attempt ID);
+    // internal only, needed to call /fallback/score.
+    vaSelectionId: selection.attemptId,
     items: checked.items.map((item) => structuredClone({ id: item.id, tier: item.tier, answerType: item.answerType,
       choices: Array.isArray(item.choices) ? item.choices : null, prompt: item.prompt,
       objectiveIds: item.objectiveIds, sourceLinks: item.sourceLinks, criticalSafety: item.criticalSafety })),
   });
 }
 
-// Learner-facing projection. subject, rubric, training and the cause are
-// internal bookkeeping and stay out.
+// Learner-facing projection. subject, rubric, training, the cause and
+// vaSelectionId are internal bookkeeping and stay out.
 function publicFallbackForm(form) {
   if (form?.schemaVersion !== SCHEMA_VERSION) throw new GenerationError('invalid_generated_form');
   return { schemaVersion: form.schemaVersion, mode: 'fallback', package: form.package,
