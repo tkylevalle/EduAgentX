@@ -37,7 +37,8 @@ function fixture(status = 'in_progress') {
 
 // The Engine's fallback admin projection, plus fields it must never pass on.
 function fallbackFixture(status = 'complete', causeAttemptId = 'aborted-attempt-1') {
-  return { ...fixture(status), mode: 'fallback', template: undefined, generationPolicySha256: undefined, trainingEventId: undefined,
+  return { ...fixture(status), mode: 'fallback', evidence: 'fallback/simulation',
+    template: undefined, generationPolicySha256: undefined, trainingEventId: undefined,
     rubric: { id: 'fallback-scoring/1.0.0', version: '1.0.0', digest: 'policy-digest' },
     causeAttemptId, reason: causeAttemptId ? 'standard_grading_unavailable' : 'standard_generation_unavailable',
     bank: { id: 'ai-safety-fallback', version: '0.1.5-draft', expectedAnswers: ['RESTRICTED ANSWER'] },
@@ -133,8 +134,9 @@ test('a fallback attempt leads with a FALLBACK banner and shows only fallback id
     const html = renderExamination(fallbackFixture('complete', cause));
     const banner = html.indexOf('FALLBACK ATTEMPT');
     assert.ok(banner > -1 && banner < html.indexOf('<h1>') && banner < html.indexOf('<dl>'), 'banner precedes all content');
-    assert.match(html, /evidence fallback\/simulation/);
+    assert.match(html, /\(mode fallback, evidence fallback\/simulation\)/);
     assert.match(html, /<dt>Mode<\/dt><dd>fallback<\/dd>/);
+    assert.match(html, /<dt>Evidence<\/dt><dd>fallback\/simulation<\/dd>/);
     assert.match(html, /<dt>Fallback bank<\/dt><dd>ai-safety-fallback 0\.1\.5-draft<\/dd>/);
     assert.match(html, /<dt>Scoring policy<\/dt><dd>fallback-scoring\/1\.0\.0 1\.0\.0 \(policy-digest\)<\/dd>/);
     assert.match(html, new RegExp(`<dt>Fallback reason</dt><dd>${cause ? 'standard_grading_unavailable' : 'standard_generation_unavailable'}</dd>`));
@@ -149,6 +151,8 @@ test('a fallback attempt leads with a FALLBACK banner and shows only fallback id
 
 test('fallback Console projection allowlists fallback identifiers only', () => {
   const projected = safeExamination(fallbackFixture());
+  assert.equal(projected.evidence, 'fallback/simulation');
+  assert.equal(Object.hasOwn(safeExamination(fixture()), 'evidence'), false);
   assert.deepEqual(projected.bank, { id: 'ai-safety-fallback', version: '0.1.5-draft' });
   assert.deepEqual(projected.rubric, { id: 'fallback-scoring/1.0.0', version: '1.0.0', digest: 'policy-digest' });
   assert.deepEqual(projected.itemReferences, [{ id: 'fallback-06', tier: 'applied', answerType: 'multiple_choice', objectiveIds: ['o1'] }]);
@@ -164,10 +168,22 @@ test('Console JSON and HTML for a fallback attempt keep the fallback label end t
   const api = await request('/api/examinations/attempt-1');
   assert.deepEqual([api.status, api.body.attempt.mode, api.body.attempt.status], [200, 'fallback', 'agent_failed']);
   assert.doesNotMatch(JSON.stringify(api.body), /RESTRICTED|vaSelectionId|template/);
+  assert.equal(api.body.attempt.evidence, 'fallback/simulation');
   const page = await request('/examinations/attempt-1');
   assert.equal(page.status, 200);
   assert.match(page.body, /FALLBACK ATTEMPT/);
+  assert.match(page.body, /<dt>Evidence<\/dt><dd>fallback\/simulation<\/dd>/);
   assert.doesNotMatch(page.body, /undefined|RESTRICTED/);
+});
+
+test('a fallback attempt without the Engine\'s fallback evidence label is unavailable, never relabelled', async () => {
+  gatewayMode = 'ok';
+  for (const evidence of [undefined, 'live/live', 'replay/simulation']) {
+    upstreamAttempt = { ...fallbackFixture(), evidence };
+    assert.throws(() => safeExamination(upstreamAttempt), /invalid fallback evidence/);
+    assert.deepEqual((await request('/api/examinations/attempt-1')).body, { apiVersion: 'v1', error: 'examination_unavailable' });
+    assert.equal((await request('/examinations/attempt-1')).status, 503);
+  }
 });
 
 test('unavailable or unknown examination state is never presented as in_progress', async () => {
