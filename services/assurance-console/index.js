@@ -80,9 +80,12 @@ function safeExamination(attempt) {
     id: reference.id, version: reference.version, digest: reference.digest,
   });
   // Issue #20: a Deterministic Fallback Examination has its own identifiers and
-  // is never shaped like a standard attempt.
+  // is never shaped like a standard attempt. The Engine's evidence label is the
+  // one source of truth; a fallback without it is shown as unavailable, never relabelled.
+  if (attempt.mode === 'fallback' && attempt.evidence !== 'fallback/simulation')
+    throw new Error('invalid fallback evidence');
   if (attempt.mode === 'fallback') return {
-    attemptId: attempt.attemptId, status: attempt.status, mode: attempt.mode,
+    attemptId: attempt.attemptId, status: attempt.status, mode: attempt.mode, evidence: attempt.evidence,
     sequence: attempt.sequence, responsesReceived: attempt.responsesReceived,
     responseCollectionComplete: attempt.responseCollectionComplete,
     terminalReason: attempt.terminalReason,
@@ -386,7 +389,7 @@ function renderFallbackExamination(attempt) {
   const reference = (value) => `${shown(value?.id)} ${shown(value?.version)} (${shown(value?.digest)})`;
   const entries = [
     ['Attempt', attempt.attemptId], ['Status', attempt.status], ['Mode', attempt.mode],
-    ['Evidence', 'fallback/simulation'],
+    ['Evidence', attempt.evidence],
     ['Sequence', attempt.sequence], ['Responses received', attempt.responsesReceived],
     ['Response collection complete', attempt.responseCollectionComplete],
     ['Terminal reason', attempt.terminalReason],
@@ -401,7 +404,7 @@ function renderFallbackExamination(attempt) {
   const references = Array.isArray(attempt.itemReferences) ? attempt.itemReferences : [];
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>FALLBACK examination attempt</title></head>
     <body><p role="alert"><strong>FALLBACK ATTEMPT</strong> — Deterministic Fallback Examination
-    (mode fallback, evidence fallback/simulation). This is not a standard examination result.</p>
+    (mode ${escapeHtml(attempt.mode)}, evidence ${escapeHtml(attempt.evidence)}). This is not a standard examination result.</p>
     <h1>Fallback examination attempt — identifiers only</h1>
     <dl>${entries.map(([label, value]) => `<dt>${escapeHtml(label)}</dt><dd>${escapeHtml(shown(value))}</dd>`).join('')}</dl>
     <h2>Item references</h2><ol>${references.map((item) =>
