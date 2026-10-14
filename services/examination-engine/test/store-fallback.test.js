@@ -42,10 +42,9 @@ function fallbackInput(key, causeAttemptId) {
     items: bank.items.map(({ id, version, tier, answerType, choices, prompt, objectiveIds, sourceLinks, criticalSafety }) =>
       ({ id, version, tier, answerType, choices, prompt, objectiveIds, sourceLinks, criticalSafety: criticalSafety === true })) }));
   const form = buildFallbackForm({ selection, packageId: pkg.packageId, packageVersion: pkg.version, packageDigest: pkg.digest,
-    causeAttemptId, reason: 'standard_grading_unavailable' });
-  // derive() checks form.subject against the manifest; buildFallbackForm does
-  // not add it yet, so this test supplies it.
-  return { actor: ACTOR, key, form: { ...form, subject: { ...registration } }, now: START, deadlineAt: DEADLINE,
+    causeAttemptId, reason: 'standard_grading_unavailable', agentLearnerKey: ACTOR,
+    configurationFingerprint: registration.configurationFingerprint });
+  return { actor: ACTOR, key, form, now: START, deadlineAt: DEADLINE,
     correlationId: key, causeAttemptId, reason: 'standard_grading_unavailable', bankId: bank.id,
     bankVersion: bank.version, bankDigest: sha256(bank) };
 }
