@@ -4,7 +4,13 @@
 // validation-activation's POST /fallback/select (the prevalidated, pinned
 // bank); the Engine never authors or edits them, and expected answers never
 // enter this form. Scoring stays with POST /fallback/score.
-const { canonical } = require('../curriculum-engine/model');
+const { canonical, sha256 } = require('../curriculum-engine/model');
+const { POLICY } = require('../curriculum-engine/fallback');
+const { GenerationError } = require('./generation');
+
+// Distinct from the standard 'examination-form/1.0.0' so a fallback form can
+// never pass through generation.js's publicForm, which would drop answerType/choices.
+const SCHEMA_VERSION = 'examination-form-fallback/1.0.0';
 
 const TIER_COUNTS = Object.freeze({ recall: 5, applied: 6, adversarial: 4 });
 const ANSWER_TYPES = Object.freeze(['single_choice', 'multiple_choice', 'ordered_actions', 'boolean', 'exact_text']);
@@ -49,20 +55,38 @@ function validateFallbackSelection(selectResponse) {
   return errors.length ? { valid: false, errors } : { valid: true, items: s.items };
 }
 
-function buildFallbackForm({ selection, packageId, packageVersion, packageDigest, causeAttemptId, reason }) {
+function buildFallbackForm({ selection, packageId, packageVersion, packageDigest, causeAttemptId, reason,
+  agentLearnerKey, configurationFingerprint }) {
+  // derive() checks form.subject against the stored manifest on every read.
+  if (!nonempty(agentLearnerKey) || !nonempty(configurationFingerprint))
+    throw Object.assign(new Error('registration_required'), { code: 'registration_required', status: 409 });
   const checked = validateFallbackSelection(selection);
   // A selection for another package must never become this package's form.
   if (!checked.valid || selection.packageId !== packageId)
     throw Object.assign(new Error('invalid_fallback_selection'), { code: 'invalid_fallback_selection', status: 409 });
   // Copy an allowlist of fields so nothing else (e.g. an expected answer) is kept.
   return deepFreeze({
-    schemaVersion: 'examination-form/1.0.0', mode: 'fallback',
+    schemaVersion: SCHEMA_VERSION, mode: 'fallback',
     package: { id: packageId, version: packageVersion, digest: packageDigest },
+    subject: { agentLearnerKey, configurationFingerprint },
+    // The fixed fallback scoring policy fills the rubric slot that finalize binds to.
+    // version is the policy's own ('fallback-scoring/1.0.0'), not the bank's; that is form.bankVersion.
+    rubric: { id: POLICY.id, version: '1.0.0', digest: sha256(POLICY) },
+    // A fallback attempt has no Training event of its own; null, never invented.
+    training: { eventId: null },
     bankId: selection.bankId, bankVersion: selection.bankVersion, causeAttemptId, reason,
     items: checked.items.map((item) => structuredClone({ id: item.id, tier: item.tier, answerType: item.answerType,
       choices: Array.isArray(item.choices) ? item.choices : null, prompt: item.prompt,
       objectiveIds: item.objectiveIds, sourceLinks: item.sourceLinks, criticalSafety: item.criticalSafety })),
   });
+}
+
+// Learner-facing projection. subject, rubric, training and the cause are
+// internal bookkeeping and stay out.
+function publicFallbackForm(form) {
+  if (form?.schemaVersion !== SCHEMA_VERSION) throw new GenerationError('invalid_generated_form');
+  return { schemaVersion: form.schemaVersion, mode: 'fallback', package: form.package,
+    bankId: form.bankId, bankVersion: form.bankVersion, items: form.items };
 }
 
 // attempt_responses.response is text and the first answer is final by exact
@@ -81,4 +105,4 @@ function mapFallbackResult(scoreBankResult) {
   return { schemaVersion: 'examination-result/1.0.0', valid, passed: valid && scoreBankResult.passed === true };
 }
 
-module.exports = { validateFallbackSelection, buildFallbackForm, encodeFallbackAnswer, mapFallbackResult };
+module.exports = { validateFallbackSelection, buildFallbackForm, publicFallbackForm, encodeFallbackAnswer, mapFallbackResult };
