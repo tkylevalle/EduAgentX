@@ -324,4 +324,18 @@ test('the admin view of a fallback attempt carries fallback identifiers and no s
   const standard = await ctx.call('GET', `/internal/admin/attempts/${cause.attemptId}`, undefined, ADMIN_HEADERS);
   assert.ok(['template', 'generationPolicySha256', 'trainingEventId'].every((field) => Object.hasOwn(standard.body.attempt, field)));
   assert.equal(Object.hasOwn(standard.body.attempt, 'bank'), false);
+
+  // Evidence label: present on every fallback view and command response, absent (not undefined) on standard ones.
+  const id = started.body.attempt.attemptId;
+  const learner = await ctx.call('GET', `/internal/attempts/${id}`);
+  const answered = await ctx.call('POST', `/internal/attempts/${id}/responses`, { idempotencyKey: 'fallback-answer-1',
+    expectedSequence: 1, itemId: learner.body.attempt.form.items[0].id, response: '"Govern, Map, Measure, Manage"' });
+  assert.equal(answered.status, 200);
+  for (const [name, attempt] of [['start command', started.body.attempt], ['admin view', view],
+    ['learner view', learner.body.attempt], ['response command', answered.body.attempt]])
+    assert.equal(attempt.evidence, 'fallback/simulation', name);
+  const standardLearner = await ctx.call('GET', `/internal/attempts/${cause.attemptId}`);
+  for (const [name, attempt] of [['standard start command', cause], ['standard abort command', aborted.body.attempt],
+    ['standard admin view', standard.body.attempt], ['standard learner view', standardLearner.body.attempt]])
+    assert.equal(Object.hasOwn(attempt, 'evidence'), false, name);
 });

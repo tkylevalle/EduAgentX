@@ -301,7 +301,9 @@ function lifecycleView(attempt) {
   const result = {};
   for (const field of ['attemptId','status','sequence','responsesReceived','responseCollectionComplete','terminalReason',
     'completedAt','failedAt','abortedAt','mode','startedAt','deadlineAt']) result[field] = attempt[field];
-  return result;
+  // Fallback evidence is labelled in every view built on this one. Standard attempts
+  // carry no evidence key: none is tracked for them, and none is invented.
+  return { ...result, ...(attempt.mode === 'fallback' ? { evidence: 'fallback/simulation' } : {}) };
 }
 function learnerView(attempt, now = attempt.startedAt) {
   const deliver = attempt.status === 'in_progress' && Date.parse(now) < Date.parse(attempt.deadlineAt);
