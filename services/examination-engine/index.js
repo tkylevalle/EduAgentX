@@ -310,6 +310,14 @@ function learnerView(attempt, now = attempt.startedAt) {
   return { ...lifecycleView(attempt), ...(deliver ? { form: project(attempt.form) } : {}) };
 }
 function consoleView(attempt) {
+  // A fallback attempt has no template, generation policy or Training event, and its
+  // validation-activation selection id is internal; it gets its own identifier-only view.
+  if (attempt.mode === 'fallback') return { ...lifecycleView(attempt), agentLearnerKey: attempt.agentLearnerKey,
+    configurationFingerprint: attempt.configurationFingerprint, package: attempt.package, rubric: attempt.form.rubric,
+    causeAttemptId: attempt.form.causeAttemptId, reason: attempt.form.reason,
+    bank: { id: attempt.form.bankId, version: attempt.form.bankVersion }, formDigest: attempt.formDigest,
+    itemReferences: attempt.form.items.map((item) => ({ id: item.id, tier: item.tier, answerType: item.answerType,
+      objectiveIds: item.objectiveIds })) };
   return { ...lifecycleView(attempt), agentLearnerKey: attempt.agentLearnerKey, configurationFingerprint: attempt.configurationFingerprint,
     package: attempt.package, template: attempt.form.template, rubric: attempt.form.rubric,
     generationPolicySha256: attempt.form.generationPolicySha256, trainingEventId: attempt.form.training.eventId, formDigest: attempt.formDigest,

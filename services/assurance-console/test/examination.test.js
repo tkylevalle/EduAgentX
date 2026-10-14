@@ -35,6 +35,17 @@ function fixture(status = 'in_progress') {
   };
 }
 
+// The Engine's fallback admin projection, plus fields it must never pass on.
+function fallbackFixture(status = 'complete', causeAttemptId = 'aborted-attempt-1') {
+  return { ...fixture(status), mode: 'fallback', template: undefined, generationPolicySha256: undefined, trainingEventId: undefined,
+    rubric: { id: 'fallback-scoring/1.0.0', version: '1.0.0', digest: 'policy-digest' },
+    causeAttemptId, reason: causeAttemptId ? 'standard_grading_unavailable' : 'standard_generation_unavailable',
+    bank: { id: 'ai-safety-fallback', version: '0.1.5-draft', expectedAnswers: ['RESTRICTED ANSWER'] },
+    vaSelectionId: 'RESTRICTED SELECTION ID',
+    itemReferences: [{ id: 'fallback-06', tier: 'applied', answerType: 'multiple_choice', objectiveIds: ['o1'],
+      choices: ['RESTRICTED CHOICE'], expectedAnswer: 'RESTRICTED ANSWER' }] };
+}
+
 function json(res, status, body) {
   res.writeHead(status, { 'content-type': 'application/json' });
   res.end(JSON.stringify(body));
@@ -116,6 +127,48 @@ for (const status of ['in_progress', 'complete', 'agent_failed', 'system_aborted
       req.path === '/v1/admin/examinations/attempt-1' && req.authorization === 'Bearer console-admin-token'));
   });
 }
+
+test('a fallback attempt leads with a FALLBACK banner and shows only fallback identifiers', () => {
+  for (const cause of ['aborted-attempt-1', null]) {
+    const html = renderExamination(fallbackFixture('complete', cause));
+    const banner = html.indexOf('FALLBACK ATTEMPT');
+    assert.ok(banner > -1 && banner < html.indexOf('<h1>') && banner < html.indexOf('<dl>'), 'banner precedes all content');
+    assert.match(html, /evidence fallback\/simulation/);
+    assert.match(html, /<dt>Mode<\/dt><dd>fallback<\/dd>/);
+    assert.match(html, /<dt>Fallback bank<\/dt><dd>ai-safety-fallback 0\.1\.5-draft<\/dd>/);
+    assert.match(html, /<dt>Scoring policy<\/dt><dd>fallback-scoring\/1\.0\.0 1\.0\.0 \(policy-digest\)<\/dd>/);
+    assert.match(html, new RegExp(`<dt>Fallback reason</dt><dd>${cause ? 'standard_grading_unavailable' : 'standard_generation_unavailable'}</dd>`));
+    assert.match(html, new RegExp(`<dt>Cause attempt</dt><dd>${cause || 'none'}</dd>`));
+    assert.match(html, /<li>fallback-06 — applied — multiple_choice<\/li>/);
+    assert.doesNotMatch(html, /undefined|null|Template|Generation policy|Training event|policy-hash|event-1/);
+    assert.doesNotMatch(html, /RESTRICTED|<script>|<form|<button/);
+  }
+  // Standard attempts are unchanged and carry no banner.
+  assert.doesNotMatch(renderExamination(fixture()), /FALLBACK/);
+});
+
+test('fallback Console projection allowlists fallback identifiers only', () => {
+  const projected = safeExamination(fallbackFixture());
+  assert.deepEqual(projected.bank, { id: 'ai-safety-fallback', version: '0.1.5-draft' });
+  assert.deepEqual(projected.rubric, { id: 'fallback-scoring/1.0.0', version: '1.0.0', digest: 'policy-digest' });
+  assert.deepEqual(projected.itemReferences, [{ id: 'fallback-06', tier: 'applied', answerType: 'multiple_choice', objectiveIds: ['o1'] }]);
+  assert.deepEqual([projected.causeAttemptId, projected.reason], ['aborted-attempt-1', 'standard_grading_unavailable']);
+  for (const field of ['template', 'generationPolicySha256', 'trainingEventId', 'vaSelectionId'])
+    assert.equal(Object.hasOwn(projected, field), false, field);
+  assert.doesNotMatch(JSON.stringify(projected), /RESTRICTED|expectedAnswer|choices/);
+});
+
+test('Console JSON and HTML for a fallback attempt keep the fallback label end to end', async () => {
+  gatewayMode = 'ok';
+  upstreamAttempt = fallbackFixture('agent_failed');
+  const api = await request('/api/examinations/attempt-1');
+  assert.deepEqual([api.status, api.body.attempt.mode, api.body.attempt.status], [200, 'fallback', 'agent_failed']);
+  assert.doesNotMatch(JSON.stringify(api.body), /RESTRICTED|vaSelectionId|template/);
+  const page = await request('/examinations/attempt-1');
+  assert.equal(page.status, 200);
+  assert.match(page.body, /FALLBACK ATTEMPT/);
+  assert.doesNotMatch(page.body, /undefined|RESTRICTED/);
+});
 
 test('unavailable or unknown examination state is never presented as in_progress', async () => {
   upstreamAttempt = fixture();

@@ -47,7 +47,7 @@ async function boot(t, options = {}) {
   if (options.sources) Object.assign(sources, options.sources(input));
   const server = http.createServer(createApp({ store, sources, internalKey: INTERNAL_KEY,
     gradingKey: Object.hasOwn(options, 'gradingKey') ? options.gradingKey : GRADING_KEY,
-    clock: () => now, durationMinutes: 60 }));
+    clock: () => now, durationMinutes: 60, selectFallback: options.selectFallback }));
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   t.after(() => new Promise((resolve) => server.close(resolve)));
   const call = (method, path, body, headers = AGENT_HEADERS, rawBody) => new Promise((resolve, reject) => {
@@ -286,4 +286,42 @@ test('response replay after timeout preserves its original receipt while every c
   assert.deepEqual(replay.body.receipt, accepted.body.receipt);
   const admin = await ctx.call('GET', `/internal/admin/attempts/${attempt.attemptId}`, undefined, ADMIN_HEADERS);
   assert.deepEqual([admin.body.attempt.status, admin.body.attempt.sequence], ['agent_failed', 3]);
+});
+
+test('the admin view of a fallback attempt carries fallback identifiers and no standard-only or internal fields', async (t) => {
+  // Same contract as fallback-sources.js's selectFallback.
+  const selectFallback = async ({ pkg }) => {
+    const bank = candidate.fallbackBank;
+    const selection = JSON.parse(JSON.stringify({ packageId: pkg.packageId, bankId: bank.id, bankVersion: bank.version,
+      scoringPolicy: bank.scoringPolicy, attemptId: 'va-selection-PRIVATE', mode: 'fallback',
+      items: bank.items.map(({ id, version, tier, answerType, choices, prompt, objectiveIds, sourceLinks, criticalSafety }) =>
+        ({ id, version, tier, answerType, choices, prompt, objectiveIds, sourceLinks, criticalSafety: criticalSafety === true })) }));
+    return { selection, packageVersion: pkg.version, packageDigest: pkg.digest };
+  };
+  const ctx = await boot(t, { selectFallback });
+  const cause = await start(ctx, 'standard-cause');
+  const aborted = await ctx.call('POST', `/internal/attempts/${cause.attemptId}/abort`, { idempotencyKey: 'abort',
+    expectedSequence: 1, eventId: randomUUID(), reason: 'grading_unavailable' }, EXAMINER_HEADERS);
+  assert.equal(aborted.body.attempt.status, 'system_aborted');
+  const started = await ctx.call('POST', '/internal/attempts/fallback', { idempotencyKey: 'fallback', agentLearnerKey: ACTOR,
+    reason: 'standard_grading_unavailable', causeAttemptId: cause.attemptId }, EXAMINER_HEADERS);
+  assert.equal(started.status, 201);
+  const admin = await ctx.call('GET', `/internal/admin/attempts/${started.body.attempt.attemptId}`, undefined, ADMIN_HEADERS);
+  assert.equal(admin.status, 200);
+  const view = admin.body.attempt;
+  assert.equal(view.mode, 'fallback');
+  assert.deepEqual([view.causeAttemptId, view.reason], [cause.attemptId, 'standard_grading_unavailable']);
+  assert.deepEqual(view.bank, { id: candidate.fallbackBank.id, version: candidate.fallbackBank.version });
+  assert.deepEqual(view.rubric.id, 'fallback-scoring/1.0.0');
+  assert.equal(view.itemReferences.length, 15);
+  assert.deepEqual(Object.keys(view.itemReferences[0]).sort(), ['answerType', 'id', 'objectiveIds', 'tier']);
+  for (const field of ['template', 'generationPolicySha256', 'trainingEventId', 'vaSelectionId'])
+    assert.equal(Object.hasOwn(view, field), false, field);
+  assert.equal(JSON.stringify(admin.body).includes('va-selection-PRIVATE'), false);
+  assert.equal(JSON.stringify(admin.body).includes('expectedAnswer'), false);
+  assert.equal(JSON.stringify(admin.body).includes('"prompt"'), false);
+  // The standard admin view is unchanged.
+  const standard = await ctx.call('GET', `/internal/admin/attempts/${cause.attemptId}`, undefined, ADMIN_HEADERS);
+  assert.ok(['template', 'generationPolicySha256', 'trainingEventId'].every((field) => Object.hasOwn(standard.body.attempt, field)));
+  assert.equal(Object.hasOwn(standard.body.attempt, 'bank'), false);
 });
