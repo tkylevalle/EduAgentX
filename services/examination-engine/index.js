@@ -11,8 +11,8 @@ const { createPgStore } = require('./store');
 const { createSources, DependencyError } = require('./sources');
 const { fail, validateCommand } = require('./lifecycle');
 const { sha256 } = require('../curriculum-engine/model');
-const { buildFallbackForm, publicFallbackForm } = require('./fallback-form');
-const { createFallbackSelect } = require('./fallback-sources');
+const { buildFallbackForm, publicFallbackForm, mapFallbackResult } = require('./fallback-form');
+const { createFallbackSelect, createFallbackScore } = require('./fallback-sources');
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const KEY = /^[\x20-\x7e]{1,256}$/;
@@ -25,7 +25,7 @@ const matchesSecret = (a, b) => {
 function createApp({ store, sources, internalKey = process.env.EXAMINATION_INTERNAL_KEY,
   gradingKey = process.env.EXAMINATION_GRADING_KEY,
   clock = () => new Date().toISOString(), durationMinutes = Number(process.env.EXAM_DURATION_MINUTES || 60),
-  generateItems = createStandardItems, selectFallback } = {}) {
+  generateItems = createStandardItems, selectFallback, scoreFallback } = {}) {
   if (!store || !sources || !internalKey || !Number.isInteger(durationMinutes) || durationMinutes < 1 || durationMinutes > 1440)
     throw new Error('store, sources, internal key and valid duration required');
   const app = express();
@@ -215,9 +215,70 @@ function createApp({ store, sources, internalKey = process.env.EXAMINATION_INTER
       const attempt = await reconcile(await load(req, false), req);
       if (attempt.status !== 'in_progress' || !attempt.responseCollectionComplete) throw fail('grading_input_unavailable');
       await abortOnGovernance(attempt, req.correlationId);
-      res.json({ attemptId: attempt.attemptId, sequence: attempt.sequence, form: attempt.form, formDigest: attempt.formDigest,
-        rubricDigest: attempt.form.rubric.digest, responseSetDigest: attempt.responseSetDigest,
-        responses: attempt.responses.map(({ itemId, response, responseDigest, acceptedAt }) => ({ itemId, response, responseDigest, acceptedAt })) });
+      res.json(gradingInput(attempt));
+    } catch (error) { sendError(req, res, error); }
+  });
+  // Issue #20: deterministic fallback grading. validation-activation scores the
+  // pinned bank (it alone holds the answers); the Engine only records the
+  // outcome through the same finalize/abort commands as standard grading.
+  // Scoring happens at most once per attempt upstream, so the store commands
+  // use fixed per-attempt identities: a retry replays rather than re-scores.
+  app.post('/internal/attempts/:id/fallback-finalize', trusted, async (req, res) => {
+    if (!scoreFallback) return res.status(503).json({ apiVersion: 'v1', error: 'fallback_not_configured', correlationId: req.correlationId });
+    try {
+      if (!req.body || Array.isArray(req.body) || Object.keys(req.body).length !== 1 ||
+        typeof req.body.idempotencyKey !== 'string' || !KEY.test(req.body.idempotencyKey)) throw fail('invalid_request', 400);
+      let attempt = await reconcile(await load(req, false), req);
+      if (attempt.mode !== 'fallback') throw fail('fallback_attempt_required');
+      const reply = (outcome, current) => res.json({ apiVersion: 'v1', outcome, attempt: lifecycleView(current),
+        correlationId: req.correlationId });
+      if (attempt.status !== 'in_progress') return reply('replay', attempt);
+      // Same refusal the store's finalize command gives an incomplete attempt.
+      if (!attempt.responseCollectionComplete) throw fail('responses_incomplete');
+      const id = attempt.attemptId;
+      const record = async (command, options = {}) => {
+        try {
+          return (await store.command(id, { idempotencyKey: `fallback-finalize:${id}`, expectedSequence: attempt.sequence,
+            now: clock(), correlationId: req.correlationId, ...command }, { clock, ...options })).attempt;
+        } catch (error) {
+          // A concurrent call may already have recorded the single terminal outcome.
+          const current = error.status === 409 && await store.get(id);
+          if (current && current.status !== 'in_progress') return current;
+          throw error;
+        }
+      };
+      const abort = (reason) => record({ type: 'abort', eventId: `fallback-abort:${id}`, reason });
+      // A quarantine or replacement since admission ends the attempt before scoring.
+      // An unreachable dependency propagates and leaves it in progress, safe to retry.
+      let pkg;
+      try { pkg = await active(req.correlationId); }
+      catch (error) {
+        if (error.status !== 409) throw error;
+        return reply('accepted', await abort('governance_changed'));
+      }
+      if (pkg.packageId !== attempt.package.id || pkg.version !== attempt.package.version || pkg.digest !== attempt.package.digest)
+        return reply('accepted', await abort('governance_changed'));
+      const input = gradingInput(attempt);
+      // Responses are stored as canonical JSON (encodeFallbackAnswer). One that does
+      // not decode cannot be judged, so the system aborts rather than guess an answer.
+      let responses;
+      try { responses = input.responses.map(({ itemId, response }) => ({ itemId, answer: JSON.parse(response) })); }
+      catch { return reply('accepted', await abort('grading_unavailable')); }
+      let scored;
+      try {
+        scored = await scoreFallback({ pkg, vaSelectionId: attempt.form.vaSelectionId, responses, correlationId: req.correlationId });
+      } catch (error) {
+        if (error instanceof DependencyError || error.status !== 409) throw error;
+        // Refused (quarantined, not selected, incomplete, or already scored with no result to recover).
+        return reply('accepted', await abort('grading_unavailable'));
+      }
+      // Only valid/passed cross this boundary; per-item results are never kept or returned.
+      const result = mapFallbackResult(scored);
+      if (!result.valid) return reply('accepted', await abort('grading_unavailable'));
+      attempt = await record({ type: 'finalize', eventId: `fallback-grade:${id}`, formDigest: input.formDigest,
+        rubricDigest: input.rubricDigest, responseSetDigest: input.responseSetDigest, result },
+      { guard: (current) => governance(current, req.correlationId) });
+      reply('accepted', attempt);
     } catch (error) { sendError(req, res, error); }
   });
   app.use((error, req, res, next) => {
@@ -229,6 +290,13 @@ function createApp({ store, sources, internalKey = process.env.EXAMINATION_INTER
   return app;
 }
 
+// The trusted grading view of a complete attempt. Shared by grading-input and
+// fallback-finalize so both bind to exactly the same digests.
+function gradingInput(attempt) {
+  return { attemptId: attempt.attemptId, sequence: attempt.sequence, form: attempt.form, formDigest: attempt.formDigest,
+    rubricDigest: attempt.form.rubric.digest, responseSetDigest: attempt.responseSetDigest,
+    responses: attempt.responses.map(({ itemId, response, responseDigest, acceptedAt }) => ({ itemId, response, responseDigest, acceptedAt })) };
+}
 function lifecycleView(attempt) {
   const result = {};
   for (const field of ['attemptId','status','sequence','responsesReceived','responseCollectionComplete','terminalReason',
@@ -273,7 +341,8 @@ async function start() {
     finally { sweeping = false; }
   }, 30000);
   timer.unref();
-  const server = createApp({ store, sources: createSources(), selectFallback: createFallbackSelect() }).listen(process.env.PORT || 4005);
+  const server = createApp({ store, sources: createSources(), selectFallback: createFallbackSelect(),
+    scoreFallback: createFallbackScore() }).listen(process.env.PORT || 4005);
   server.on('close', () => { clearInterval(timer); void pool.end(); });
 }
 if (require.main === module) start().catch((error) => {
