@@ -11,7 +11,22 @@ const rowToAttempt = (row) => row && ({
   formDigest: row.form_digest, form: row.form, mode: row.mode,
   startedAt: new Date(row.started_at).toISOString(), deadlineAt: new Date(row.deadline_at).toISOString(),
   correlationId: row.correlation_id,
+  fallbackCauseAttemptId: row.fallback_cause_attempt_id ?? null, fallbackReason: row.fallback_reason ?? null,
+  fallbackBankId: row.fallback_bank_id ?? null, fallbackBankVersion: row.fallback_bank_version ?? null,
+  fallbackBankDigest: row.fallback_bank_digest ?? null,
 });
+const NO_FALLBACK = Object.freeze({ fallbackCauseAttemptId: null, fallbackReason: null, fallbackBankId: null,
+  fallbackBankVersion: null, fallbackBankDigest: null });
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// Checked before any write, identically for both stores: PostgreSQL's CHECK
+// would refuse these rows, and a form whose mode differs from the row would
+// commit but then fail derive() on every read.
+function checkFallbackAdmission({ form, causeAttemptId = null, reason, bankId, bankVersion, bankDigest }) {
+  const text = (value) => typeof value === 'string' && value.length > 0;
+  if (form?.mode !== 'fallback' || !text(reason) || !text(bankId) || !text(bankVersion) || !text(bankDigest) ||
+    (causeAttemptId !== null && (typeof causeAttemptId !== 'string' || !UUID.test(causeAttemptId))))
+    throw fail('invalid_fallback_admission', 400);
+}
 const snapshot = (record) => derive(record.attempt, record.events, record.responses);
 const reply = (record, receipt, replay) => ({ attempt: snapshot(record), receipt: structuredClone(receipt), replay });
 
@@ -198,6 +213,43 @@ function createPgStore(pool) {
       finally { client.release(); }
       return { attempt: await this.get(attemptId), replay };
     },
+    // Issue #20: mirrors admit() with mode='fallback' and the fallback columns.
+    async admitFallback(input) {
+      checkFallbackAdmission(input);
+      const { actor, key, form, now, deadlineAt, correlationId, reason, bankId, bankVersion, bankDigest } = input;
+      const causeAttemptId = input.causeAttemptId ?? null;
+      const client = await pool.connect();
+      let attemptId, replay = false;
+      try {
+        await client.query('BEGIN');
+        await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`${actor}:${key}`]);
+        const found = await client.query('SELECT attempt_id FROM examination_engine.attempts WHERE agent_learner_key=$1 AND idempotency_key=$2', [actor,key]);
+        if (found.rows.length) { attemptId = found.rows[0].attempt_id; replay = true; }
+        else {
+          attemptId = randomUUID();
+          await client.query(`INSERT INTO examination_engine.attempts
+            (attempt_id,agent_learner_key,idempotency_key,configuration_fingerprint,package_id,package_version,package_digest,
+             form_digest,form,mode,started_at,deadline_at,correlation_id,
+             fallback_cause_attempt_id,fallback_reason,fallback_bank_id,fallback_bank_version,fallback_bank_digest)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'fallback',$10,$11,$12,$13,$14,$15,$16,$17)`,
+          [attemptId,actor,key,form.subject.configurationFingerprint,form.package.id,form.package.version,form.package.digest,
+            sha256(form),JSON.stringify(form),now,deadlineAt,correlationId,
+            causeAttemptId,reason,bankId,bankVersion,bankDigest]);
+          await client.query(`INSERT INTO examination_engine.attempt_events (attempt_id,seq,event_type,occurred_at,correlation_id)
+            VALUES ($1,1,'attempt_started',$2,$3)`, [attemptId,now,correlationId]);
+        }
+        await client.query('COMMIT');
+      } catch (error) {
+        await client.query('ROLLBACK');
+        // Different keys do not share the advisory lock, so the unique index is
+        // what serializes two fallbacks for one cause.
+        if (error.code === '23505' && error.constraint === 'attempt_fallback_one_per_cause') throw fail('fallback_already_admitted');
+        if (error.code === '23503') throw fail('fallback_cause_not_found');
+        throw error;
+      }
+      finally { client.release(); }
+      return { attempt: await this.get(attemptId), replay };
+    },
   };
 }
 
@@ -251,7 +303,30 @@ function createMemoryStore() {
       const attempt = { attemptId: randomUUID(), agentLearnerKey: input.actor, idempotencyKey: input.key,
         configurationFingerprint: input.form.subject.configurationFingerprint, package: structuredClone(input.form.package),
         formDigest: sha256(input.form), form: structuredClone(input.form), mode: 'standard', startedAt: input.now,
-        deadlineAt: input.deadlineAt, correlationId: input.correlationId };
+        deadlineAt: input.deadlineAt, correlationId: input.correlationId, ...NO_FALLBACK };
+      const record = { attempt, events: [{ attemptId: attempt.attemptId, seq: 1, eventType: 'attempt_started',
+        eventId: null, payload: {}, occurredAt: input.now, correlationId: input.correlationId }], responses: [], commands: [] };
+      records.set(attempt.attemptId, record);
+      return { attempt: structuredClone(snapshot(record)), replay: false };
+    }); },
+    admitFallback(input) { return transaction(() => {
+      checkFallbackAdmission(input);
+      const existing = [...records.values()].find((r) => r.attempt.agentLearnerKey === input.actor && r.attempt.idempotencyKey === input.key);
+      if (existing) return { attempt: structuredClone(snapshot(existing)), replay: true };
+      const causeAttemptId = input.causeAttemptId ?? null;
+      // No database here: enforce the same foreign key and partial unique index
+      // as PostgreSQL, with the same errors.
+      if (causeAttemptId !== null) {
+        if (!records.has(causeAttemptId)) throw fail('fallback_cause_not_found');
+        if ([...records.values()].some((r) => r.attempt.fallbackCauseAttemptId === causeAttemptId))
+          throw fail('fallback_already_admitted');
+      }
+      const attempt = { attemptId: randomUUID(), agentLearnerKey: input.actor, idempotencyKey: input.key,
+        configurationFingerprint: input.form.subject.configurationFingerprint, package: structuredClone(input.form.package),
+        formDigest: sha256(input.form), form: structuredClone(input.form), mode: 'fallback', startedAt: input.now,
+        deadlineAt: input.deadlineAt, correlationId: input.correlationId,
+        fallbackCauseAttemptId: causeAttemptId, fallbackReason: input.reason, fallbackBankId: input.bankId,
+        fallbackBankVersion: input.bankVersion, fallbackBankDigest: input.bankDigest };
       const record = { attempt, events: [{ attemptId: attempt.attemptId, seq: 1, eventType: 'attempt_started',
         eventId: null, payload: {}, occurredAt: input.now, correlationId: input.correlationId }], responses: [], commands: [] };
       records.set(attempt.attemptId, record);
