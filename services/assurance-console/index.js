@@ -79,6 +79,24 @@ function safeExamination(attempt) {
   const governingReference = (reference) => reference && ({
     id: reference.id, version: reference.version, digest: reference.digest,
   });
+  // Issue #20: a Deterministic Fallback Examination has its own identifiers and
+  // is never shaped like a standard attempt.
+  if (attempt.mode === 'fallback') return {
+    attemptId: attempt.attemptId, status: attempt.status, mode: attempt.mode,
+    sequence: attempt.sequence, responsesReceived: attempt.responsesReceived,
+    responseCollectionComplete: attempt.responseCollectionComplete,
+    terminalReason: attempt.terminalReason,
+    completedAt: attempt.completedAt, failedAt: attempt.failedAt, abortedAt: attempt.abortedAt,
+    agentLearnerKey: attempt.agentLearnerKey,
+    configurationFingerprint: attempt.configurationFingerprint,
+    package: governingReference(attempt.package), rubric: governingReference(attempt.rubric),
+    causeAttemptId: attempt.causeAttemptId, reason: attempt.reason,
+    bank: attempt.bank && { id: attempt.bank.id, version: attempt.bank.version },
+    formDigest: attempt.formDigest, startedAt: attempt.startedAt, deadlineAt: attempt.deadlineAt,
+    itemReferences: (attempt.itemReferences || []).map((item) => ({
+      id: item.id, tier: item.tier, answerType: item.answerType, objectiveIds: item.objectiveIds,
+    })),
+  };
   return {
     attemptId: attempt.attemptId, status: attempt.status, mode: attempt.mode,
     sequence: attempt.sequence, responsesReceived: attempt.responsesReceived,
@@ -338,6 +356,7 @@ function renderPage(gatewayStatus, trace, training) {
 
 function renderExamination(input) {
   const attempt = safeExamination(input);
+  if (attempt.mode === 'fallback') return renderFallbackExamination(attempt);
   const entries = [
     ['Attempt', attempt.attemptId], ['Status', attempt.status], ['Mode', attempt.mode],
     ['Sequence', attempt.sequence], ['Responses received', attempt.responsesReceived],
@@ -358,6 +377,36 @@ function renderExamination(input) {
     <h2>Item references</h2><ol>${references.map((item) =>
       `<li>${escapeHtml(item.slotId)} — ${escapeHtml(item.id)} — ${escapeHtml(item.tier)} — ${escapeHtml(item.promptSha256)}</li>`).join('')}</ol>
     <p>Prompts, answers and grader context are intentionally omitted.</p></body></html>`;
+}
+
+// The banner leads the page so a fallback can never be read as a standard result.
+// Missing values show as "none", never as "undefined" or "null".
+function renderFallbackExamination(attempt) {
+  const shown = (value) => (value === undefined || value === null || value === '' ? 'none' : value);
+  const reference = (value) => `${shown(value?.id)} ${shown(value?.version)} (${shown(value?.digest)})`;
+  const entries = [
+    ['Attempt', attempt.attemptId], ['Status', attempt.status], ['Mode', attempt.mode],
+    ['Evidence', 'fallback/simulation'],
+    ['Sequence', attempt.sequence], ['Responses received', attempt.responsesReceived],
+    ['Response collection complete', attempt.responseCollectionComplete],
+    ['Terminal reason', attempt.terminalReason],
+    ['Completed', attempt.completedAt], ['Failed', attempt.failedAt], ['Aborted', attempt.abortedAt],
+    ['Agent Learner', attempt.agentLearnerKey], ['Fingerprint', attempt.configurationFingerprint],
+    ['Package', reference(attempt.package)],
+    ['Fallback bank', `${shown(attempt.bank?.id)} ${shown(attempt.bank?.version)}`],
+    ['Scoring policy', reference(attempt.rubric)],
+    ['Fallback reason', attempt.reason], ['Cause attempt', attempt.causeAttemptId],
+    ['Form digest', attempt.formDigest], ['Started', attempt.startedAt], ['Deadline', attempt.deadlineAt],
+  ];
+  const references = Array.isArray(attempt.itemReferences) ? attempt.itemReferences : [];
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>FALLBACK examination attempt</title></head>
+    <body><p role="alert"><strong>FALLBACK ATTEMPT</strong> — Deterministic Fallback Examination
+    (mode fallback, evidence fallback/simulation). This is not a standard examination result.</p>
+    <h1>Fallback examination attempt — identifiers only</h1>
+    <dl>${entries.map(([label, value]) => `<dt>${escapeHtml(label)}</dt><dd>${escapeHtml(shown(value))}</dd>`).join('')}</dl>
+    <h2>Item references</h2><ol>${references.map((item) =>
+      `<li>${escapeHtml(shown(item.id))} — ${escapeHtml(shown(item.tier))} — ${escapeHtml(shown(item.answerType))}</li>`).join('')}</ol>
+    <p>Prompts, answers and scoring detail are intentionally omitted.</p></body></html>`;
 }
 
 function escapeHtml(value) {
