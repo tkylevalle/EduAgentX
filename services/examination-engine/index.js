@@ -13,6 +13,9 @@ const { fail, validateCommand } = require('./lifecycle');
 const { sha256 } = require('../curriculum-engine/model');
 const { buildFallbackForm, publicFallbackForm, mapFallbackResult } = require('./fallback-form');
 const { createFallbackSelect, createFallbackScore } = require('./fallback-sources');
+const { createGovernance } = require('./governance');
+const { DEFAULT_RETRY_WINDOW_MS, createGradingRunner } = require('./grading');
+const { createGradeItems } = require('./grading-client');
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const KEY = /^[\x20-\x7e]{1,256}$/;
@@ -25,7 +28,8 @@ const matchesSecret = (a, b) => {
 function createApp({ store, sources, internalKey = process.env.EXAMINATION_INTERNAL_KEY,
   gradingKey = process.env.EXAMINATION_GRADING_KEY,
   clock = () => new Date().toISOString(), durationMinutes = Number(process.env.EXAM_DURATION_MINUTES || 60),
-  generateItems = createStandardItems, selectFallback, scoreFallback } = {}) {
+  generateItems = createStandardItems, selectFallback, scoreFallback, gradeItems,
+  gradingRetryWindowMs = DEFAULT_RETRY_WINDOW_MS } = {}) {
   if (!store || !sources || !internalKey || !Number.isInteger(durationMinutes) || durationMinutes < 1 || durationMinutes > 1440)
     throw new Error('store, sources, internal key and valid duration required');
   const app = express();
@@ -45,18 +49,8 @@ function createApp({ store, sources, internalKey = process.env.EXAMINATION_INTER
     if (!req.header('x-actor-subject')) return res.status(400).json({ error: 'actor_required' });
     next();
   });
-  const active = async (correlationId) => {
-    const pkg = await sources.activePackage(correlationId);
-    if (!pkg || pkg.state !== 'Active' || pkg.certificationBlocked || !Array.isArray(pkg.quarantinedScopes) ||
-      pkg.quarantinedScopes.length) throw fail('active_package_required');
-    return pkg;
-  };
-  const governance = async (attempt, correlationId) => {
-    const pkg = await active(correlationId);
-    const registration = await sources.registration(attempt.agentLearnerKey, correlationId);
-    if (pkg.packageId !== attempt.package.id || pkg.version !== attempt.package.version || pkg.digest !== attempt.package.digest ||
-      registration?.configurationFingerprint !== attempt.configurationFingerprint) throw fail('attempt_governance_changed');
-  };
+  const { active, verify: governance } = createGovernance(sources);
+  const grading = gradeItems ? createGradingRunner({ store, sources, gradeItems, clock, retryWindowMs: gradingRetryWindowMs }) : null;
   const abortOnGovernance = async (attempt, correlationId) => {
     if (attempt.status !== 'in_progress') return;
     try { await governance(attempt, correlationId); }
@@ -218,6 +212,17 @@ function createApp({ store, sources, internalKey = process.env.EXAMINATION_INTER
       res.json(gradingInput(attempt));
     } catch (error) { sendError(req, res, error); }
   });
+  // Standard grading (Issue #18 integration). The background sweep calls the
+  // same runner; this trusted route lets an operator or test grade one attempt now.
+  app.post('/internal/attempts/:id/grade', trusted, async (req, res) => {
+    if (!grading) return res.status(503).json({ apiVersion: 'v1', error: 'grading_not_configured', correlationId: req.correlationId });
+    try {
+      if (!req.body || Array.isArray(req.body) || Object.keys(req.body).length) throw fail('invalid_request', 400);
+      if (!UUID.test(req.params.id)) throw fail('attempt_not_found', 404);
+      const { outcome, attempt } = await grading.grade(req.params.id, req.correlationId);
+      res.json({ apiVersion: 'v1', outcome, attempt: lifecycleView(attempt), correlationId: req.correlationId });
+    } catch (error) { sendError(req, res, error); }
+  });
   // Issue #20: deterministic fallback grading. validation-activation scores the
   // pinned bank (it alone holds the answers); the Engine only records the
   // outcome through the same finalize/abort commands as standard grading.
@@ -321,7 +326,7 @@ function consoleView(attempt) {
     itemReferences: attempt.form.items.map((item) => ({ id: item.id, tier: item.tier, answerType: item.answerType,
       objectiveIds: item.objectiveIds })) };
   return { ...lifecycleView(attempt), agentLearnerKey: attempt.agentLearnerKey, configurationFingerprint: attempt.configurationFingerprint,
-    package: attempt.package, template: attempt.form.template, rubric: attempt.form.rubric,
+    package: attempt.package, template: attempt.form.template, rubric: attempt.form.rubric, assessment: attempt.assessment ?? null,
     generationPolicySha256: attempt.form.generationPolicySha256, trainingEventId: attempt.form.training.eventId, formDigest: attempt.formDigest,
     itemReferences: attempt.form.items.map((item) => ({ id: item.id, slotId: item.slotId,
       promptSha256: item.promptSha256, tier: item.tier, moduleIds: item.moduleIds, objectiveIds: item.objectiveIds })) };
@@ -335,6 +340,20 @@ function sendError(req, res, error) {
     error: error.code || error.message, correlationId: req.correlationId, ...extra });
   telemetry.log('examination-engine', 'request_failed', { correlationId: req.correlationId });
   return res.status(500).json({ apiVersion: 'v1', error: 'internal_error', correlationId: req.correlationId, ...extra });
+}
+// Grades complete attempts in the background; a tick is skipped while the
+// previous one still runs. Grading is off when no grader is configured.
+function startGradingSweep(runner, intervalMs = Number(process.env.EXAM_GRADING_INTERVAL_MS || 5000)) {
+  let running = false;
+  const timer = setInterval(async () => {
+    if (running) return;
+    running = true;
+    try { await runner.sweep(); }
+    catch { telemetry.log('examination-engine', 'grading_sweep_failed', { operation: 'grading_sweep', outcome: 'error' }); }
+    finally { running = false; }
+  }, intervalMs);
+  timer.unref();
+  return timer;
 }
 async function start() {
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -351,9 +370,12 @@ async function start() {
     finally { sweeping = false; }
   }, 30000);
   timer.unref();
-  const server = createApp({ store, sources: createSources(), selectFallback: createFallbackSelect(),
-    scoreFallback: createFallbackScore() }).listen(process.env.PORT || 4005);
-  server.on('close', () => { clearInterval(timer); void pool.end(); });
+  const sources = createSources();
+  const gradeItems = createGradeItems();
+  const gradingTimer = gradeItems ? startGradingSweep(createGradingRunner({ store, sources, gradeItems })) : null;
+  const server = createApp({ store, sources, selectFallback: createFallbackSelect(),
+    scoreFallback: createFallbackScore(), gradeItems }).listen(process.env.PORT || 4005);
+  server.on('close', () => { clearInterval(timer); clearInterval(gradingTimer); void pool.end(); });
 }
 if (require.main === module) start().catch((error) => {
   console.error('examination-engine startup failed', error.code || error.name);

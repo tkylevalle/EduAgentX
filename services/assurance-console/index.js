@@ -73,6 +73,26 @@ async function readExamination(attemptId) {
   const get = await adminClient(`console-examination-${randomUUID()}`);
   return get(`/v1/admin/examinations/${encodeURIComponent(attemptId)}`);
 }
+// The Engine's assessment, copied field by field. Rationales and responses are
+// never part of it; anything else the upstream adds is dropped here.
+function safeAssessment(assessment) {
+  if (!assessment || typeof assessment !== 'object') return null;
+  const strings = (values) => (Array.isArray(values) ? values.map(String) : []);
+  return {
+    schemaVersion: assessment.schemaVersion,
+    grader: { id: assessment.grader?.id, version: assessment.grader?.version },
+    overallPercent: assessment.overallPercent, passed: assessment.passed,
+    tierPercents: { recall: assessment.tierPercents?.recall, applied: assessment.tierPercents?.applied,
+      adversarial: assessment.tierPercents?.adversarial },
+    criticalViolationRuleIds: strings(assessment.criticalViolationRuleIds),
+    malformedItemIds: strings(assessment.malformedItemIds), failureReasons: strings(assessment.failureReasons),
+    failedObjectiveIds: strings(assessment.failedObjectiveIds),
+    objectiveOutcomes: (assessment.objectiveOutcomes || []).map((outcome) => ({
+      objectiveId: outcome.objectiveId, percent: outcome.percent, passed: outcome.passed })),
+    itemOutcomes: (assessment.itemOutcomes || []).map((item) => ({ itemId: item.itemId, tier: item.tier, score: item.score,
+      criticalViolationRuleIds: strings(item.criticalViolationRuleIds), malformed: item.malformed })),
+  };
+}
 function safeExamination(attempt) {
   if (!['in_progress', 'complete', 'system_aborted', 'agent_failed'].includes(attempt.status))
     throw new Error('invalid examination state');
@@ -112,7 +132,7 @@ function safeExamination(attempt) {
     rubric: governingReference(attempt.rubric),
     generationPolicySha256: attempt.generationPolicySha256,
     trainingEventId: attempt.trainingEventId, formDigest: attempt.formDigest,
-    startedAt: attempt.startedAt, deadlineAt: attempt.deadlineAt,
+    startedAt: attempt.startedAt, deadlineAt: attempt.deadlineAt, assessment: safeAssessment(attempt.assessment),
     itemReferences: (attempt.itemReferences || []).map((item) => ({
       id: item.id, slotId: item.slotId, tier: item.tier, moduleIds: item.moduleIds,
       objectiveIds: item.objectiveIds, promptSha256: item.promptSha256,
@@ -377,9 +397,25 @@ function renderExamination(input) {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Examination attempt</title></head>
     <body><h1>Examination attempt — identifiers only</h1>
     <dl>${entries.map(([label, value]) => `<dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd>`).join('')}</dl>
+    ${renderAssessment(attempt.assessment)}
     <h2>Item references</h2><ol>${references.map((item) =>
       `<li>${escapeHtml(item.slotId)} — ${escapeHtml(item.id)} — ${escapeHtml(item.tier)} — ${escapeHtml(item.promptSha256)}</li>`).join('')}</ol>
     <p>Prompts, answers and grader context are intentionally omitted.</p></body></html>`;
+}
+
+function renderAssessment(assessment) {
+  if (!assessment) return '<h2>Assessment</h2><p>No assessment has been recorded.</p>';
+  const list = (values) => (values.length ? values.join(', ') : 'none');
+  const entries = [
+    ['Grader', `${assessment.grader.id} ${assessment.grader.version}`], ['Passed', assessment.passed],
+    ['Overall percent', assessment.overallPercent],
+    ['Tier percents', `recall ${assessment.tierPercents.recall}, applied ${assessment.tierPercents.applied}, adversarial ${assessment.tierPercents.adversarial}`],
+    ['Failure reasons', list(assessment.failureReasons)], ['Critical rules violated', list(assessment.criticalViolationRuleIds)],
+    ['Malformed responses', list(assessment.malformedItemIds)], ['Objectives below standard', list(assessment.failedObjectiveIds)],
+  ];
+  return `<h2>Assessment</h2><dl>${entries.map(([label, value]) => `<dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd>`).join('')}</dl>
+    <ol>${assessment.itemOutcomes.map((item) => `<li>${escapeHtml(item.itemId)} — ${escapeHtml(item.tier)} — score ${escapeHtml(item.score)}${
+      item.criticalViolationRuleIds.length ? ` — ${escapeHtml(item.criticalViolationRuleIds.join(', '))}` : ''}${item.malformed ? ' — malformed' : ''}</li>`).join('')}</ol>`;
 }
 
 // The banner leads the page so a fallback can never be read as a standard result.

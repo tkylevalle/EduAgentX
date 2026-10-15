@@ -3,6 +3,7 @@
 const { randomUUID } = require('node:crypto');
 const { sha256 } = require('../curriculum-engine/model');
 const { fail, validateCommand, commandDigest, derive, stateReceipt, isResponseExpired } = require('./lifecycle');
+const { checkAssessment } = require('./assessment');
 
 const rowToAttempt = (row) => row && ({
   attemptId: row.attempt_id, agentLearnerKey: row.agent_learner_key,
@@ -86,8 +87,11 @@ function execute(record, command) {
     if (!current.responseCollectionComplete) throw fail('responses_incomplete');
     if (command.formDigest !== current.formDigest || command.rubricDigest !== current.form.rubric.digest ||
       command.responseSetDigest !== current.responseSetDigest) throw fail('result_binding_mismatch');
+    if (command.assessment !== undefined && !checkAssessment(command.assessment, current.form, command.result.passed))
+      throw fail('invalid_result', 400);
     append('grade_recorded', { result: command.result, formDigest: command.formDigest,
-      rubricDigest: command.rubricDigest, responseSetDigest: command.responseSetDigest }, command.eventId);
+      rubricDigest: command.rubricDigest, responseSetDigest: command.responseSetDigest,
+      ...(command.assessment !== undefined ? { assessment: command.assessment } : {}) }, command.eventId);
     append(command.result.passed ? 'attempt_completed' : 'agent_failed',
       { reason: command.result.passed ? 'valid_passing_result' : 'valid_failing_result' }, `${command.eventId}:terminal`);
     current = snapshot(record);
@@ -189,6 +193,15 @@ function createPgStore(pool) {
         AND (SELECT count(*) FROM examination_engine.attempt_responses r WHERE r.attempt_id=a.attempt_id) < jsonb_array_length(form->'items')`, [now]);
       for (const { attempt_id: id } of ids.rows) await this.command(id, { type: 'timeout', now });
       return ids.rows.length;
+    },
+    // Standard attempts with every response accepted and no outcome yet, oldest first.
+    async listAwaitingGrading(limit) {
+      const ids = await pool.query(`SELECT a.attempt_id FROM examination_engine.attempts a WHERE a.mode = 'standard'
+        AND NOT EXISTS (SELECT 1 FROM examination_engine.attempt_events e WHERE e.attempt_id=a.attempt_id
+          AND e.event_type IN ('attempt_completed','agent_failed','system_aborted'))
+        AND (SELECT count(*) FROM examination_engine.attempt_responses r WHERE r.attempt_id=a.attempt_id) = jsonb_array_length(form->'items')
+        ORDER BY a.started_at, a.attempt_id LIMIT $1`, [limit]);
+      return ids.rows.map((row) => row.attempt_id);
     },
     async admit({ actor, key, form, now, deadlineAt, correlationId }) {
       const client = await pool.connect();
@@ -296,6 +309,11 @@ function createMemoryStore() {
         await this.command(id, { type: 'timeout', now }); count++;
       }
       return count;
+    },
+    async listAwaitingGrading(limit) {
+      return [...records.values()].map(snapshot)
+        .filter((a) => a.mode === 'standard' && a.status === 'in_progress' && a.responseCollectionComplete)
+        .sort((a, b) => Date.parse(a.startedAt) - Date.parse(b.startedAt)).slice(0, limit).map((a) => a.attemptId);
     },
     admit(input) { return transaction(() => {
       const existing = [...records.values()].find((r) => r.attempt.agentLearnerKey === input.actor && r.attempt.idempotencyKey === input.key);
