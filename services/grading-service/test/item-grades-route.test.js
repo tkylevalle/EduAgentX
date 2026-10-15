@@ -29,7 +29,7 @@ test('a keyed request returns one labelled result per item', async (t) => {
   const call = await boot(t);
   const response = await call('/v1/item-grades');
   assert.equal(response.status, 200);
-  assert.deepEqual(response.body.grader, { id: 'deterministic-keyword-grader', version: '1.0.0' });
+  assert.deepEqual(response.body.grader, { id: 'deterministic-keyword-grader', version: '1.1.0' });
   assert.equal(response.body.results.length, 1);
   assert.deepEqual(response.body.results[0].criticalViolationRuleIds, ['critical-o4']);
 });
