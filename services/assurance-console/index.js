@@ -3,6 +3,7 @@ const express = require('express');
 const fetch = require('node-fetch');
 
 const telemetry = require('../../packages/telemetry');
+const { registerRemediationTrace } = require('./remediation-trace');
 
 const PORT = Number(process.env.PORT || 4100);
 const SERVICE_NAME = process.env.SERVICE_NAME || 'assurance-console';
@@ -159,6 +160,8 @@ app.get('/examinations/:attemptId', async (req, res) => {
     return res.status(503).send('Examination view unavailable');
   }
 });
+
+registerRemediationTrace(app, { adminClient, escapeHtml });
 
 app.get('/', async (req, res) => {
   let gatewayStatus = 'unknown';
