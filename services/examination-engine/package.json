@@ -6,7 +6,8 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "test": "node --test"
+    "test": "node --test test/*.test.js",
+    "test:integration": "node --test integration/*.test.js"
   },
   "dependencies": {
     "express": "^4.19.2",
