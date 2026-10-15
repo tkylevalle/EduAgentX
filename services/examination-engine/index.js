@@ -16,6 +16,8 @@ const { createFallbackSelect, createFallbackScore } = require('./fallback-source
 const { createGovernance } = require('./governance');
 const { DEFAULT_RETRY_WINDOW_MS, createGradingRunner } = require('./grading');
 const { createGradeItems } = require('./grading-client');
+const { requireRemediation, registerRemediationRoutes } = require('./remediation-routes');
+const { createRemediationRelay } = require('./remediation-relay');
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const KEY = /^[\x20-\x7e]{1,256}$/;
@@ -89,6 +91,7 @@ function createApp({ store, sources, internalKey = process.env.EXAMINATION_INTER
       const pkg = await active(req.correlationId);
       const registration = await sources.registration(actor, req.correlationId);
       const completion = await sources.completion(actor, pkg, req.correlationId);
+      await requireRemediation(store, { actor, pkg, completion, now: clock() });
       const form = await generateStandardForm({ pkg, registration, completion, generateItems });
       const now = clock();
       const deadlineAt = new Date(Date.parse(now) + durationMinutes * 60000).toISOString();
@@ -184,6 +187,7 @@ function createApp({ store, sources, internalKey = process.env.EXAMINATION_INTER
       res.json({ apiVersion: 'v1', attempt: consoleView(attempt), correlationId: req.correlationId });
     } catch (error) { sendError(req, res, error); }
   });
+  registerRemediationRoutes(app, { store, load, reconcile, lifecycleView, sendError });
   function commandRoute(type, fields, owner) {
     return async (req, res) => {
       try {
@@ -341,15 +345,16 @@ function sendError(req, res, error) {
   telemetry.log('examination-engine', 'request_failed', { correlationId: req.correlationId });
   return res.status(500).json({ apiVersion: 'v1', error: 'internal_error', correlationId: req.correlationId, ...extra });
 }
-// Grades complete attempts in the background; a tick is skipped while the
-// previous one still runs. Grading is off when no grader is configured.
-function startGradingSweep(runner, intervalMs = Number(process.env.EXAM_GRADING_INTERVAL_MS || 5000)) {
+// Runs a background sweep; a tick is skipped while the previous one still runs.
+// Grading is off when no grader is configured, and the remediation relay is
+// off when Training is not configured.
+function startSweep(operation, sweep, intervalMs) {
   let running = false;
   const timer = setInterval(async () => {
     if (running) return;
     running = true;
-    try { await runner.sweep(); }
-    catch { telemetry.log('examination-engine', 'grading_sweep_failed', { operation: 'grading_sweep', outcome: 'error' }); }
+    try { await sweep(); }
+    catch { telemetry.log('examination-engine', `${operation}_failed`, { operation, outcome: 'error' }); }
     finally { running = false; }
   }, intervalMs);
   timer.unref();
@@ -372,10 +377,13 @@ async function start() {
   timer.unref();
   const sources = createSources();
   const gradeItems = createGradeItems();
-  const gradingTimer = gradeItems ? startGradingSweep(createGradingRunner({ store, sources, gradeItems })) : null;
+  const gradingTimer = gradeItems ? startSweep('grading_sweep', createGradingRunner({ store, sources, gradeItems }).sweep,
+    Number(process.env.EXAM_GRADING_INTERVAL_MS || 5000)) : null;
+  const relay = createRemediationRelay({ store, url: process.env.TRAINING_SERVICE_URL || 'http://training-service:4004' });
+  const relayTimer = relay ? startSweep('remediation_relay', relay.sweep, Number(process.env.EXAM_REMEDIATION_INTERVAL_MS || 2000)) : null;
   const server = createApp({ store, sources, selectFallback: createFallbackSelect(),
     scoreFallback: createFallbackScore(), gradeItems }).listen(process.env.PORT || 4005);
-  server.on('close', () => { clearInterval(timer); clearInterval(gradingTimer); void pool.end(); });
+  server.on('close', () => { clearInterval(timer); clearInterval(gradingTimer); clearInterval(relayTimer); void pool.end(); });
 }
 if (require.main === module) start().catch((error) => {
   console.error('examination-engine startup failed', error.code || error.name);
