@@ -451,6 +451,13 @@ function createApp({
     await proxyJson(req, res, `${examinationEngineUrl}/internal/admin/attempts/${encodeURIComponent(req.params.attemptId)}`,
       { headers: examinationHeaders(req) });
   });
+  // Issue #21: failure, gap, remediation delivery and re-examinations of one attempt.
+  app.get('/v1/admin/examinations/:attemptId/remediation', requireRole('admin'), async (req, res) => {
+    if (!examinationInternalKey) return examinationUnavailable(req, res);
+    await proxyJson(req, res,
+      `${examinationEngineUrl}/internal/admin/attempts/${encodeURIComponent(req.params.attemptId)}/remediation`,
+      { headers: examinationHeaders(req) });
+  });
 
   app.use((error, req, res, next) => {
     if (res.headersSent) return next(error);

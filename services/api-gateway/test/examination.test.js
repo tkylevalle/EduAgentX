@@ -195,3 +195,17 @@ test('Gateway learner and admin reads agree after trusted finalization of comple
   assert.equal(learner.body.attempt.form, undefined);
   assert.equal((await store.get(id)).formDigest, persisted.formDigest);
 });
+
+test('Gateway exposes the Issue #21 remediation trace to admins only', async (t) => {
+  const { gateway, agentHeaders, adminHeaders } = await boot(t);
+  const started = await request(gateway, 'POST', '/v1/examinations', { idempotencyKey: 'trace' }, agentHeaders);
+  const id = started.body.attempt.attemptId;
+  const path = `/v1/admin/examinations/${id}/remediation`;
+  assert.equal((await request(gateway, 'GET', path)).status, 401);
+  assert.equal((await request(gateway, 'GET', path, undefined, agentHeaders)).status, 403);
+  const trace = await request(gateway, 'GET', path, undefined, adminHeaders);
+  assert.equal(trace.status, 200);
+  assert.deepEqual([trace.body.trace.failure.attemptId, trace.body.trace.failure.status, trace.body.trace.remediation],
+    [id, 'in_progress', null]);
+  assert.equal((await request(gateway, 'GET', '/v1/admin/examinations/not-a-uuid/remediation', undefined, adminHeaders)).status, 404);
+});
