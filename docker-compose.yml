@@ -261,6 +261,8 @@ services:
       VALIDATION_ACTIVATION_URL: http://validation-activation:4010
       AGENT_REGISTRY_URL: http://agent-registry:4001
       TRAINING_SERVICE_URL: http://training-service:4004
+      GRADING_SERVICE_URL: http://grading-service:4020
+      GRADING_SERVICE_KEY: ${GRADING_SERVICE_KEY:?Run node scripts/setup-dev.js}
     depends_on:
       postgres:
         condition: service_healthy
@@ -462,8 +464,9 @@ services:
     environment:
       PORT: 4020
       SERVICE_NAME: grading-service
+      GRADING_SERVICE_KEY: ${GRADING_SERVICE_KEY:?Run node scripts/setup-dev.js}
     ports:
-      - "4020:4020"
+      - "127.0.0.1:${GRADING_SERVICE_PORT:-4020}:4020"
     networks:
       - eduagentx-net
     deploy:
