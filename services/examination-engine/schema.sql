@@ -93,3 +93,45 @@ ALTER TABLE examination_engine.attempts ADD CONSTRAINT attempts_fallback_fields_
 -- One aborted attempt can cause at most one fallback attempt.
 CREATE UNIQUE INDEX IF NOT EXISTS attempt_fallback_one_per_cause ON examination_engine.attempts(fallback_cause_attempt_id)
   WHERE fallback_cause_attempt_id IS NOT NULL;
+
+-- Additive Issue #21 migration: the remediation outbox. One event per valid
+-- Agent-Failed attempt, written in the attempt's terminal transaction, and at
+-- most one final delivery outcome per event. Both are immutable evidence.
+CREATE TABLE IF NOT EXISTS examination_engine.remediation_events (
+  event_id text PRIMARY KEY,
+  attempt_id uuid NOT NULL UNIQUE REFERENCES examination_engine.attempts(attempt_id),
+  agent_learner_key text NOT NULL,
+  package_id text NOT NULL,
+  package_version text NOT NULL,
+  package_digest text NOT NULL,
+  occurred_at timestamptz NOT NULL,
+  envelope jsonb NOT NULL
+);
+CREATE INDEX IF NOT EXISTS remediation_events_by_learner_package ON examination_engine.remediation_events
+  (agent_learner_key, package_id, package_version, occurred_at DESC);
+CREATE TABLE IF NOT EXISTS examination_engine.remediation_deliveries (
+  event_id text PRIMARY KEY REFERENCES examination_engine.remediation_events(event_id),
+  outcome text NOT NULL CHECK (outcome IN ('delivered','refused')),
+  training_session_id text,
+  detail jsonb NOT NULL DEFAULT '{}',
+  recorded_at timestamptz NOT NULL,
+  CHECK ((outcome = 'delivered') = (training_session_id IS NOT NULL))
+);
+CREATE INDEX IF NOT EXISTS attempts_by_remediation_request ON examination_engine.attempts
+  ((form->'training'->>'remediationRequestId')) WHERE form->'training'->>'remediationRequestId' IS NOT NULL;
+DROP TRIGGER IF EXISTS remediation_events_immutable ON examination_engine.remediation_events;
+CREATE TRIGGER remediation_events_immutable BEFORE UPDATE OR DELETE ON examination_engine.remediation_events
+FOR EACH ROW EXECUTE FUNCTION examination_engine.forbid_evidence_change();
+DROP TRIGGER IF EXISTS remediation_deliveries_immutable ON examination_engine.remediation_deliveries;
+CREATE TRIGGER remediation_deliveries_immutable BEFORE UPDATE OR DELETE ON examination_engine.remediation_deliveries
+FOR EACH ROW EXECUTE FUNCTION examination_engine.forbid_evidence_change();
+
+-- Issue #21 relay state. The only mutable remediation table: a lease and a
+-- backoff per pending event. The identity column orders events committed with
+-- the same timestamp.
+ALTER TABLE examination_engine.remediation_events ADD COLUMN IF NOT EXISTS seq bigint GENERATED ALWAYS AS IDENTITY;
+CREATE TABLE IF NOT EXISTS examination_engine.remediation_relay_state (
+  event_id text PRIMARY KEY REFERENCES examination_engine.remediation_events(event_id),
+  attempts integer NOT NULL CHECK (attempts > 0),
+  next_attempt_at timestamptz NOT NULL
+);

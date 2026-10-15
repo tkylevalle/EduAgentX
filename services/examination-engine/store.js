@@ -4,6 +4,8 @@ const { randomUUID } = require('node:crypto');
 const { sha256 } = require('../curriculum-engine/model');
 const { fail, validateCommand, commandDigest, derive, stateReceipt, isResponseExpired } = require('./lifecycle');
 const { checkAssessment } = require('./assessment');
+const { remediationEventFor } = require('./remediation');
+const { pgRemediationMethods, memoryRemediationMethods } = require('./remediation-store');
 
 const rowToAttempt = (row) => row && ({
   attemptId: row.attempt_id, agentLearnerKey: row.agent_learner_key,
@@ -30,6 +32,14 @@ function checkFallbackAdmission({ form, causeAttemptId = null, reason, bankId, b
 }
 const snapshot = (record) => derive(record.attempt, record.events, record.responses);
 const reply = (record, receipt, replay) => ({ attempt: snapshot(record), receipt: structuredClone(receipt), replay });
+
+// Issue #21: a valid Agent-Failed attempt's remediation event is part of the
+// same transaction as its terminal event, so it exists exactly when the failure does.
+function attachRemediation(record, command, terminalEventId) {
+  if (record.remediation) return;
+  record.remediation = remediationEventFor(snapshot(record), { now: command.now,
+    correlationId: command.correlationId || record.attempt.correlationId, terminalEventId });
+}
 
 function execute(record, command) {
   validateCommand(command);
@@ -71,6 +81,7 @@ function execute(record, command) {
   if (command.type === 'timeout' || (command.type === 'response' && isResponseExpired(current, command.now))) {
     if (!isResponseExpired(current, command.now)) return { attempt: current, replay: true };
     append('agent_failed', { reason: 'response_deadline_elapsed' }, `timeout:${current.attemptId}`);
+    attachRemediation(record, command, `timeout:${current.attemptId}`);
     current = snapshot(record);
     // Commit timeout evidence even though the late submission itself is rejected.
     return command.type === 'response' ? { error: fail('attempt_deadline_elapsed'), attempt: current } : { attempt: current, replay: false };
@@ -94,6 +105,7 @@ function execute(record, command) {
       ...(command.assessment !== undefined ? { assessment: command.assessment } : {}) }, command.eventId);
     append(command.result.passed ? 'attempt_completed' : 'agent_failed',
       { reason: command.result.passed ? 'valid_passing_result' : 'valid_failing_result' }, `${command.eventId}:terminal`);
+    if (!command.result.passed) attachRemediation(record, command, `${command.eventId}:terminal`);
     current = snapshot(record);
   } else {
     append('system_aborted', { reason: command.reason }, command.eventId || `abort:${current.attemptId}`);
@@ -132,12 +144,21 @@ async function readRecord(client, attemptId) {
   const events = await client.query('SELECT * FROM examination_engine.attempt_events WHERE attempt_id = $1 ORDER BY seq', [attemptId]);
   const responses = await client.query('SELECT * FROM examination_engine.attempt_responses WHERE attempt_id = $1 ORDER BY seq', [attemptId]);
   const commands = await client.query('SELECT * FROM examination_engine.attempt_commands WHERE attempt_id = $1', [attemptId]);
+  const remediation = await client.query('SELECT envelope FROM examination_engine.remediation_events WHERE attempt_id = $1', [attemptId]);
   return { attempt: rowToAttempt(manifest.rows[0]), events: events.rows.map((r) => ({ attemptId: r.attempt_id,
     seq: r.seq, eventType: r.event_type, eventId: r.event_id, payload: r.payload,
     occurredAt: new Date(r.occurred_at).toISOString(), correlationId: r.correlation_id })),
   responses: responses.rows.map((r) => ({ itemId: r.item_id, response: r.response, responseDigest: r.response_digest,
     acceptedAt: new Date(r.accepted_at).toISOString(), seq: r.seq, receipt: r.receipt })),
-  commands: commands.rows.map((r) => ({ key: r.idempotency_key, digest: r.command_digest, eventId: r.event_id, receipt: r.receipt })) };
+  commands: commands.rows.map((r) => ({ key: r.idempotency_key, digest: r.command_digest, eventId: r.event_id, receipt: r.receipt })),
+  remediation: remediation.rows[0]?.envelope ?? null };
+}
+
+async function insertRemediation(client, event) {
+  await client.query(`INSERT INTO examination_engine.remediation_events
+    (event_id,attempt_id,agent_learner_key,package_id,package_version,package_digest,occurred_at,envelope)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, [event.eventId, event.attemptId, event.agentLearnerKey, event.package.id,
+    event.package.version, event.package.digest, event.occurredAt, JSON.stringify(event)]);
 }
 
 function createPgStore(pool) {
@@ -148,7 +169,8 @@ function createPgStore(pool) {
       await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`examination:${id}`]);
       const record = await readRecord(client, id);
       if (!record) throw fail('attempt_not_found', 404);
-      const before = { events: record.events.length, responses: record.responses.length, commands: record.commands.length };
+      const before = { events: record.events.length, responses: record.responses.length, commands: record.commands.length,
+        remediation: record.remediation };
       const result = await action(record);
       for (const e of record.events.slice(before.events)) await client.query(
         `INSERT INTO examination_engine.attempt_events (attempt_id,seq,event_type,occurred_at,correlation_id,event_id,payload)
@@ -159,6 +181,7 @@ function createPgStore(pool) {
       for (const c of record.commands.slice(before.commands)) await client.query(
         `INSERT INTO examination_engine.attempt_commands (attempt_id,idempotency_key,command_digest,event_id,receipt)
          VALUES ($1,$2,$3,$4,$5)`, [id,c.key,c.digest,c.eventId,JSON.stringify(c.receipt)]);
+      if (!before.remediation && record.remediation) await insertRemediation(client, record.remediation);
       await client.query('COMMIT');
       return result;
     } catch (error) {
@@ -203,6 +226,7 @@ function createPgStore(pool) {
         ORDER BY a.started_at, a.attempt_id LIMIT $1`, [limit]);
       return ids.rows.map((row) => row.attempt_id);
     },
+    ...pgRemediationMethods(pool),
     async admit({ actor, key, form, now, deadlineAt, correlationId }) {
       const client = await pool.connect();
       let attemptId, replay = false;
@@ -269,19 +293,26 @@ function createPgStore(pool) {
 function createMemoryStore() {
   const records = new Map();
   let serial = Promise.resolve();
+  let remediationSeq = 0;
+  // Insertion order breaks ties between events with the same timestamp, as the PostgreSQL identity column does.
+  const commit = (original, record) => {
+    if (!original.remediation && record.remediation) record.remediationSeq = ++remediationSeq;
+    records.set(record.attempt.attemptId, record);
+  };
   function transaction(action) {
     const run = serial.then(action);
     serial = run.catch(() => {});
     return run;
   }
   return {
+    ...memoryRemediationMethods(records, transaction),
     async health() {},
     get(id, reconcile) { return transaction(() => {
       const original = records.get(id);
       if (!original) return null;
       const record = structuredClone(original);
       if (reconcile) execute(record, { type: 'timeout', ...reconcile, now: reconcile.clock ? reconcile.clock() : reconcile.now });
-      records.set(id, record);
+      commit(original, record);
       return structuredClone(snapshot(record));
     }); },
     async findByKey(actor, key) {
@@ -296,7 +327,7 @@ function createMemoryStore() {
           throw fail('event_identity_conflict');
         const record = structuredClone(original);
         const outcome = await guardedExecute(record, command, options);
-        records.set(id, record);
+        commit(original, record);
         // Clone results but preserve the error class used after commit.
         return outcome.error ? outcome : structuredClone(outcome);
       });
@@ -323,7 +354,8 @@ function createMemoryStore() {
         formDigest: sha256(input.form), form: structuredClone(input.form), mode: 'standard', startedAt: input.now,
         deadlineAt: input.deadlineAt, correlationId: input.correlationId, ...NO_FALLBACK };
       const record = { attempt, events: [{ attemptId: attempt.attemptId, seq: 1, eventType: 'attempt_started',
-        eventId: null, payload: {}, occurredAt: input.now, correlationId: input.correlationId }], responses: [], commands: [] };
+        eventId: null, payload: {}, occurredAt: input.now, correlationId: input.correlationId }], responses: [], commands: [],
+        remediation: null, delivery: null };
       records.set(attempt.attemptId, record);
       return { attempt: structuredClone(snapshot(record)), replay: false };
     }); },
@@ -346,7 +378,8 @@ function createMemoryStore() {
         fallbackCauseAttemptId: causeAttemptId, fallbackReason: input.reason, fallbackBankId: input.bankId,
         fallbackBankVersion: input.bankVersion, fallbackBankDigest: input.bankDigest };
       const record = { attempt, events: [{ attemptId: attempt.attemptId, seq: 1, eventType: 'attempt_started',
-        eventId: null, payload: {}, occurredAt: input.now, correlationId: input.correlationId }], responses: [], commands: [] };
+        eventId: null, payload: {}, occurredAt: input.now, correlationId: input.correlationId }], responses: [], commands: [],
+        remediation: null, delivery: null };
       records.set(attempt.attemptId, record);
       return { attempt: structuredClone(snapshot(record)), replay: false };
     }); },
