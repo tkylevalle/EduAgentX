@@ -33,6 +33,9 @@ generates its own secrets for each run.
 | `ADMIN_CLIENT_ID` | api-gateway, assurance-console | Client ID that receives the `admin` role | `capstone-admin-dev` |
 | `ADMIN_CLIENT_SECRET` | api-gateway, assurance-console | Secret for that client | generated |
 | `GRAFANA_ADMIN_PASSWORD` | grafana | Grafana `admin` password | generated |
+| `EXAMINATION_GRADING_KEY` | examination-engine | Trusted grading capability for the Engine's grade, finalize and abort routes (`x-internal-grading-key`). Never forwarded by the Gateway. | generated |
+| `GRADING_SERVICE_KEY` | examination-engine, grading-service | Shared key for the Engine's calls to grading-service `POST /v1/item-grades` (`x-grading-service-key`). Without it the route answers 503 and the Engine does not grade. | generated |
+| `GRADING_SERVICE_PORT` | host | Host port for grading-service (127.0.0.1 only) | `4020` |
 
 There are no fallback passwords in the code. The Assurance Console and the
 Synthetic Agent Learner exit at startup when their secret is missing. The API
@@ -51,6 +54,7 @@ These are fixed per service and normally need no change.
 | `REDIS_URL` | agent-registry, training-service | `redis://redis:6379`. Training runs its completion relay only when this is set. |
 | `AGENT_REGISTRY_URL` | api-gateway | `http://agent-registry:4001` |
 | `API_GATEWAY_URL` | console, learner | `http://api-gateway:4000` |
+| `GRADING_SERVICE_URL` | examination-engine | `http://grading-service:4020`. The Engine grades complete attempts only when this and `GRADING_SERVICE_KEY` are set. |
 
 ## Optional
 
@@ -61,6 +65,7 @@ These are fixed per service and normally need no change.
 | `TRAINING_MIN_PRACTICE_PER_MODULE` | training-service | Practice items each module must hold and the learner must complete before a session completes (0–20). A package with fewer is refused at start with `insufficient_practice`. | `1` |
 | `TRAINING_MAX_RESPONSE_CHARS` | training-service | Longest accepted practice or lesson response (1–16000). A longer one is refused with 422 `response_too_long`. | `4000` |
 | `TRAINING_SESSION_TIMEOUT_MINUTES` | training-service | Minutes without an event after which an open session ends with `session_timed_out` (whole number from 0 to 5256000; `0` turns the timeout off). | `1440` |
+| `EXAM_GRADING_INTERVAL_MS` | examination-engine | Interval of the sweep that grades complete standard attempts. | `5000` |
 | `TRAINING_COMPLETION_STREAM` | training-service | Redis Stream that receives `training.session.completed` envelopes from the completion relay. | `training.session.completed` |
 
 ## Read by scripts

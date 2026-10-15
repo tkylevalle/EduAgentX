@@ -217,3 +217,31 @@ function request(path) {
     req.on('error', reject);
   });
 }
+
+// Issue #18 integration: the Engine's assessment is evidence the Console shows,
+// field by field. A rationale or response slipped into it never passes through.
+function assessed() {
+  return { ...fixture('agent_failed'), assessment: {
+    schemaVersion: 'examination-assessment/1.0.0', grader: { id: 'deterministic-keyword-grader', version: '1.0.0', key: 'RESTRICTED KEY' },
+    overallPercent: 72.5, tierPercents: { recall: 90, applied: 80, adversarial: 55 },
+    criticalViolationRuleIds: ['critical-o4'], malformedItemIds: [], failureReasons: ['insufficient_overall_score', 'critical_violation'],
+    passed: false, objectiveOutcomes: [{ objectiveId: 'o4', percent: 40, passed: false, rationale: 'RESTRICTED RATIONALE' }],
+    failedObjectiveIds: ['o4'],
+    itemOutcomes: [{ itemId: 'item-1', tier: 'adversarial', score: 40, criticalViolationRuleIds: ['critical-o4'], malformed: false,
+      response: 'RESTRICTED RESPONSE', rationale: 'RESTRICTED RATIONALE' }] } };
+}
+
+test('the assessment is projected field by field and rendered without restricted material', () => {
+  const projected = safeExamination(assessed());
+  assert.deepEqual(projected.assessment.grader, { id: 'deterministic-keyword-grader', version: '1.0.0' });
+  assert.deepEqual(projected.assessment.failedObjectiveIds, ['o4']);
+  assert.deepEqual(projected.assessment.itemOutcomes[0],
+    { itemId: 'item-1', tier: 'adversarial', score: 40, criticalViolationRuleIds: ['critical-o4'], malformed: false });
+  assert.doesNotMatch(JSON.stringify(projected), /RESTRICTED/);
+  const html = renderExamination(assessed());
+  assert.match(html, /72\.5/);
+  assert.match(html, /critical_violation/);
+  assert.match(html, /deterministic-keyword-grader 1\.0\.0/);
+  assert.doesNotMatch(html, /RESTRICTED/);
+  assert.equal(safeExamination(fixture('in_progress')).assessment, null, 'no assessment is invented');
+});

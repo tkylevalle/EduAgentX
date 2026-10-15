@@ -82,7 +82,7 @@ async function answerAll(ctx) {
   let current = await ctx.store.get(ctx.attempt.attemptId);
   for (const [index, item] of current.form.items.entries()) {
     const result = await ctx.store.command(current.attemptId, responseCommand(current, {
-      itemId: item.id, response: `Private response ${index + 1}`, idempotencyKey: `response-${index + 1}`,
+      itemId: item.id, response: `Private response number ${index + 1} for review`, idempotencyKey: `response-${index + 1}`,
     }));
     current = result.attempt;
   }
@@ -273,4 +273,31 @@ test('PostgreSQL migration preserves an Issue 16 manifest and legacy sequence-on
   assert.equal(restored.formDigest, sha256(ctx.form));
   const accepted = await ctx.store.command(attemptId, responseCommand(restored));
   assert.equal(accepted.attempt.sequence, 2);
+});
+
+// Issue #18 integration: a graded attempt keeps its assessment in PostgreSQL.
+// jsonb reorders object keys, so the stored assessment must still pass its
+// integrity check when a fresh store replays the event history.
+test('PostgreSQL keeps the assessment of a graded attempt and lists only ungraded complete attempts', async (t) => {
+  const { createGradingRunner } = require('../grading');
+  const ctx = await fixture(t);
+  const answered = await answerAll(ctx);
+  assert.ok((await ctx.store.listAwaitingGrading(1000)).includes(answered.attemptId));
+  const pkg = structuredClone(candidate);
+  pkg.packageId = pkg.manifest.packageId; pkg.version = pkg.manifest.version;
+  pkg.state = 'Active'; pkg.digest = sha256(pkg); pkg.quarantinedScopes = []; pkg.certificationBlocked = false;
+  const sources = { activePackage: async () => pkg,
+    registration: async () => ({ configurationFingerprint: answered.configurationFingerprint }) };
+  const gradeItems = async ({ items }) => ({ ok: true, body: { grader: { id: 'pg-grader', version: '1.0.0' },
+    results: items.map((item) => ({ itemId: item.itemId, score: item.tier === 'adversarial' ? 60 : 95,
+      criticalViolationRuleIds: [], rationale: 'pg fixture', citedItemIds: [item.itemId] })) } });
+  const runner = createGradingRunner({ store: ctx.store, sources, gradeItems, clock: () => AFTER_DEADLINE });
+  const graded = await runner.grade(answered.attemptId, 'pg-grade');
+  assert.deepEqual([graded.attempt.status, graded.attempt.terminalReason], ['agent_failed', 'valid_failing_result']);
+  const reread = await createPgStore(ctx.pool).get(answered.attemptId);
+  assert.deepEqual(reread.assessment.failureReasons, ['insufficient_adversarial_score']);
+  assert.equal(reread.assessment.tierPercents.adversarial, 60);
+  assert.ok(!(await ctx.store.listAwaitingGrading(1000)).includes(answered.attemptId));
+  const replay = await runner.grade(answered.attemptId, 'pg-grade-again');
+  assert.equal(replay.outcome, 'replay');
 });
