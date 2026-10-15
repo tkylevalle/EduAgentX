@@ -8,6 +8,12 @@
 const { fail } = require('./lifecycle');
 
 const DELIVERY_OUTCOMES = ['delivered', 'refused'];
+// A claimed event is leased for its backoff: 2 s, then doubling, at most 5 min.
+// The lease keeps two relays from sending one event at once, and the backoff
+// lets newer events go ahead of one that keeps failing.
+const BACKOFF_BASE_SECONDS = 2;
+const BACKOFF_MAX_SECONDS = 300;
+const backoffSeconds = (attempts) => Math.min(BACKOFF_MAX_SECONDS, BACKOFF_BASE_SECONDS * 2 ** attempts);
 const TERMINAL_EVENTS = ['attempt_completed', 'agent_failed', 'system_aborted'];
 
 function checkDelivery({ eventId, outcome, trainingSessionId, recordedAt }) {
@@ -30,6 +36,25 @@ function pgRemediationMethods(pool) {
         ORDER BY e.occurred_at, e.event_id LIMIT $1`, [limit]);
       return result.rows.map((row) => row.envelope);
     },
+    // One statement: the row locks with SKIP LOCKED and the lease commit together.
+    async claimPendingRemediations({ now, limit }) {
+      const result = await pool.query(`WITH due AS (
+          SELECT e.event_id, e.envelope, e.seq, coalesce(s.next_attempt_at, e.occurred_at) AS due_at
+          FROM examination_engine.remediation_events e
+          LEFT JOIN examination_engine.remediation_relay_state s ON s.event_id = e.event_id
+          WHERE NOT EXISTS (SELECT 1 FROM examination_engine.remediation_deliveries d WHERE d.event_id = e.event_id)
+            AND (s.next_attempt_at IS NULL OR s.next_attempt_at <= $1)
+          ORDER BY due_at, e.seq LIMIT $2 FOR UPDATE OF e SKIP LOCKED),
+        leased AS (
+          INSERT INTO examination_engine.remediation_relay_state (event_id, attempts, next_attempt_at)
+          SELECT event_id, 1, $1::timestamptz + make_interval(secs => $3) FROM due
+          ON CONFLICT (event_id) DO UPDATE SET attempts = remediation_relay_state.attempts + 1,
+            next_attempt_at = $1::timestamptz + make_interval(secs => least($4, $3 * power(2, remediation_relay_state.attempts)))
+          RETURNING event_id)
+        SELECT due.envelope FROM due JOIN leased ON leased.event_id = due.event_id ORDER BY due.due_at, due.seq`,
+      [now, limit, BACKOFF_BASE_SECONDS, BACKOFF_MAX_SECONDS]);
+      return result.rows.map((row) => row.envelope);
+    },
     async recordRemediationDelivery(delivery) {
       checkDelivery(delivery);
       const { eventId, outcome, trainingSessionId, detail, recordedAt } = delivery;
@@ -47,7 +72,7 @@ function pgRemediationMethods(pool) {
     },
     async latestRemediationEvent({ agentLearnerKey, packageId, packageVersion }) {
       const row = await one(`SELECT envelope FROM examination_engine.remediation_events WHERE agent_learner_key=$1
-        AND package_id=$2 AND package_version=$3 ORDER BY occurred_at DESC, event_id DESC LIMIT 1`,
+        AND package_id=$2 AND package_version=$3 ORDER BY occurred_at DESC, seq DESC LIMIT 1`,
       [agentLearnerKey, packageId, packageVersion]);
       return row?.envelope ?? null;
     },
@@ -68,14 +93,31 @@ function pgRemediationMethods(pool) {
   };
 }
 
-// `records` maps attempt id to { attempt, ..., remediation, delivery }.
+// `records` maps attempt id to { attempt, ..., remediation, remediationSeq, delivery }.
 function memoryRemediationMethods(records, transaction) {
-  const events = () => [...records.values()].filter((r) => r.remediation).map((r) => r.remediation)
-    .sort((a, b) => Date.parse(a.occurredAt) - Date.parse(b.occurredAt) || a.eventId.localeCompare(b.eventId));
+  const relayState = new Map();
+  const withSeq = () => [...records.values()].filter((r) => r.remediation);
+  const events = () => withSeq().sort((a, b) => Date.parse(a.remediation.occurredAt) - Date.parse(b.remediation.occurredAt) ||
+    a.remediationSeq - b.remediationSeq).map((r) => r.remediation);
   const recordOf = (eventId) => [...records.values()].find((r) => r.remediation?.eventId === eventId);
+  const pending = () => events().filter((event) => !recordOf(event.eventId).delivery);
   return {
     async listPendingRemediations(limit) {
-      return structuredClone(events().filter((event) => !recordOf(event.eventId).delivery).slice(0, limit));
+      return structuredClone(pending().slice(0, limit));
+    },
+    claimPendingRemediations({ now, limit }) {
+      return transaction(() => {
+        const dueAt = (event) => relayState.get(event.eventId)?.nextAttemptAt ?? Date.parse(event.occurredAt);
+        const due = pending().filter((event) => dueAt(event) <= Date.parse(now))
+          .sort((a, b) => dueAt(a) - dueAt(b) || recordOf(a.eventId).remediationSeq - recordOf(b.eventId).remediationSeq)
+          .slice(0, limit);
+        for (const event of due) {
+          const attempts = relayState.get(event.eventId)?.attempts ?? 0;
+          relayState.set(event.eventId, { attempts: attempts + 1,
+            nextAttemptAt: Date.parse(now) + backoffSeconds(attempts) * 1000 });
+        }
+        return structuredClone(due);
+      });
     },
     recordRemediationDelivery(delivery) {
       return transaction(() => {

@@ -65,7 +65,7 @@ function createRemediationRelay({ store, url = process.env.TRAINING_SERVICE_URL,
 
   async function sweep() {
     const counts = { delivered: 0, refused: 0, retrying: 0 };
-    for (const event of await store.listPendingRemediations(BATCH_SIZE)) {
+    for (const event of await store.claimPendingRemediations({ now: clock(), limit: BATCH_SIZE })) {
       const outcome = await deliver(event);
       counts[outcome === 'retry' ? 'retrying' : outcome]++;
     }

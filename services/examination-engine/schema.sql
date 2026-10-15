@@ -125,3 +125,13 @@ FOR EACH ROW EXECUTE FUNCTION examination_engine.forbid_evidence_change();
 DROP TRIGGER IF EXISTS remediation_deliveries_immutable ON examination_engine.remediation_deliveries;
 CREATE TRIGGER remediation_deliveries_immutable BEFORE UPDATE OR DELETE ON examination_engine.remediation_deliveries
 FOR EACH ROW EXECUTE FUNCTION examination_engine.forbid_evidence_change();
+
+-- Issue #21 relay state. The only mutable remediation table: a lease and a
+-- backoff per pending event. The identity column orders events committed with
+-- the same timestamp.
+ALTER TABLE examination_engine.remediation_events ADD COLUMN IF NOT EXISTS seq bigint GENERATED ALWAYS AS IDENTITY;
+CREATE TABLE IF NOT EXISTS examination_engine.remediation_relay_state (
+  event_id text PRIMARY KEY REFERENCES examination_engine.remediation_events(event_id),
+  attempts integer NOT NULL CHECK (attempts > 0),
+  next_attempt_at timestamptz NOT NULL
+);
