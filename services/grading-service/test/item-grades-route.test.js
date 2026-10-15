@@ -41,7 +41,7 @@ test('a missing or wrong key is refused before any grading', async (t) => {
 });
 
 test('without a configured key the route is unavailable, not open', async (t) => {
-  const call = await boot(t, { itemGradingKey: undefined });
+  const call = await boot(t, { itemGradingKey: '' });
   const response = await call('/v1/item-grades');
   assert.deepEqual([response.status, response.body.error], [503, 'grading_not_configured']);
 });
