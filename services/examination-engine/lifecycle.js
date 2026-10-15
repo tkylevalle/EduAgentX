@@ -1,6 +1,7 @@
 'use strict';
 
 const { sha256 } = require('../curriculum-engine/model');
+const { checkAssessment } = require('./assessment');
 const KEY = /^[\x20-\x7e]{1,256}$/;
 const REASONS = ['infrastructure_failure', 'governance_changed', 'grading_unavailable'];
 const terminalTypes = { attempt_completed: 'complete', agent_failed: 'agent_failed', system_aborted: 'system_aborted' };
@@ -36,7 +37,8 @@ function validateCommand(command) {
 
 function commandDigest(attemptId, command) {
   const semantic = { attemptId, type: command.type, expectedSequence: command.expectedSequence };
-  for (const name of ['itemId', 'response', 'eventId', 'formDigest', 'rubricDigest', 'responseSetDigest', 'result', 'reason'])
+  for (const name of ['itemId', 'response', 'eventId', 'formDigest', 'rubricDigest', 'responseSetDigest', 'result', 'reason',
+    'assessment'])
     if (command[name] !== undefined) semantic[name] = command[name];
   return sha256(semantic);
 }
@@ -44,7 +46,7 @@ function commandDigest(attemptId, command) {
 // The event log is authoritative. There is no separately mutable status column.
 function derive(attempt, events, responses) {
   const state = { status: 'in_progress', sequence: 0, responsesReceived: 0, responseCollectionComplete: false,
-    terminalReason: null, completedAt: null, failedAt: null, abortedAt: null };
+    terminalReason: null, completedAt: null, failedAt: null, abortedAt: null, assessment: null };
   if (sha256(attempt.form) !== attempt.formDigest || attempt.form.subject.agentLearnerKey !== attempt.agentLearnerKey ||
     attempt.form.subject.configurationFingerprint !== attempt.configurationFingerprint || attempt.form.mode !== attempt.mode ||
     sha256(attempt.form.package) !== sha256(attempt.package) || Date.parse(attempt.deadlineAt) <= Date.parse(attempt.startedAt))
@@ -76,9 +78,11 @@ function derive(attempt, events, responses) {
       if (grade || answered.size !== attempt.form.items.length || !payload ||
         !exact(payload.result, ['schemaVersion','valid','passed']) || payload.result.schemaVersion !== 'examination-result/1.0.0' ||
         payload.result.valid !== true || typeof payload.result.passed !== 'boolean' || payload.formDigest !== attempt.formDigest ||
-        payload.rubricDigest !== attempt.form.rubric.digest || payload.responseSetDigest !== orderedDigest())
+        payload.rubricDigest !== attempt.form.rubric.digest || payload.responseSetDigest !== orderedDigest() ||
+        (payload.assessment !== undefined && !checkAssessment(payload.assessment, attempt.form, payload.result.passed)))
         throw fail('invalid_event_history');
       grade = payload.result;
+      state.assessment = payload.assessment ?? null;
     } else if (terminalTypes[event.eventType]) {
       const reason = event.payload?.reason;
       if ((event.eventType === 'attempt_completed' && (!grade?.passed || reason !== 'valid_passing_result')) ||
