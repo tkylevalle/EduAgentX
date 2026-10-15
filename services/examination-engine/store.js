@@ -293,6 +293,12 @@ function createPgStore(pool) {
 function createMemoryStore() {
   const records = new Map();
   let serial = Promise.resolve();
+  let remediationSeq = 0;
+  // Insertion order breaks ties between events with the same timestamp, as the PostgreSQL identity column does.
+  const commit = (original, record) => {
+    if (!original.remediation && record.remediation) record.remediationSeq = ++remediationSeq;
+    records.set(record.attempt.attemptId, record);
+  };
   function transaction(action) {
     const run = serial.then(action);
     serial = run.catch(() => {});
@@ -306,7 +312,7 @@ function createMemoryStore() {
       if (!original) return null;
       const record = structuredClone(original);
       if (reconcile) execute(record, { type: 'timeout', ...reconcile, now: reconcile.clock ? reconcile.clock() : reconcile.now });
-      records.set(id, record);
+      commit(original, record);
       return structuredClone(snapshot(record));
     }); },
     async findByKey(actor, key) {
@@ -321,7 +327,7 @@ function createMemoryStore() {
           throw fail('event_identity_conflict');
         const record = structuredClone(original);
         const outcome = await guardedExecute(record, command, options);
-        records.set(id, record);
+        commit(original, record);
         // Clone results but preserve the error class used after commit.
         return outcome.error ? outcome : structuredClone(outcome);
       });

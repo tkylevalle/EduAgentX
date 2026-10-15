@@ -18,9 +18,13 @@ const EVENT = Object.freeze({ eventId: 'examination.remediation.required:a-1', e
 
 function fakeStore(events = [EVENT]) {
   const deliveries = [];
-  return { deliveries,
-    listPendingRemediations: async () => events.filter((e) => !deliveries.some((d) => d.eventId === e.eventId)),
+  const store = { deliveries, claims: [],
+    claimPendingRemediations: async ({ now, limit }) => {
+      store.claims.push({ now, limit });
+      return events.filter((e) => !deliveries.some((d) => d.eventId === e.eventId));
+    },
     recordRemediationDelivery: async (delivery) => { deliveries.push(delivery); return delivery; } };
+  return store;
 }
 
 function fakeTraining(status, body) {
@@ -82,4 +86,10 @@ test('a Training refusal is recorded once as refused with its reason', async () 
 test('the relay is off without a Training URL or key', () => {
   assert.equal(createRemediationRelay({ store: fakeStore(), url: 'http://training.test', key: '' }), null);
   assert.equal(createRemediationRelay({ store: fakeStore(), url: '', key: 'k' }), null);
+});
+
+test('the relay claims a bounded batch at the relay clock', async () => {
+  const store = fakeStore();
+  await relay(store, fakeTraining(201, { outcome: 'ok', sessionId: 's' })).sweep();
+  assert.deepEqual(store.claims, [{ now: '2026-10-15T07:00:05.000Z', limit: 20 }]);
 });

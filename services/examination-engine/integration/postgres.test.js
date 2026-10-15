@@ -354,3 +354,40 @@ test('PostgreSQL commits a timeout remediation event in the same transaction as 
   assert.deepEqual(event.failure.failureReasons, ['response_deadline_elapsed']);
   assert.equal(event.failure.terminalEventId, `timeout:${ctx.attempt.attemptId}`);
 });
+
+test('PostgreSQL relay claims are exclusive, back off, and order equal timestamps by insertion', async (t) => {
+  const { createGradingRunner } = require('../grading');
+  const pkg = structuredClone(candidate);
+  pkg.packageId = pkg.manifest.packageId; pkg.version = pkg.manifest.version;
+  pkg.state = 'Active'; pkg.digest = sha256(pkg); pkg.quarantinedScopes = []; pkg.certificationBlocked = false;
+  const gradeItems = async ({ items }) => ({ ok: true, body: { grader: { id: 'pg-grader', version: '1.0.0' },
+    results: items.map((item) => ({ itemId: item.itemId, score: 95, rationale: 'pg fixture', citedItemIds: [item.itemId],
+      criticalViolationRuleIds: item.tier === 'adversarial' ? ['critical-o4'] : [] })) } });
+  const failed = [];
+  for (let index = 0; index < 2; index += 1) {
+    const ctx = await fixture(t, { evidence: { mode: 'synthetic', environment: 'simulation' } });
+    const answered = await answerAll(ctx);
+    const sources = { activePackage: async () => pkg,
+      registration: async () => ({ configurationFingerprint: answered.configurationFingerprint }) };
+    await createGradingRunner({ store: ctx.store, sources, gradeItems, clock: () => AFTER_DEADLINE }).grade(answered.attemptId, 'pg');
+    failed.push({ ctx, attemptId: answered.attemptId });
+  }
+  const store = failed[0].ctx.store;
+  const ids = new Set(failed.map((value) => `examination.remediation.required:${value.attemptId}`));
+  const ours = (events) => events.filter((event) => ids.has(event.eventId)).map((event) => event.eventId);
+  // Far in the future, so every pending event from earlier runs is due as well.
+  const now = '2099-01-01T00:00:00.000Z';
+  const later = (seconds) => new Date(Date.parse(now) + seconds * 1000).toISOString();
+  const [a, b] = await Promise.all([store.claimPendingRemediations({ now, limit: 1000 }),
+    store.claimPendingRemediations({ now, limit: 1000 })]);
+  const claimed = [...ours(a), ...ours(b)];
+  assert.equal(claimed.length, 2, 'each event is claimed once');
+  assert.equal(new Set(claimed).size, 2);
+  assert.deepEqual(ours(await store.claimPendingRemediations({ now: later(1), limit: 1000 })), [], 'leased');
+  const again = ours(await store.claimPendingRemediations({ now: later(2), limit: 1000 }));
+  assert.deepEqual(again, failed.map((value) => `examination.remediation.required:${value.attemptId}`),
+    'same timestamp: the event inserted first comes first');
+  const rows = await failed[0].ctx.pool.query(`SELECT attempts FROM examination_engine.remediation_relay_state
+    WHERE event_id = ANY($1) ORDER BY event_id`, [[...ids]]);
+  assert.deepEqual(rows.rows.map((row) => row.attempts), [2, 2]);
+});

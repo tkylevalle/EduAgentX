@@ -161,3 +161,36 @@ test('an expired attempt that the sweep has not ended yet also holds a new attem
   const expired = await ctx.call('POST', '/internal/attempts', { idempotencyKey: 'third' });
   assert.deepEqual([expired.status, expired.body.error], [409, 'previous_attempt_awaiting_outcome']);
 });
+
+test('a claimed event is leased, then offered again after a growing backoff', async (t) => {
+  const { ctx } = await failedAttempt(t);
+  const at = (seconds) => new Date(Date.parse('2026-10-15T07:00:00.000Z') + seconds * 1000).toISOString();
+  const claim = async (seconds) => (await ctx.store.claimPendingRemediations({ now: at(seconds), limit: 10 })).length;
+  assert.equal(await claim(0), 1);
+  assert.equal(await claim(1), 0, 'a second relay does not take a leased event');
+  assert.equal(await claim(2), 1, 'first backoff: 2 s');
+  assert.equal(await claim(5), 0);
+  assert.equal(await claim(6), 1, 'second backoff: 4 s');
+  const [event] = await ctx.store.listPendingRemediations(10);
+  await ctx.store.recordRemediationDelivery({ eventId: event.eventId, outcome: 'delivered', trainingSessionId: 's',
+    detail: {}, recordedAt: at(7) });
+  assert.equal(await claim(600), 0, 'a delivered event is never offered again');
+});
+
+test('an event that keeps failing does not hold back a newer one', async (t) => {
+  const { ctx, attempt } = await failedAttempt(t);
+  const at = (seconds) => new Date(Date.parse('2026-10-15T07:00:00.000Z') + seconds * 1000).toISOString();
+  const { event: older } = await ctx.store.findRemediation(attempt.attemptId);
+  for (const seconds of [0, 2, 6]) assert.equal((await ctx.store.claimPendingRemediations({ now: at(seconds), limit: 1 })).length, 1);
+  // A second failure after remediation produces a newer event for the same learner.
+  ctx.input.completion = remediationCompletion(ctx, older.eventId);
+  ctx.setClock('2026-10-15T06:40:00.000Z');
+  let retake = (await ctx.call('POST', '/internal/attempts', { idempotencyKey: 'retake' })).body.attempt;
+  for (const [index, item] of retake.form.items.entries()) {
+    retake = (await ctx.call('POST', `/internal/attempts/${retake.attemptId}/responses`, { idempotencyKey: `x-${index}`,
+      expectedSequence: retake.sequence, itemId: item.id, response: SAFE })).body.attempt;
+  }
+  await grade(ctx, retake);
+  const [next] = await ctx.store.claimPendingRemediations({ now: at(30), limit: 1 });
+  assert.equal(next.attemptId, retake.attemptId, 'the newer event goes before the older one in backoff');
+});
