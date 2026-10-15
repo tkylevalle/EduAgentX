@@ -128,7 +128,11 @@ function validateGeneratedForm({ pkg, registration, completion, items }) {
     template: { id: template.id, version: template.version, digest: sha256(template) },
     rubric: { id: rubric.id, version: rubric.version, digest: sha256(rubric) },
     generationPolicySha256: sha256(template.generationPolicy),
-    training: { eventId: completion.eventId, sessionId: completion.sessionId },
+    // The remediation link and evidence kind let Issue #21 gate a re-examination
+    // and label the remediation event without reading Training again.
+    training: { eventId: completion.eventId, sessionId: completion.sessionId,
+      sessionKind: completion.sessionKind ?? 'standard', remediationRequestId: completion.remediationRequestId ?? null,
+      evidence: completion.evidence ? { mode: completion.evidence.mode, environment: completion.evidence.environment } : null },
     subject: { agentLearnerKey: registration.agentLearnerKey,
       configurationFingerprint: registration.configurationFingerprint },
     itemCounts: { ...COUNTS }, tierWeights: { ...WEIGHTS },
