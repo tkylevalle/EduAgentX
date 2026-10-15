@@ -52,7 +52,7 @@ const DEADLINE = '2026-10-12T07:00:00.000Z';
 const BEFORE_DEADLINE = '2026-10-12T06:59:59.999Z';
 const AFTER_DEADLINE = '2026-10-12T08:00:00.000Z';
 
-async function fixture(t) {
+async function fixture(t, completionExtra = {}) {
   const pool = new Pool({ connectionString: process.env.EXAMINATION_TEST_DATABASE_URL });
   t.after(() => pool.end());
   await pool.query(fs.readFileSync(path.resolve(__dirname, '../schema.sql'), 'utf8'));
@@ -64,7 +64,7 @@ async function fixture(t) {
   const completion = { eventType: 'training.session.completed', eventId: 'pg-training-completed', sessionId: 'pg-training',
     agentLearnerKey: registration.agentLearnerKey, configurationFingerprint: registration.configurationFingerprint,
     package: { id: pkg.packageId, version: pkg.version, digest: pkg.digest },
-    completion: { plannedItems: 10, completedItems: 10 } };
+    completion: { plannedItems: 10, completedItems: 10 }, ...completionExtra };
   const form = await generateStandardForm({ pkg, registration, completion, generateItems: createStandardItems });
   const store = createPgStore(pool);
   const { attempt } = await store.admit({ actor: registration.agentLearnerKey, key: 'start', form,
@@ -300,4 +300,57 @@ test('PostgreSQL keeps the assessment of a graded attempt and lists only ungrade
   assert.ok(!(await ctx.store.listAwaitingGrading(1000)).includes(answered.attemptId));
   const replay = await runner.grade(answered.attemptId, 'pg-grade-again');
   assert.equal(replay.outcome, 'replay');
+});
+
+test('PostgreSQL commits one immutable remediation event with a failure and keeps one final delivery', async (t) => {
+  const { createGradingRunner } = require('../grading');
+  const ctx = await fixture(t, { evidence: { mode: 'synthetic', environment: 'simulation' } });
+  const answered = await answerAll(ctx);
+  const pkg = structuredClone(candidate);
+  pkg.packageId = pkg.manifest.packageId; pkg.version = pkg.manifest.version;
+  pkg.state = 'Active'; pkg.digest = sha256(pkg); pkg.quarantinedScopes = []; pkg.certificationBlocked = false;
+  const sources = { activePackage: async () => pkg,
+    registration: async () => ({ configurationFingerprint: answered.configurationFingerprint }) };
+  const gradeItems = async ({ items }) => ({ ok: true, body: { grader: { id: 'pg-grader', version: '1.0.0' },
+    results: items.map((item) => ({ itemId: item.itemId, score: 95, rationale: 'pg fixture', citedItemIds: [item.itemId],
+      criticalViolationRuleIds: item.tier === 'adversarial' ? ['critical-o4'] : [] })) } });
+  const runner = createGradingRunner({ store: ctx.store, sources, gradeItems, clock: () => AFTER_DEADLINE });
+  await runner.grade(answered.attemptId, 'pg-remediation');
+  await runner.grade(answered.attemptId, 'pg-remediation-again');
+  const restarted = createPgStore(ctx.pool);
+  const { event, delivery } = await restarted.findRemediation(answered.attemptId);
+  assert.equal(event.eventId, `examination.remediation.required:${answered.attemptId}`);
+  assert.deepEqual(event.gap.criticalViolationRuleIds, ['critical-o4']);
+  assert.equal(delivery, null);
+  const rows = await ctx.pool.query('SELECT count(*)::int AS n FROM examination_engine.remediation_events WHERE attempt_id=$1',
+    [answered.attemptId]);
+  assert.equal(rows.rows[0].n, 1);
+  assert.ok((await restarted.listPendingRemediations(1000)).some((value) => value.eventId === event.eventId));
+  const key = { agentLearnerKey: answered.agentLearnerKey, packageId: answered.package.id, packageVersion: answered.package.version };
+  assert.deepEqual(await restarted.latestRemediationEvent(key), event);
+  const [first, second] = await Promise.all(['delivered', 'refused'].map((outcome) => restarted.recordRemediationDelivery({
+    eventId: event.eventId, outcome, trainingSessionId: outcome === 'delivered' ? 'pg-remediation-session' : null,
+    detail: { status: outcome === 'delivered' ? 201 : 422 }, recordedAt: AFTER_DEADLINE })));
+  assert.deepEqual(first, second, 'two concurrent writers converge on one final outcome');
+  assert.ok(!(await restarted.listPendingRemediations(1000)).some((value) => value.eventId === event.eventId));
+  await assert.rejects(ctx.pool.query('UPDATE examination_engine.remediation_events SET occurred_at = now() WHERE event_id=$1',
+    [event.eventId]), /immutable examination evidence/);
+  await assert.rejects(ctx.pool.query('DELETE FROM examination_engine.remediation_deliveries WHERE event_id=$1',
+    [event.eventId]), /immutable examination evidence/);
+  assert.deepEqual(await restarted.findReexaminations(event.eventId), []);
+});
+
+test('PostgreSQL commits a timeout remediation event in the same transaction as the timeout', async (t) => {
+  const ctx = await fixture(t, { evidence: { mode: 'synthetic', environment: 'simulation' } });
+  await ctx.store.command(ctx.attempt.attemptId, responseCommand(ctx.attempt));
+  const scope = { agentLearnerKey: ctx.attempt.agentLearnerKey, packageId: ctx.attempt.package.id,
+    packageVersion: ctx.attempt.package.version };
+  assert.equal(await ctx.store.hasAttemptAwaitingOutcome({ ...scope, now: BEFORE_DEADLINE }), false);
+  assert.equal(await ctx.store.hasAttemptAwaitingOutcome({ ...scope, now: AFTER_DEADLINE }), true,
+    'an expired attempt the sweep has not ended still waits for its outcome');
+  await ctx.store.sweepExpired(AFTER_DEADLINE);
+  assert.equal(await ctx.store.hasAttemptAwaitingOutcome({ ...scope, now: AFTER_DEADLINE }), false);
+  const { event } = await createPgStore(ctx.pool).findRemediation(ctx.attempt.attemptId);
+  assert.deepEqual(event.failure.failureReasons, ['response_deadline_elapsed']);
+  assert.equal(event.failure.terminalEventId, `timeout:${ctx.attempt.attemptId}`);
 });
