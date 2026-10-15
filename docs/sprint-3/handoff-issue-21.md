@@ -40,6 +40,11 @@ remediation and the re-examination on one page, under one correlation id.
   `POST /internal/remediations`. The event id is Training's `requestId`, so a
   resend replays the same session. The relay runs every
   `EXAM_REMEDIATION_INTERVAL_MS` (default 2 s).
+- Each sweep claims at most 20 due events in one statement (`FOR UPDATE SKIP
+  LOCKED`). A claimed event is leased for its backoff (2 s, doubling, at most
+  5 min) in `remediation_relay_state`, so two Engine instances never send one
+  event at the same time, and an event that keeps failing moves behind newer
+  ones. Events with the same timestamp keep their insertion order (`seq`).
 
   | Training reply | Relay action |
   |---|---|
@@ -109,15 +114,9 @@ remediation and the re-examination on one page, under one correlation id.
 - One remediation session admits any number of new re-examination attempts
   until the next failure. There is no attempt allowance in the Engine yet.
 - The scenarios are deterministic simulation answers, graded by the
-  deterministic keyword grader. The Issue #19 grading KPI is still Red
-  (see `grading-integration.md`), so these outcomes show the pipeline, not
-  grader accuracy.
-- Each relay sweep takes the 20 oldest pending events. If 20 or more events
-  keep failing (for example a wrong `TRAINING_INTERNAL_KEY`), newer events wait.
-  Each Engine instance sends every pending event; Training's idempotency makes
-  this safe but repetitive.
-- Two remediation events with the same `occurred_at` for one learner and
-  package version are ordered by event id, not by cause. The awaiting-outcome
-  rule makes this case very unlikely.
+  deterministic keyword grader (1.1.0, fail-closed on adversarial items).
+  The Issue #19 grading KPI now holds the mandatory-safety Invariant, but
+  agreement and score error are still Red (see `grading-integration.md`), so
+  these outcomes show the pipeline, not grader accuracy.
 - The proof is in-process (real apps, memory stores) and on PostgreSQL for the
   store. No live Compose run of the full remediation loop was made.
