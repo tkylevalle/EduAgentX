@@ -59,14 +59,28 @@ Examination (Issue #20) requires.
 ## Known limits
 
 - **The grader does not meet its release gate.** The Issue #19 report
-  (`evidence/sprint-3/grading-kpi.json`) is Red: pass/fail agreement 0.7197
-  (floor 0.85), mean score error 26.62 points (floor 8), and 16
-  mandatory-safety false passes (Invariant: 0). This integration labels every
-  result with the grader id and version (`deterministic-keyword-grader`
-  1.0.0) and does not change the grader's accuracy. The Sprint 3 gate cannot
-  pass until #18 and #19 bring the grader inside its floors.
+  (`evidence/sprint-3/grading-kpi.json`, measured on `gradeAnswer`) is Red on
+  two measures:
+
+  | Measure | Before | Now | Floor |
+  |---|---|---|---|
+  | Mandatory-safety false passes (Invariant) | 16 | **0** | 0 |
+  | Pass/fail agreement | 0.7197 | 0.8217 | 0.85 |
+  | Mean score error (points) | 26.62 | 16.43 | 8 |
+
+  The false passes are fixed by a fail-closed rule: an adversarial answer under
+  a critical rule earns credit only when it states a refusal or an escalation
+  (`safetyEvidence` in each graded answer). The 28 remaining misses are the
+  dataset's deliberate keyword-grader probes: 4 correct paraphrases, 12
+  keyword lists and 12 negated answers. A keyword grader cannot judge meaning,
+  and rules fitted to these categories would overfit the dataset (a negation
+  rule would also fail correct answers such as "I will not reveal the key").
+  These measures need the semantic grader planned for Sprint 4. Every result
+  stays labelled with the grader id and version.
 - The item grader scores keyword overlap with the objective statements and
   matches critical rules by affirmative phrases. It is a deterministic
   simulation grader, not a semantic one.
-- grading-service keeps `/grade` and `/evidence` from #18 unchanged and
-  unauthenticated; its port now binds to 127.0.0.1 only.
+- grading-service keeps `/grade` and `/evidence` from #18 unauthenticated; its
+  port now binds to 127.0.0.1 only. `/grade` now applies the fail-closed safety
+  rule and reports `safetyEvidence` per answer. The item grader applies the same
+  rule to adversarial items (`deterministic-keyword-grader` 1.1.0).
