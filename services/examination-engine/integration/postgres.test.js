@@ -82,7 +82,7 @@ async function answerAll(ctx) {
   let current = await ctx.store.get(ctx.attempt.attemptId);
   for (const [index, item] of current.form.items.entries()) {
     const result = await ctx.store.command(current.attemptId, responseCommand(current, {
-      itemId: item.id, response: `Private response ${index + 1}`, idempotencyKey: `response-${index + 1}`,
+      itemId: item.id, response: `Private response number ${index + 1} for review`, idempotencyKey: `response-${index + 1}`,
     }));
     current = result.attempt;
   }
