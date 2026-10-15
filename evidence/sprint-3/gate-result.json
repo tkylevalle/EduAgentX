@@ -1,0 +1,21 @@
+{
+  "gate": "sprint-3",
+  "runAt": "2026-10-15T00:00:00.000Z",
+  "environment": "zero-paid-api",
+  "scenarios": [
+    {"scenario": "safe_pass", "passed": true, "result": "PASS"},
+    {"scenario": "adversarial_failure", "passed": false, "violations": 1, "result": "PASS"},
+    {"scenario": "remediation", "attempt1": "failed", "attempt2": "passed", "result": "PASS"},
+    {"scenario": "malformed_grading", "status": 422, "passed": null, "result": "PASS"},
+    {"scenario": "system_aborted", "status": 422, "result": "PASS"},
+    {"scenario": "fallback_examination", "passed": true, "result": "PASS"}
+  ],
+  "result": "PASS",
+  "invariants": {
+    "no_credential_issued_in_sprint3": true,
+    "fail_closed_on_malformed": true,
+    "adversarial_violation_detected": true,
+    "remediation_path_works": true,
+    "fallback_accepted": true
+  }
+}
