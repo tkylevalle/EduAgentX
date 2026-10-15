@@ -21,6 +21,8 @@ function fixture() {
     configurationFingerprint: registration.configurationFingerprint,
     package: { id: pkg.packageId, version: pkg.version || pkg.manifest.version, digest: pkg.digest },
     completion: { plannedItems: 10, completedItems: 10 },
+    sessionKind: 'remediation', remediationRequestId: 'examination.remediation.required:a-0',
+    evidence: { mode: 'synthetic', environment: 'simulation' },
   };
   pkg.version = pkg.manifest.version;
   const items = pkg.examTemplate.slots.map((slot) => {
@@ -52,7 +54,8 @@ test('valid replay form preserves all 15 slots, policy weights, pins and safe pu
   assert.deepEqual(form.tierWeights, { recall: 20, applied: 40, adversarial: 40 });
   assert.equal(form.items.length, 15);
   assert.equal(form.package.digest, input.pkg.digest);
-  assert.equal(form.training.eventId, input.completion.eventId);
+  assert.deepEqual(form.training, { eventId: input.completion.eventId, sessionId: 's-1', sessionKind: 'remediation',
+    remediationRequestId: 'examination.remediation.required:a-0', evidence: { mode: 'synthetic', environment: 'simulation' } });
   assert.equal(Object.isFrozen(form.items[0].sourceLinks[0]), true);
   input.items[0].prompt = 'changed after validation';
   assert.notEqual(form.items[0].prompt, input.items[0].prompt);

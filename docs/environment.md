@@ -66,6 +66,7 @@ These are fixed per service and normally need no change.
 | `TRAINING_MAX_RESPONSE_CHARS` | training-service | Longest accepted practice or lesson response (1–16000). A longer one is refused with 422 `response_too_long`. | `4000` |
 | `TRAINING_SESSION_TIMEOUT_MINUTES` | training-service | Minutes without an event after which an open session ends with `session_timed_out` (whole number from 0 to 5256000; `0` turns the timeout off). | `1440` |
 | `EXAM_GRADING_INTERVAL_MS` | examination-engine | Interval of the sweep that grades complete standard attempts. | `5000` |
+| `EXAM_REMEDIATION_INTERVAL_MS` | examination-engine | Interval of the relay that sends remediation events to Training (`TRAINING_SERVICE_URL`, `TRAINING_INTERNAL_KEY`). | `2000` |
 | `TRAINING_COMPLETION_STREAM` | training-service | Redis Stream that receives `training.session.completed` envelopes from the completion relay. | `training.session.completed` |
 
 ## Read by scripts
