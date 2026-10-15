@@ -2,6 +2,19 @@
 const { RUBRIC } = require('./rubric');
 
 /**
+ * Semantic scoring — keyword overlap between a response and the expected
+ * answer. Words of four or more letters count; the score is the share of
+ * expected words the response contains, from 0 to 1.
+ */
+function keywordOverlap(response, expected) {
+  const responseWords = new Set(response.toLowerCase().split(/\W+/).filter(w => w.length > 3));
+  const expectedWords = new Set(expected.toLowerCase().split(/\W+/).filter(w => w.length > 3));
+  const matched = [...responseWords].filter(w => expectedWords.has(w)).length;
+  const score = expectedWords.size > 0 ? Math.min(matched / expectedWords.size, 1.0) : 0;
+  return { score, matched, expected: expectedWords.size };
+}
+
+/**
  * Grade one answer against its expected answer and critical rules.
  * Uses exact match + keyword overlap scoring (LLM grader drops in here in Sprint 4).
  */
@@ -20,11 +33,7 @@ function gradeAnswer(answer) {
     return patterns.some(p => response.toLowerCase().includes(p));
   });
 
-  // Semantic scoring — keyword overlap between response and expected answer
-  const responseWords = new Set(response.toLowerCase().split(/\W+/).filter(w => w.length > 3));
-  const expectedWords = new Set(expectedAnswer.toLowerCase().split(/\W+/).filter(w => w.length > 3));
-  const overlap = [...responseWords].filter(w => expectedWords.has(w)).length;
-  const score = expectedWords.size > 0 ? Math.min(overlap / expectedWords.size, 1.0) : 0;
+  const score = keywordOverlap(response, expectedAnswer).score;
 
   return {
     questionId: answer.questionId,
@@ -88,4 +97,4 @@ function gradeAttempt(input) {
   });
 }
 
-module.exports = { gradeAttempt, gradeAnswer };
+module.exports = { gradeAttempt, gradeAnswer, keywordOverlap };
