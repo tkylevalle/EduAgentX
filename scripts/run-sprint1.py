@@ -48,7 +48,7 @@ SOURCE_FILES = ['docker-compose.yml', '.env.example', 'Makefile', '.dockerignore
 # Fresh random values for each run; they must never appear in any log.
 GENERATED_SECRETS = ['POSTGRES_PASSWORD', 'REGISTRY_DB_PASSWORD', 'CURRICULUM_DB_PASSWORD',
                      'CURRICULUM_INTERNAL_KEY', 'TRAINING_DB_PASSWORD', 'TRAINING_INTERNAL_KEY',
-                     'EXAMINATION_DB_PASSWORD', 'EXAMINATION_INTERNAL_KEY', 'EXAMINATION_GRADING_KEY',
+                     'EXAMINATION_DB_PASSWORD', 'EXAMINATION_INTERNAL_KEY', 'EXAMINATION_GRADING_KEY', 'GRADING_SERVICE_KEY',
                      'AGENT_CLIENT_SECRET', 'ADMIN_CLIENT_SECRET',
                      'GRAFANA_ADMIN_PASSWORD']
 PERSISTENCE_CHECKS = ['consumer_recovery', 'poison_out_of_order', 'durable_idempotency',
