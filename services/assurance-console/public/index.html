@@ -121,6 +121,10 @@ tr:hover td{background:var(--surface2);}
 .search-bar input:focus{border-color:var(--accent);}
 .btn{background:var(--accent);color:#fff;border:none;padding:8px 16px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;}
 .btn:hover{background:var(--accent2);}
+.btn:focus-visible,.nav-tab:focus-visible,.search-bar input:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+.nav-tab{min-height:44px;display:flex;align-items:center;}
+.btn{min-height:44px;}
+@media(max-width:390px){.grid{grid-template-columns:1fr;}.kpi-grid{grid-template-columns:1fr 1fr;}.lifecycle{flex-direction:column;}.stage:first-child{border-radius:8px 8px 0 0;}.stage:last-child{border-radius:0 0 8px 8px;}.stage::before{display:none;}body{overflow-x:hidden;}* {max-width:100%;}}
 .btn-ghost{background:transparent;border:1px solid var(--border);color:var(--text);}
 
 /* ── Attention ── */
@@ -152,8 +156,8 @@ tr:hover td{background:var(--surface2);}
   </div>
 </div>
 
-<nav>
-  <div class="nav-tab active" onclick="showPage('overview',this)">Overview</div>
+<nav role="navigation" aria-label="Console sections">
+  <div class="nav-tab active" onclick="showPage('overview',this)" role="tab" aria-selected="true" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' ')showPage('overview',this)">Overview</div>
   <div class="nav-tab" onclick="showPage('lifecycle',this)">Lifecycle</div>
   <div class="nav-tab" onclick="showPage('governance',this)">Governance</div>
   <div class="nav-tab" onclick="showPage('evidence',this)">Evidence</div>
@@ -161,7 +165,7 @@ tr:hover td{background:var(--surface2);}
   <div class="nav-tab" onclick="showPage('marketplace',this)">Marketplace</div>
 </nav>
 
-<div class="main">
+<main class="main" aria-label="Console content">
 
 <!-- ── OVERVIEW ── -->
 <div class="page active" id="page-overview">
@@ -273,7 +277,7 @@ tr:hover td{background:var(--surface2);}
   </div>
 </div>
 
-</div><!-- /main -->
+</main>
 
 <script>
 const GATEWAY = window.location.origin.replace('4100','4000');
