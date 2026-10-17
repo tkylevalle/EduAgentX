@@ -15,6 +15,12 @@ const MAX_TRAINING_SESSION_ROWS = 20;
 
 const app = express();
 
+// Serve the Assurance Console UI
+const consolePath = require('node:path').join(__dirname, 'public');
+if (require('node:fs').existsSync(consolePath)) {
+  app.use(express.static(consolePath));
+}
+
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok', service: SERVICE_NAME });
 });
