@@ -49,4 +49,12 @@ function validateRequestVersion(input) {
   return { ok: true, errors: [], digest: digestOf(value), value: canonical(value) };
 }
 
-module.exports = { SUPPORTED_DOMAIN, ASSESSMENT_MODES, ENVIRONMENTS, validateRequestVersion, digestOf };
+// State is never stored, only derived from the append-only events: closed wins,
+// otherwise the most recently opened version is the open one.
+function deriveRequestState(events) {
+  if (events.some((event) => event.eventType === 'closed')) return { status: 'closed', openVersion: null };
+  const opened = events.filter((event) => event.eventType === 'opened' && Number.isInteger(event.version)).at(-1);
+  return opened ? { status: 'open', openVersion: opened.version } : { status: 'draft', openVersion: null };
+}
+
+module.exports = { SUPPORTED_DOMAIN, ASSESSMENT_MODES, ENVIRONMENTS, validateRequestVersion, deriveRequestState, digestOf };
