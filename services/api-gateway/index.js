@@ -307,6 +307,78 @@ function createApp({
       { headers: curriculumHeaders(req) });
   });
 
+  // Issue #27: bounded Governance command. This is a write, but the Gateway
+  // never mutates state itself — it validates the request shape, rechecks
+  // authoritative state immediately before acting, and then calls the
+  // owning service (validation-activation), which performs the mutation and
+  // records it in its own append-only evidence trail. That evidence trail,
+  // now reachable through an authenticated command instead of being
+  // internal-only, is the audit record for this action.
+  //
+  // The recheck closes a real gap: validation-activation's own
+  // POST /packages/:id/quarantines/restore does not verify the target scope
+  // is still quarantined before appending a 'restored' event, so without
+  // this it would be possible to "restore" a scope that was never
+  // quarantined or was already restored. Fixing it here keeps the fix
+  // inside Issue #27's own ownership (api-gateway) rather than editing
+  // validation-activation's already-merged route.
+  //
+  // governance_operator is intentionally only ever added to this route (and
+  // any future /v1/admin/governance/* routes) and to no other mutating
+  // admin route, so it can govern quarantines without being able to edit a
+  // score, force a pass, issue a credential, or touch immutable
+  // policy/evidence — see auth.test.js for the negative tests confirming
+  // this boundary.
+  app.post('/v1/admin/governance/packages/:packageId/quarantine-release',
+    requireRole('governance_operator', 'admin'), async (req, res) => {
+      const body = req.body;
+      const scope = body?.scope;
+      const checks = {
+        version: typeof body?.version === 'string' && body.version.trim().length > 0,
+        scope: Boolean(scope) && typeof scope === 'object' && !Array.isArray(scope) &&
+          typeof scope.type === 'string' && typeof scope.id === 'string' && scope.id.trim().length > 0,
+        reason: typeof body?.reason === 'string' && body.reason.trim().length > 0,
+        evidenceReference: typeof body?.evidenceReference === 'string' && body.evidenceReference.trim().length > 0,
+        restoredPackageId: typeof body?.restoredPackageId === 'string' && body.restoredPackageId.trim().length > 0,
+      };
+      const invalid = Object.keys(checks).filter((name) => !checks[name]);
+      if (invalid.length) {
+        return res.status(400).json({ apiVersion: 'v1', error: 'invalid_request', details: invalid, correlationId: req.correlationId });
+      }
+
+      let current;
+      try {
+        current = await forwardJson(req,
+          `${validationActivationUrl}/packages/${encodeURIComponent(req.params.packageId)}?version=${encodeURIComponent(body.version)}`,
+          { headers: curriculumHeaders(req) });
+      } catch (error) {
+        return proxyFailure(req, res, error);
+      }
+      if (current.status !== 200) return res.status(current.status).json(current.body);
+
+      // Recheck authoritative state: the scope must be quarantined right now,
+      // under this request, not merely when an operator last looked at it.
+      const stillQuarantined = (current.body.quarantinedScopes || [])
+        .some((entry) => entry.scopeType === scope.type && entry.scopeId === scope.id);
+      if (!stillQuarantined) {
+        return res.status(409).json({ apiVersion: 'v1', error: 'scope_not_quarantined', correlationId: req.correlationId });
+      }
+
+      await proxyJson(req, res,
+        `${validationActivationUrl}/packages/${encodeURIComponent(req.params.packageId)}/quarantines/restore`,
+        {
+          method: 'POST',
+          headers: curriculumHeaders(req),
+          body: {
+            version: body.version,
+            scope,
+            reason: body.reason,
+            evidenceReference: body.evidenceReference,
+            restoredPackageId: body.restoredPackageId,
+          },
+        });
+    });
+
   // Training-service trusts these two headers, so the actor is always the
   // authenticated subject, never an agentLearnerKey from the request body.
   const trainingHeaders = (req) => ({
