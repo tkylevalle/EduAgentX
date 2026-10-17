@@ -39,7 +39,7 @@ test('console serves the Assurance Console UI and exposes read-only API routes',
   const previousGatewayUrl = process.env.API_GATEWAY_URL;
   const previousAdminId = process.env.ADMIN_CLIENT_ID;
   const previousAdminSecret = process.env.ADMIN_CLIENT_SECRET;
-  process.env.API_GATEWAY_URL = \`http://127.0.0.1:\${gateway.address().port}\`;
+  process.env.API_GATEWAY_URL = `http://127.0.0.1:${gateway.address().port}`;
   process.env.ADMIN_CLIENT_ID = 'console-admin';
   process.env.ADMIN_CLIENT_SECRET = 'console-secret';
   t.after(() => {
