@@ -155,7 +155,21 @@ function createPgStore(pool) {
     },
     readListing: (agentLearnerKey) => reads.getListingEvents(agentLearnerKey),
     readCheck: (checkId) => reads.getCheck(checkId),
+    readCheckByKey: (actor, key) => reads.findCheckByKey(actor, key),
     listProjection: () => reads.listProjection(),
+    // Stream delivery bookkeeping: one row per attempt, so the budget survives restarts.
+    async recordStreamAttempt(streamId) {
+      const { rows } = await pool.query(`INSERT INTO ${S}.stream_delivery_attempts (stream_id, attempt_no)
+        SELECT $1, COALESCE(max(attempt_no), 0) + 1 FROM ${S}.stream_delivery_attempts WHERE stream_id = $1
+        RETURNING attempt_no`, [streamId]);
+      return rows[0].attempt_no;
+    },
+    isStreamQuarantined: async (streamId) =>
+      (await pool.query(`SELECT 1 FROM ${S}.stream_quarantine WHERE stream_id = $1`, [streamId])).rowCount > 0,
+    async quarantineStreamEntry(streamId, reason, now) {
+      await pool.query(`INSERT INTO ${S}.stream_quarantine (stream_id, reason, quarantined_at) VALUES ($1, $2, $3)
+        ON CONFLICT (stream_id) DO NOTHING`, [streamId, reason, now]);
+    },
   };
 }
 
@@ -164,7 +178,7 @@ function createPgStore(pool) {
 
 function createMemoryStore() {
   let state = { requests: [], versions: [], events: [], listings: [], checks: [], results: [],
-    projection: new Map(), inbox: new Map() };
+    projection: new Map(), inbox: new Map(), streamAttempts: new Map(), streamQuarantine: new Map() };
   let queue = Promise.resolve();
   const uniqueViolation = () => Object.assign(new Error('duplicate key'), { code: '23505' });
   const copy = (value) => structuredClone(value ?? null);
@@ -269,7 +283,20 @@ function createMemoryStore() {
     },
     readListing: (agentLearnerKey) => queriesFor(state).getListingEvents(agentLearnerKey),
     readCheck: (checkId) => queriesFor(state).getCheck(checkId),
+    readCheckByKey: (actor, key) => queriesFor(state).findCheckByKey(actor, key),
     listProjection: () => queriesFor(state).listProjection(),
+    async recordStreamAttempt(streamId) {
+      const attempt = (state.streamAttempts.get(streamId) || 0) + 1;
+      state.streamAttempts.set(streamId, attempt);
+      return attempt;
+    },
+    async isStreamQuarantined(streamId) { return state.streamQuarantine.has(streamId); },
+    async quarantineStreamEntry(streamId, reason) {
+      if (!state.streamQuarantine.has(streamId)) state.streamQuarantine.set(streamId, reason);
+    },
+    // Test helpers: what the consumer quarantined and the inbox outcome per event.
+    quarantined: () => new Map(state.streamQuarantine),
+    inboxOutcome: (eventId) => state.inbox.get(eventId) ?? null,
   };
   return store;
 }
