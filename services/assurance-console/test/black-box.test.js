@@ -17,7 +17,7 @@ const trace = {
   },
 };
 
-test('console renders authoritative trace evidence and exposes no mutation route', async (t) => {
+test('console serves the Assurance Console UI and exposes read-only API routes', async (t) => {
   const gatewayRequests = [];
   const gateway = http.createServer((req, res) => {
     gatewayRequests.push({ method: req.method, path: req.url });
@@ -39,7 +39,7 @@ test('console renders authoritative trace evidence and exposes no mutation route
   const previousGatewayUrl = process.env.API_GATEWAY_URL;
   const previousAdminId = process.env.ADMIN_CLIENT_ID;
   const previousAdminSecret = process.env.ADMIN_CLIENT_SECRET;
-  process.env.API_GATEWAY_URL = `http://127.0.0.1:${gateway.address().port}`;
+  process.env.API_GATEWAY_URL = \`http://127.0.0.1:\${gateway.address().port}\`;
   process.env.ADMIN_CLIENT_ID = 'console-admin';
   process.env.ADMIN_CLIENT_SECRET = 'console-secret';
   t.after(() => {
@@ -56,17 +56,20 @@ test('console renders authoritative trace evidence and exposes no mutation route
   await new Promise((resolve) => consoleServer.listen(0, '127.0.0.1', resolve));
   t.after(() => consoleServer.close());
 
+  // GET / should return 200 with HTML (the Console UI)
   const page = await request(consoleServer, 'GET', '/');
   assert.equal(page.status, 200);
-  assert.match(page.body, /configuration_changed/);
-  assert.match(page.body, /sha256:configured-fingerprint/);
-  assert.match(page.body, /registration-correlation/);
+  // The new UI is an HTML page — check it contains EduAgentX branding
+  assert.match(page.body, /EduAgentX/);
+  assert.match(page.body, /Assurance Console/);
 
+  // /api/registration-trace should still work and return trace data
   const traceResponse = await request(consoleServer, 'GET', '/api/registration-trace');
   assert.equal(traceResponse.status, 200);
   assert.equal(traceResponse.body.status, 'available');
   assert.equal(traceResponse.body.trace.assurance.correlationId, 'registration-correlation');
 
+  // POST to read-only paths must return 404 (no mutation routes)
   const mutation = await request(consoleServer, 'POST', '/api/registration-trace');
   assert.equal(mutation.status, 404);
   assert.equal(gatewayRequests.some((item) => item.path.startsWith('/v1/registrations')), false);
