@@ -12,8 +12,10 @@ process.env.AGENT_CLIENT_ID = 'governance-agent';
 process.env.AGENT_CLIENT_SECRET = 'governance-agent-secret';
 process.env.ADMIN_CLIENT_ID = 'governance-admin';
 process.env.ADMIN_CLIENT_SECRET = 'governance-admin-secret';
-process.env.GOVERNANCE_CLIENT_ID = 'governance-operator';
-process.env.GOVERNANCE_CLIENT_SECRET = 'governance-operator-secret';
+process.env.GOVERNANCE_OPERATOR_1_CLIENT_ID = 'governance-operator-a';
+process.env.GOVERNANCE_OPERATOR_1_CLIENT_SECRET = 'governance-operator-a-secret';
+process.env.GOVERNANCE_OPERATOR_2_CLIENT_ID = 'governance-operator-b';
+process.env.GOVERNANCE_OPERATOR_2_CLIENT_SECRET = 'governance-operator-b-secret';
 // Tests pass this explicitly; a key from the developer's shell must not leak in.
 delete process.env.CURRICULUM_INTERNAL_KEY;
 
@@ -34,41 +36,78 @@ function releaseBody(overrides = {}) {
   };
 }
 
-test('a governance operator releases a currently-quarantined scope: Gateway rechecks state, then calls the owning service', async (t) => {
+test('two distinct governance operators approve a currently-quarantined scope: first pends, second executes against the owning service', async (t) => {
   const { gateway, validation } = await startGateway(t, {
     quarantinedScopes: [{ scopeType: 'module', scopeId: 'm1', evidence: { reason: 'stale source' } }],
   });
-  const token = await getToken(gateway, 'governance-operator', 'governance-operator-secret');
+  const tokenA = await getToken(gateway, 'governance-operator-a', 'governance-operator-a-secret');
+  const tokenB = await getToken(gateway, 'governance-operator-b', 'governance-operator-b-secret');
 
-  const response = await request(gateway, 'POST', RELEASE_PATH, releaseBody(), {
-    authorization: `Bearer ${token}`, 'x-correlation-id': 'corr-release-1',
-  });
-  assert.equal(response.status, 200);
-  assert.equal(response.body.restoredScope.id, 'm1');
+  const first = await request(gateway, 'POST', RELEASE_PATH, releaseBody({ reason: 'approver A: stale source now fixed' }),
+    { authorization: `Bearer ${tokenA}`, 'x-correlation-id': 'corr-release-1' });
+  assert.deepEqual([first.status, first.body.status, first.body.approvals, first.body.requiredApprovals],
+    [202, 'pending_second_approval', 1, 2]);
+  // Approval 1 alone never reaches the owning service's write endpoint.
+  assert.deepEqual(validation.requests.map((r) => `${r.method} ${r.url}`), [`GET /packages/${PACKAGE_ID}?version=1.0.0`]);
+
+  const second = await request(gateway, 'POST', RELEASE_PATH, releaseBody({ reason: 'approver B: independently confirmed the fix' }),
+    { authorization: `Bearer ${tokenB}`, 'x-correlation-id': 'corr-release-2' });
+  assert.equal(second.status, 200);
+  assert.equal(second.body.restoredScope.id, 'm1');
 
   assert.deepEqual(validation.requests.map((r) => `${r.method} ${r.url}`), [
     `GET /packages/${PACKAGE_ID}?version=1.0.0`,
+    `GET /packages/${PACKAGE_ID}?version=1.0.0`,
     `POST /packages/${PACKAGE_ID}/quarantines/restore`,
   ]);
-  for (const r of validation.requests) {
-    assert.equal(r.headers['x-internal-service-key'], CURRICULUM_KEY);
-    assert.equal(r.headers['x-actor-subject'], 'governance-operator', 'the actor is the authenticated subject, never caller-supplied');
-    assert.equal(r.headers['x-actor-role'], 'governance_operator');
-  }
-  assert.equal(validation.requests[1].headers['x-correlation-id'], 'corr-release-1');
-  assert.deepEqual(validation.requests[1].body, releaseBody());
+  const restoreCall = validation.requests[2];
+  assert.equal(restoreCall.headers['x-internal-service-key'], CURRICULUM_KEY);
+  assert.equal(restoreCall.headers['x-actor-subject'], 'governance-operator-b', 'the executing actor is the second, authenticated approver');
+  assert.equal(restoreCall.headers['x-actor-role'], 'governance_operator');
+  assert.match(restoreCall.body.reason, /approver A: stale source now fixed/);
+  assert.match(restoreCall.body.reason, /approver B: independently confirmed the fix/);
+  assert.equal(restoreCall.body.evidenceReference, releaseBody().evidenceReference);
 });
 
-test('an admin may also release a quarantine (governance_operator is additive, not a replacement for admin)', async (t) => {
-  const { gateway } = await startGateway(t, {
-    quarantinedScopes: [{ scopeType: 'module', scopeId: 'm1' }],
-  });
-  const token = await getToken(gateway, 'governance-admin', 'governance-admin-secret');
-  const response = await request(gateway, 'POST', RELEASE_PATH, releaseBody(), { authorization: `Bearer ${token}` });
-  assert.equal(response.status, 200);
+test('an admin and a governance operator are distinct subjects and can jointly complete a release', async (t) => {
+  const { gateway } = await startGateway(t, { quarantinedScopes: [{ scopeType: 'module', scopeId: 'm1' }] });
+  const adminToken = await getToken(gateway, 'governance-admin', 'governance-admin-secret');
+  const operatorToken = await getToken(gateway, 'governance-operator-a', 'governance-operator-a-secret');
+
+  const first = await request(gateway, 'POST', RELEASE_PATH, releaseBody(), { authorization: `Bearer ${adminToken}` });
+  assert.equal(first.status, 202);
+  const second = await request(gateway, 'POST', RELEASE_PATH, releaseBody(), { authorization: `Bearer ${operatorToken}` });
+  assert.equal(second.status, 200);
 });
 
-test('an Agent Learner cannot call governance commands', async (t) => {
+test('the same approver calling twice never completes a release alone', async (t) => {
+  const { gateway, validation } = await startGateway(t, { quarantinedScopes: [{ scopeType: 'module', scopeId: 'm1' }] });
+  const token = await getToken(gateway, 'governance-operator-a', 'governance-operator-a-secret');
+
+  const first = await request(gateway, 'POST', RELEASE_PATH, releaseBody(), { authorization: `Bearer ${token}` });
+  assert.equal(first.status, 202);
+  const repeat = await request(gateway, 'POST', RELEASE_PATH, releaseBody(), { authorization: `Bearer ${token}` });
+  assert.deepEqual([repeat.status, repeat.body.error], [409, 'duplicate_approver']);
+  assert.deepEqual(validation.requests.map((r) => r.method), ['GET', 'GET'], 'the restore endpoint is never reached by a single approver');
+});
+
+test('a second approval that does not match the first (different restoredPackageId or evidenceReference) is refused, and the first approval is preserved', async (t) => {
+  const { gateway, validation } = await startGateway(t, { quarantinedScopes: [{ scopeType: 'module', scopeId: 'm1' }] });
+  const tokenA = await getToken(gateway, 'governance-operator-a', 'governance-operator-a-secret');
+  const tokenB = await getToken(gateway, 'governance-operator-b', 'governance-operator-b-secret');
+
+  await request(gateway, 'POST', RELEASE_PATH, releaseBody(), { authorization: `Bearer ${tokenA}` });
+  const mismatched = await request(gateway, 'POST', RELEASE_PATH,
+    releaseBody({ restoredPackageId: 'some-other-candidate' }), { authorization: `Bearer ${tokenB}` });
+  assert.deepEqual([mismatched.status, mismatched.body.error], [409, 'approval_mismatch']);
+
+  // The original, correctly-matching pending approval is still honored afterward.
+  const matching = await request(gateway, 'POST', RELEASE_PATH, releaseBody(), { authorization: `Bearer ${tokenB}` });
+  assert.equal(matching.status, 200);
+  assert.deepEqual(validation.requests.map((r) => r.method), ['GET', 'GET', 'GET', 'POST']);
+});
+
+test('an Agent Learner cannot approve governance commands', async (t) => {
   const { gateway, validation } = await startGateway(t, { quarantinedScopes: [{ scopeType: 'module', scopeId: 'm1' }] });
   const token = await getToken(gateway, 'governance-agent', 'governance-agent-secret');
   const response = await request(gateway, 'POST', RELEASE_PATH, releaseBody(), { authorization: `Bearer ${token}` });
@@ -78,7 +117,7 @@ test('an Agent Learner cannot call governance commands', async (t) => {
 
 test('governance_operator is scoped to governance commands and is refused by every other mutating admin route', async (t) => {
   const { gateway, validation } = await startGateway(t, {});
-  const token = await getToken(gateway, 'governance-operator', 'governance-operator-secret');
+  const token = await getToken(gateway, 'governance-operator-a', 'governance-operator-a-secret');
   for (const [method, route] of [
     ['POST', '/v1/admin/curriculum/packages'],
     ['POST', '/v1/admin/curriculum/validate'],
@@ -92,24 +131,40 @@ test('governance_operator is scoped to governance commands and is refused by eve
   assert.equal(validation.requests.length, 0);
 });
 
-test('the Gateway rechecks authoritative state and refuses to restore a scope that is not currently quarantined', async (t) => {
+test('every approval rechecks authoritative state: a scope restored between the two approvals refuses the second one', async (t) => {
   // Closes the gap in validation-activation's own restore route, which does
-  // not itself verify the scope is still quarantined before acting.
+  // not itself verify the scope is still quarantined before acting — and
+  // proves the recheck runs on the SECOND approval too, not just the first.
+  const { gateway, validation } = await startGateway(t, {
+    quarantinedScopes: [{ scopeType: 'module', scopeId: 'm1' }],
+  });
+  const tokenA = await getToken(gateway, 'governance-operator-a', 'governance-operator-a-secret');
+  const tokenB = await getToken(gateway, 'governance-operator-b', 'governance-operator-b-secret');
+
+  const first = await request(gateway, 'POST', RELEASE_PATH, releaseBody(), { authorization: `Bearer ${tokenA}` });
+  assert.equal(first.status, 202);
+
+  // Something else cleared the quarantine out from under the pending approval.
+  validation.quarantinedScopes.length = 0;
+
+  const second = await request(gateway, 'POST', RELEASE_PATH, releaseBody(), { authorization: `Bearer ${tokenB}` });
+  assert.deepEqual([second.status, second.body.error], [409, 'scope_not_quarantined']);
+  assert.deepEqual(validation.requests.map((r) => r.method), ['GET', 'GET'], 'the restore endpoint is never called once the recheck fails');
+});
+
+test('a scope that was never quarantined refuses even the first approval', async (t) => {
   const { gateway, validation } = await startGateway(t, {
     quarantinedScopes: [{ scopeType: 'module', scopeId: 'some-other-module' }],
   });
-  const token = await getToken(gateway, 'governance-operator', 'governance-operator-secret');
-
+  const token = await getToken(gateway, 'governance-operator-a', 'governance-operator-a-secret');
   const response = await request(gateway, 'POST', RELEASE_PATH, releaseBody(), { authorization: `Bearer ${token}` });
   assert.deepEqual([response.status, response.body.error], [409, 'scope_not_quarantined']);
-  assert.deepEqual(validation.requests.map((r) => `${r.method} ${r.url}`), [
-    `GET /packages/${PACKAGE_ID}?version=1.0.0`,
-  ], 'the restore endpoint is never called once the recheck fails');
+  assert.deepEqual(validation.requests.map((r) => r.method), ['GET']);
 });
 
-test('a missing reason, evidence reference, scope, version, or restoredPackageId is refused before the owning service is called', async (t) => {
+test('a missing reason, evidence reference, scope, version, or restoredPackageId is refused before anything is recorded', async (t) => {
   const { gateway, validation } = await startGateway(t, { quarantinedScopes: [{ scopeType: 'module', scopeId: 'm1' }] });
-  const token = await getToken(gateway, 'governance-operator', 'governance-operator-secret');
+  const token = await getToken(gateway, 'governance-operator-a', 'governance-operator-a-secret');
 
   const cases = [
     [releaseBody({ reason: '' }), ['reason']],
@@ -129,9 +184,9 @@ test('a missing reason, evidence reference, scope, version, or restoredPackageId
   assert.equal(validation.requests.length, 0, 'an invalid command never reaches the owning service');
 });
 
-test('a package the owning service cannot find is reported back as-is, without calling restore', async (t) => {
+test('a package the owning service cannot find is reported back as-is, without recording an approval', async (t) => {
   const { gateway, validation } = await startGateway(t, { packageFound: false });
-  const token = await getToken(gateway, 'governance-operator', 'governance-operator-secret');
+  const token = await getToken(gateway, 'governance-operator-a', 'governance-operator-a-secret');
   const response = await request(gateway, 'POST', RELEASE_PATH, releaseBody(), { authorization: `Bearer ${token}` });
   assert.deepEqual([response.status, response.body.error], [404, 'not_found']);
   assert.deepEqual(validation.requests.map((r) => `${r.method} ${r.url}`), [
@@ -146,7 +201,7 @@ test('an unreachable validation-activation fails the governance command closed',
   }));
   await listen(gateway);
   t.after(() => gateway.close());
-  const token = await getToken(gateway, 'governance-operator', 'governance-operator-secret');
+  const token = await getToken(gateway, 'governance-operator-a', 'governance-operator-a-secret');
   const response = await request(gateway, 'POST', RELEASE_PATH, releaseBody(), { authorization: `Bearer ${token}` });
   assert.deepEqual([response.status, response.body.error], [502, 'upstream_unavailable']);
 });
@@ -165,8 +220,11 @@ async function startGateway(t, { quarantinedScopes = [], packageFound = true } =
 
 // Answers like validation-activation does for the two calls a governance
 // quarantine-release command makes, and records every request it receives.
+// `quarantinedScopes` is the same array instance referenced by both the
+// stub and the test, so a test can mutate it mid-flow to simulate the
+// scope being restored by someone else between two approvals.
 async function startValidationActivationStub({ quarantinedScopes, packageFound }) {
-  const stub = { requests: [] };
+  const stub = { requests: [], quarantinedScopes };
   stub.server = http.createServer(async (req, res) => {
     const body = req.method === 'POST' ? await readJson(req) : undefined;
     stub.requests.push({ method: req.method, url: req.url, headers: req.headers, body });
@@ -174,12 +232,12 @@ async function startValidationActivationStub({ quarantinedScopes, packageFound }
     if (req.method === 'GET' && routePath === `/packages/${PACKAGE_ID}`) {
       if (!packageFound) return sendJson(res, 404, { error: 'not_found' });
       return sendJson(res, 200, {
-        packageId: PACKAGE_ID, version: '1.0.0', quarantinedScopes,
-        certificationBlocked: quarantinedScopes.length > 0,
+        packageId: PACKAGE_ID, version: '1.0.0', quarantinedScopes: stub.quarantinedScopes,
+        certificationBlocked: stub.quarantinedScopes.length > 0,
       });
     }
     if (req.method === 'POST' && routePath === `/packages/${PACKAGE_ID}/quarantines/restore`) {
-      const remaining = quarantinedScopes.filter((s) => !(s.scopeType === body.scope.type && s.scopeId === body.scope.id));
+      const remaining = stub.quarantinedScopes.filter((s) => !(s.scopeType === body.scope.type && s.scopeId === body.scope.id));
       return sendJson(res, 200, {
         packageId: PACKAGE_ID, restoredScope: body.scope,
         certificationBlocked: remaining.length > 0, quarantinedScopes: remaining,
