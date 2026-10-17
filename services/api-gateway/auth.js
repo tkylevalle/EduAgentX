@@ -72,6 +72,17 @@ function knownClients() {
       clientSecret: process.env[`REVIEWER_${index}_CLIENT_SECRET`] || '',
       role: 'reviewer',
     })),
+    // Issue #27: Governance Operator is a role distinct from admin per the
+    // spec's composable Viewer/Evaluator, Governance Operator, Demo Operator
+    // permissions (spec.md line 182). It is scoped to bounded governance
+    // commands only (see /v1/admin/governance/* below) and is deliberately
+    // never added to curriculum/activate, training-remediations, or any
+    // other mutating admin route.
+    {
+      clientId: process.env.GOVERNANCE_CLIENT_ID || '',
+      clientSecret: process.env.GOVERNANCE_CLIENT_SECRET || '',
+      role: 'governance_operator',
+    },
   ].filter((c) => c.clientId && c.clientSecret);
 }
 
