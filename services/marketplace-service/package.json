@@ -1,0 +1,15 @@
+{
+  "name": "eduagentx-marketplace-service",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Simulated Capability Requests and hard Marketplace Eligibility gates for Sprint 5 (#30)",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "pg": "^8.11.5"
+  }
+}
