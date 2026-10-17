@@ -1,5 +1,3 @@
-CREATE SCHEMA IF NOT EXISTS certification_engine;
-
 CREATE TABLE IF NOT EXISTS certification_engine.decisions (
   decision_id uuid PRIMARY KEY,
   examination_id uuid NOT NULL UNIQUE,
