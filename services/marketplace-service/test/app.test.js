@@ -54,6 +54,7 @@ function fakeSources() {
   return {
     state,
     verification: { async verify(candidate) {
+      if (state.beforeVerify) await state.beforeVerify();
       const blocked = guard(candidate.credentialId);
       if (blocked) return blocked;
       return { signature: 'valid', schema: 'valid', status: state.status.get(candidate.credentialId) || 'active' };
@@ -141,6 +142,34 @@ test('health reports ok, and 503 when the database is down', async (t) => {
   assert.equal((await ctx.call('GET', '/health', undefined, null, {})).status, 200);
   ctx.store.health = async () => { throw new Error('down'); };
   assert.equal((await ctx.call('GET', '/health', undefined, null, {})).status, 503);
+});
+
+test('start() with missing config stays up and reports 503 with the missing names, not a crash', async (t) => {
+  const { start } = require('../index');
+  const server = start({ PORT: '0' });
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  await new Promise((resolve) => (server.listening ? resolve() : server.once('listening', resolve)));
+  const health = await send(server, 'GET', '/health', undefined, {});
+  assert.equal(health.status, 503);
+  assert.deepEqual(health.body.problems, ['missing:DATABASE_URL', 'missing:MARKETPLACE_INTERNAL_KEY',
+    'missing:CURRICULUM_INTERNAL_KEY', 'schema_not_applied']);
+  assert.equal(health.body.eventFeed, 'disabled');
+  const internal = await send(server, 'GET', '/internal/capability-requests', undefined, {});
+  assert.equal(internal.status, 503);
+});
+
+test('start() with an unreachable database reports schema_not_applied and keeps refusing internal calls', async (t) => {
+  const { start } = require('../index');
+  const server = start({ PORT: '0', DATABASE_URL: 'postgres://nobody:nothing@127.0.0.1:1/none',
+    MARKETPLACE_INTERNAL_KEY: KEY, CURRICULUM_INTERNAL_KEY: 'k' });
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  await new Promise((resolve) => (server.listening ? resolve() : server.once('listening', resolve)));
+  const health = await send(server, 'GET', '/health', undefined, {});
+  assert.equal(health.status, 503);
+  assert.deepEqual(health.body.problems, ['schema_not_applied']);
+  const internal = await send(server, 'GET', '/internal/capability-requests', undefined,
+    { 'x-internal-service-key': KEY, 'x-actor-subject': OPERATOR });
+  assert.equal(internal.status, 503);
 });
 
 // --- Capability Requests
@@ -309,9 +338,40 @@ test('a source that throws or hangs excludes only that candidate as UNCHECKABLE'
   assert.deepEqual(keysOf(result.body.excluded), ['agent-b', 'agent-c']);
   for (const item of result.body.excluded) {
     assert.ok(codesOf(item).includes('STATUS_UNCHECKABLE'), item.agentLearnerKey);
-    assert.equal(item.sources.verification, 'unavailable');
     assert.equal(item.sources.registry, 'answered');
   }
+  assert.deepEqual(result.body.excluded.map((item) => item.sources.verification), ['source_unavailable', 'timeout']);
+});
+
+test('a close while sources are being called makes the check fail with 409 and stores nothing', async (t) => {
+  const ctx = await boot(t);
+  const id = await ctx.ready(['agent-a']);
+  // The close goes through the real route; it could only finish here if the check held no lock.
+  ctx.sources.state.beforeVerify = async () => { assert.equal((await ctx.close(id)).body.outcome, 'closed'); };
+  const result = await ctx.check(id, 'racing-check');
+  assert.equal(result.status, 409);
+  assert.equal(result.body.error, 'request_not_open');
+  assert.equal(await ctx.store.readCheckByKey(OPERATOR, 'racing-check'), null);
+});
+
+test('a new open version while sources are being called makes the check fail with 409', async (t) => {
+  const ctx = await boot(t);
+  const id = await ctx.ready(['agent-a']);
+  await ctx.call('POST', `/internal/capability-requests/${id}/versions`, { idempotencyKey: 'v2', request: requestBody({ title: 'B' }) });
+  ctx.sources.state.beforeVerify = async () => { await ctx.open(id, 2); };
+  const result = await ctx.check(id, 'version-race');
+  assert.equal(result.body.error, 'request_version_changed');
+  assert.equal(await ctx.store.readCheckByKey(OPERATOR, 'version-race'), null);
+});
+
+test('a withdrawal while sources are being called is seen by the stored result', async (t) => {
+  const ctx = await boot(t);
+  const id = await ctx.ready(['agent-a', 'agent-b']);
+  let once = false;
+  ctx.sources.state.beforeVerify = async () => { if (!once) { once = true; await ctx.withdraw('agent-b'); } };
+  const result = await ctx.check(id);
+  assert.deepEqual(keysOf(result.body.eligible), ['agent-a']);
+  assert.deepEqual(codesOf(result.body.excluded[0]), ['NOT_DISCOVERABLE']);
 });
 
 test('a status change between two checks changes the result and leaves the old check unchanged', async (t) => {

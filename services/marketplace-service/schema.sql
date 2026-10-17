@@ -71,6 +71,20 @@ CREATE TABLE IF NOT EXISTS marketplace_service.projection_inbox (
   applied_at timestamptz NOT NULL DEFAULT now()
 );
 
+-- Redis Stream delivery: one row per attempt (budget of 3) and one per quarantined
+-- entry. Keyed by stream id because a poison entry may carry no usable event id.
+CREATE TABLE IF NOT EXISTS marketplace_service.stream_delivery_attempts (
+  stream_id text NOT NULL,
+  attempt_no integer NOT NULL CHECK (attempt_no > 0),
+  attempted_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (stream_id, attempt_no)
+);
+CREATE TABLE IF NOT EXISTS marketplace_service.stream_quarantine (
+  stream_id text PRIMARY KEY,
+  reason text NOT NULL,
+  quarantined_at timestamptz NOT NULL DEFAULT now()
+);
+
 -- Point-in-time eligibility evidence. Not a ranking: #31 orders results.
 CREATE TABLE IF NOT EXISTS marketplace_service.eligibility_checks (
   check_id uuid PRIMARY KEY,
@@ -104,7 +118,8 @@ DO $$
 DECLARE name text;
 BEGIN
   FOREACH name IN ARRAY ARRAY['capability_requests', 'capability_request_versions', 'capability_request_events',
-    'listing_events', 'projection_inbox', 'eligibility_checks', 'eligibility_check_results'] LOOP
+    'listing_events', 'projection_inbox', 'stream_delivery_attempts', 'stream_quarantine',
+    'eligibility_checks', 'eligibility_check_results'] LOOP
     EXECUTE format('DROP TRIGGER IF EXISTS %I ON marketplace_service.%I', name || '_immutable', name);
     EXECUTE format('CREATE TRIGGER %I BEFORE UPDATE OR DELETE ON marketplace_service.%I
       FOR EACH ROW EXECUTE FUNCTION marketplace_service.forbid_evidence_change()', name || '_immutable', name);

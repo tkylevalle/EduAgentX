@@ -15,6 +15,9 @@ const telemetry = require('../../packages/telemetry');
 const { validateRequestVersion, deriveRequestState } = require('./capability-request');
 const { checkEligibility } = require('./eligibility');
 const { createPgStore, withRetry, isUniqueViolation } = require('./store');
+const { askSource, createRegistrySource, createPackageSource, createVerificationSource,
+  createLifecycleSource } = require('./clients');
+const { DEFAULT_STREAM, createCredentialConsumer, createRedisClient } = require('./stream-consumer');
 
 const SERVICE_NAME = 'marketplace-service';
 const API_VERSION = 'v1';
@@ -40,6 +43,8 @@ const matchesSecret = (a, b) => {
 function createApp({
   pool, store = pool ? createPgStore(pool) : undefined, internalKey = process.env.MARKETPLACE_INTERNAL_KEY,
   sources, clock = () => new Date().toISOString(), newId = randomUUID, sourceTimeoutMs = 2000,
+  // Startup problems (missing config, schema not applied yet). Any problem means 503, never a guess.
+  readiness = () => [], healthDetails = () => ({}),
 } = {}) {
   if (!store || !sources || SOURCE_NAMES.some((name) => !sources[name])) throw new Error('store and all four sources required');
   const app = express();
@@ -52,13 +57,18 @@ function createApp({
   app.use(express.json({ limit: '64kb' }));
 
   app.get('/health', async (_req, res) => {
-    try { await store.health(); res.json({ status: 'ok', service: SERVICE_NAME }); }
-    catch { res.status(503).json({ status: 'unhealthy', service: SERVICE_NAME }); }
+    const problems = readiness();
+    try {
+      if (problems.length) throw new Error('not ready');
+      await store.health();
+      res.json({ status: 'ok', service: SERVICE_NAME, ...healthDetails() });
+    } catch { res.status(503).json({ status: 'unhealthy', service: SERVICE_NAME, problems, ...healthDetails() }); }
   });
 
   app.use('/internal', (req, res, next) => {
     // No configured key means no caller can be trusted: refuse everything rather than run open.
-    if (!internalKey) return res.status(503).json({ apiVersion: API_VERSION, error: 'marketplace_not_configured', correlationId: req.correlationId });
+    if (!internalKey || readiness().length)
+      return res.status(503).json({ apiVersion: API_VERSION, error: 'marketplace_not_configured', correlationId: req.correlationId });
     if (!matchesSecret(req.header('x-internal-service-key'), internalKey) || !IDENTIFIER.test(req.header('x-actor-subject') || ''))
       return res.status(401).json({ apiVersion: API_VERSION, error: 'unauthorized', correlationId: req.correlationId });
     req.actor = req.header('x-actor-subject');
@@ -173,33 +183,23 @@ function createApp({
 
   // --- eligibility checks
 
-  // One authoritative answer, bounded in time. A throw or a timeout becomes null
-  // so only this candidate's gate is uncheckable; the check itself carries on.
-  async function ask(name, call, correlationId) {
-    let timer;
-    try {
-      const value = await Promise.race([
-        Promise.resolve().then(call),
-        new Promise((_resolve, reject) => { timer = setTimeout(() => reject(new Error('timeout')), sourceTimeoutMs); }),
-      ]);
-      return { value: value ?? null, outcome: 'answered' };
-    } catch {
-      telemetry.log(SERVICE_NAME, 'source_unavailable', { correlationId, dependency: name, outcome: 'uncheckable' });
-      return { value: null, outcome: 'unavailable' };
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-
-  async function evaluate(record, version, discoverable, now, correlationId) {
+  // Every authoritative answer for one credential, each bounded in time. A throw,
+  // a timeout or a contract mismatch becomes null for that answer only, so the
+  // candidate gets UNCHECKABLE reasons while the rest of the check carries on.
+  async function gatherAnswers(record, correlationId) {
     const candidate = record.candidate || {};
     const options = { correlationId };
+    const ask = (name, call) => askSource(name, call, { timeoutMs: sourceTimeoutMs, correlationId });
     const [verification, fingerprint, pkg, lifecycle] = await Promise.all([
-      ask('verification', () => sources.verification.verify(candidate, options), correlationId),
-      ask('registry', () => sources.registry.getCurrentFingerprint(record.agentLearnerKey, options), correlationId),
-      ask('package', () => sources.package.getPackage(candidate.package?.id, candidate.package?.version, options), correlationId),
-      ask('lifecycleOrigin', () => sources.lifecycle.isLifecycleOrigin(candidate, options), correlationId),
+      ask('verification', () => sources.verification.verify(candidate, options)),
+      ask('registry', () => sources.registry.getCurrentFingerprint(record.agentLearnerKey, options)),
+      ask('package', () => sources.package.getPackage(candidate.package?.id, candidate.package?.version, options)),
+      ask('lifecycleOrigin', () => sources.lifecycle.isLifecycleOrigin(candidate, options)),
     ]);
+    return { record, verification, fingerprint, pkg, lifecycle };
+  }
+
+  function evaluate({ record, verification, fingerprint, pkg, lifecycle }, version, discoverable, now) {
     const authoritative = {
       lifecycleOrigin: lifecycle.value,
       discoverable,
@@ -207,7 +207,7 @@ function createApp({
       registry: fingerprint.value === null ? null : { currentFingerprint: fingerprint.value },
       package: pkg.value,
     };
-    const { eligible, reasons } = checkEligibility(version.content, candidate, authoritative, now);
+    const { eligible, reasons } = checkEligibility(version.content, record.candidate || {}, authoritative, now);
     return { agentLearnerKey: record.agentLearnerKey, credentialId: record.credentialId, eligible, reasons,
       sources: { verification: verification.outcome, registry: fingerprint.outcome, package: pkg.outcome,
         lifecycleOrigin: lifecycle.outcome, listing: 'marketplace' } };
@@ -216,27 +216,39 @@ function createApp({
   app.post('/internal/capability-requests/:id/eligibility-checks', handle(async (req) => {
     const id = requestId(req);
     const { idempotencyKey } = readBody(req, ['idempotencyKey']);
-    // The request lock is held for the whole check, so a close cannot slip in
-    // between "is it open?" and saving the results. Sources are time-bounded.
+    const replayOf = (prior) => {
+      if (prior.check.requestId !== id) throw new HttpError(409, 'idempotency_conflict');
+      return { status: 200, body: { outcome: 'replay', ...checkView(prior) } };
+    };
+
+    // 1. Read without a lock: the request, its open version and the projected credentials.
+    const prior = await store.readCheckByKey(req.actor, idempotencyKey);
+    if (prior) return replayOf(prior);
+    const found = await store.readRequest(id);
+    if (!found) throw new HttpError(404, 'request_not_found');
+    const state = deriveRequestState(found.events);
+    if (state.status !== 'open') throw new HttpError(409, 'request_not_open');
+    const version = found.versions.find((v) => v.version === state.openVersion);
+    const records = await store.listProjection();
+
+    // 2. Ask the owning services with no transaction or lock held, so slow
+    // sources never block a close, a new version or another check.
+    const answers = await Promise.all(records.map((record) => gatherAnswers(record, req.correlationId)));
+
+    // 3. One short transaction under the request lock: confirm the request is
+    // still open on the same version, read listings fresh, then store the evidence.
     return withRetry(store, `request:${id}`, async (tx) => {
-      const prior = await tx.findCheckByKey(req.actor, idempotencyKey);
-      if (prior) {
-        if (prior.check.requestId !== id) throw new HttpError(409, 'idempotency_conflict');
-        return { status: 200, body: { outcome: 'replay', ...checkView(prior) } };
-      }
-      const found = await readRequestIn(tx, id);
-      if (!found) throw new HttpError(404, 'request_not_found');
-      const state = deriveRequestState(found.events);
-      if (state.status !== 'open') throw new HttpError(409, 'request_not_open');
-      const version = found.versions.find((v) => v.version === state.openVersion);
+      const again = await tx.findCheckByKey(req.actor, idempotencyKey);
+      if (again) return replayOf(again);
+      const current = deriveRequestState(await tx.getEvents(id));
+      if (current.status !== 'open') throw new HttpError(409, 'request_not_open');
+      if (current.openVersion !== version.version) throw new HttpError(409, 'request_version_changed');
       const now = clock();
-      const records = await tx.listProjection();
       const discoverable = new Map();
       for (const key of new Set(records.map((record) => record.agentLearnerKey))) {
         discoverable.set(key, (await tx.getListingEvents(key)).at(-1)?.eventType === 'published');
       }
-      const results = (await Promise.all(records.map((record) =>
-        evaluate(record, version, discoverable.get(record.agentLearnerKey), now, req.correlationId))))
+      const results = answers.map((answer) => evaluate(answer, version, discoverable.get(answer.record.agentLearnerKey), now))
         // Stable order for evidence only: by learner key, then credential. Not a ranking.
         .sort((a, b) => a.agentLearnerKey.localeCompare(b.agentLearnerKey) || a.credentialId.localeCompare(b.credentialId));
       const eligibleCount = results.filter((r) => r.eligible).length;
@@ -248,6 +260,7 @@ function createApp({
       return { status: 201, body: { outcome: 'created', ...checkView({ check, results }) } };
     });
   }));
+
 
   app.get('/internal/eligibility-checks/:checkId', handle(async (req) => {
     const found = UUID.test(req.params.checkId) ? await store.readCheck(req.params.checkId) : null;
@@ -337,17 +350,56 @@ function checkView({ check, results }) {
   };
 }
 
-async function start() {
-  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+// Secrets have no fallback (architecture rule 5); service URLs default to their compose names.
+const REQUIRED_CONFIG = ['DATABASE_URL', 'MARKETPLACE_INTERNAL_KEY', 'CURRICULUM_INTERNAL_KEY'];
+const SCHEMA_RETRY_MS = 5000;
+
+const configProblems = (env) => REQUIRED_CONFIG.filter((name) => !env[name]).map((name) => `missing:${name}`);
+
+// Stands in when DATABASE_URL is missing: every call fails, so nothing can pass as healthy.
+const unavailableStore = () => new Proxy({}, { get: () => async () => { throw new Error('database_not_configured'); } });
+
+// Missing config or an unreachable database gives /health 503 and keeps the
+// process up, instead of a crash loop that hides the reason.
+function start(env = process.env) {
+  const state = { problems: configProblems(env), schemaReady: false, eventFeed: 'disabled' };
+  const pool = env.DATABASE_URL ? new Pool({ connectionString: env.DATABASE_URL }) : null;
   // Idle clients emit 'error' when Postgres restarts; an unhandled event would stop the process.
-  pool.on('error', () => telemetry.log(SERVICE_NAME, 'postgres_connection_error'));
-  await pool.query(fs.readFileSync(`${__dirname}/schema.sql`, 'utf8'));
-  // Real sources are not wired yet (blockers 1-3); refusing to start is safer than guessing.
-  await pool.end();
-  throw new Error('marketplace sources are not configured');
+  pool?.on('error', () => telemetry.log(SERVICE_NAME, 'postgres_connection_error'));
+  const store = pool ? createPgStore(pool) : unavailableStore();
+  const sources = {
+    registry: createRegistrySource({ baseUrl: env.AGENT_REGISTRY_URL || 'http://agent-registry:4001' }),
+    package: createPackageSource({ baseUrl: env.VALIDATION_ACTIVATION_URL || 'http://validation-activation:4010',
+      internalKey: env.CURRICULUM_INTERNAL_KEY }),
+    verification: createVerificationSource({ baseUrl: env.CREDENTIAL_VERIFICATION_URL || 'http://credential-verification:4030' }),
+    lifecycle: createLifecycleSource(),
+  };
+  const server = createApp({ store, sources, internalKey: env.MARKETPLACE_INTERNAL_KEY,
+    readiness: () => [...state.problems, ...(state.schemaReady ? [] : ['schema_not_applied'])],
+    healthDetails: () => ({ eventFeed: state.eventFeed }) }).listen(env.PORT || 4012);
+
+  let consumer = null;
+  let retry = null;
+  const applySchema = async () => {
+    try {
+      await pool.query(fs.readFileSync(`${__dirname}/schema.sql`, 'utf8'));
+      state.schemaReady = true;
+      // Without REDIS_URL the projection simply stays empty, so every check finds no candidates.
+      if (env.REDIS_URL) {
+        consumer = createCredentialConsumer({ store, redis: createRedisClient(env.REDIS_URL),
+          stream: env.CREDENTIAL_EVENT_STREAM || DEFAULT_STREAM });
+        consumer.start();
+        state.eventFeed = 'running';
+      }
+    } catch {
+      telemetry.log(SERVICE_NAME, 'schema_apply_failed', { dependency: 'postgres', outcome: 'retrying' });
+      retry = setTimeout(applySchema, SCHEMA_RETRY_MS);
+      retry.unref();
+    }
+  };
+  if (pool) void applySchema();
+  server.on('close', () => { clearTimeout(retry); consumer?.stop(); void pool?.end(); });
+  return server;
 }
-if (require.main === module) start().catch((error) => {
-  console.error('marketplace-service startup failed', error.code || error.message);
-  process.exitCode = 1;
-});
-module.exports = { createApp };
+if (require.main === module) start();
+module.exports = { createApp, configProblems, start };
