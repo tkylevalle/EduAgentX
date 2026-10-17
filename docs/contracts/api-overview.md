@@ -41,4 +41,4 @@ Registration envelope idempotency keys bind the authenticated identity and norma
 
 The Assurance Console on local port 4173 is an unauthenticated local demonstration UI with server-side read-only admin access. It is bound to loopback and must not be reverse-proxied or exposed externally. Grafana and the synthetic test adapter are also local-only tools.
 
-Public Curriculum, Examination, Certification, Marketplace, Skill Gap and full Monitoring APIs belong to later sprints. No `/auth/login`, `/agents`, `/certify`, credential issuance, or marketplace endpoint is implemented by this Sprint 1 contract.
+The Certification Service issues decisions and credentials internally from complete passing Examination evidence; it has no public Gateway command route. See [the Certification Service contract](certification.md). Public credential retrieval/verification and Marketplace, Skill Gap and full Monitoring APIs belong to later sprints. No `/auth/login`, `/agents`, `/certify`, or marketplace endpoint is implemented by this Gateway contract.

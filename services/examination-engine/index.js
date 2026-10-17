@@ -187,6 +187,41 @@ function createApp({ store, sources, internalKey = process.env.EXAMINATION_INTER
       res.json({ apiVersion: 'v1', attempt: consoleView(attempt), correlationId: req.correlationId });
     } catch (error) { sendError(req, res, error); }
   });
+  // Certification receives a purpose-limited, answer-free projection of the
+  // immutable event-sourced result. It cannot read learner responses or grade.
+  app.get('/internal/certification-evidence/:id', async (req, res) => {
+    try {
+      if (req.header('x-actor-role') !== 'certification') throw fail('forbidden', 403);
+      const attempt = await reconcile(await load(req, false), req);
+      const gradeEvent = attempt.events.find((event) => event.eventType === 'grade_recorded');
+      const grade = gradeEvent?.payload;
+      res.json({ apiVersion: 'v1', attempt: { attemptId: attempt.attemptId,
+        status: attempt.status, responseCollectionComplete: attempt.responseCollectionComplete,
+        sequence: attempt.sequence, agentLearnerKey: attempt.agentLearnerKey,
+        configurationFingerprint: attempt.configurationFingerprint, package: attempt.package,
+        mode: attempt.mode, template: attempt.form.template || null,
+        rubric: attempt.form.rubric, bank: attempt.mode === 'fallback'
+          ? { id: attempt.form.bankId, version: attempt.form.bankVersion, digest: attempt.fallbackBankDigest } : null,
+        tierWeights: attempt.form.tierWeights,
+        formDigest: attempt.formDigest, result: grade?.result || null,
+        assessment: grade?.assessment || null, completedAt: attempt.completedAt || null },
+        correlationId: req.correlationId });
+    } catch (error) { sendError(req, res, error); }
+  });
+  app.get('/internal/certification-candidates', async (req, res) => {
+    try {
+      if (req.header('x-actor-role') !== 'certification') throw fail('forbidden', 403);
+      const afterCompletedAt = req.query.afterCompletedAt || null;
+      const afterAttemptId = req.query.afterAttemptId || null;
+      const limit = Number(req.query.limit || 50);
+      if ((afterCompletedAt && (!Number.isFinite(Date.parse(afterCompletedAt)) || !UUID.test(afterAttemptId || ''))) ||
+          !Number.isInteger(limit) || limit < 1 || limit > 100) throw fail('invalid_request', 400);
+      const candidates = await store.listPassingForCertification?.(afterCompletedAt
+        ? { completedAt: afterCompletedAt, examinationId: afterAttemptId } : null,
+      limit) || [];
+      res.json({ apiVersion: 'v1', candidates, correlationId: req.correlationId });
+    } catch (error) { sendError(req, res, error); }
+  });
   registerRemediationRoutes(app, { store, load, reconcile, lifecycleView, sendError });
   function commandRoute(type, fields, owner) {
     return async (req, res) => {
@@ -282,10 +317,11 @@ function createApp({ store, sources, internalKey = process.env.EXAMINATION_INTER
         return reply('accepted', await abort('grading_unavailable'));
       }
       // Only valid/passed cross this boundary; per-item results are never kept or returned.
-      const result = mapFallbackResult(scored);
+      const mapped = mapFallbackResult(scored, attempt.form);
+      const { assessment, ...result } = mapped;
       if (!result.valid) return reply('accepted', await abort('grading_unavailable'));
       attempt = await record({ type: 'finalize', eventId: `fallback-grade:${id}`, formDigest: input.formDigest,
-        rubricDigest: input.rubricDigest, responseSetDigest: input.responseSetDigest, result },
+        rubricDigest: input.rubricDigest, responseSetDigest: input.responseSetDigest, result, assessment },
       { guard: (current) => governance(current, req.correlationId) });
       reply('accepted', attempt);
     } catch (error) { sendError(req, res, error); }

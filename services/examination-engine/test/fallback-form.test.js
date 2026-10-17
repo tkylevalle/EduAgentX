@@ -158,3 +158,17 @@ test('scoreBank results map to the Engine result schema', () => {
     { schemaVersion, valid: false, passed: false });
   assert.deepEqual(mapFallbackResult(null), { schemaVersion, valid: false, passed: false });
 });
+
+test('a passing fallback result preserves score and safety evidence for certification', () => {
+  const responses = candidate.fallbackBank.items.map((item) => ({ itemId: item.id,
+    answer: JSON.parse(encodeFallbackAnswer(item.answerType, item.expectedAnswer)) }));
+  const scored = scoreBank(candidate.fallbackBank, responses);
+  const form = { items: candidate.fallbackBank.items, tierWeights: candidate.fallbackBank.scoringPolicy.tierWeights };
+  const result = mapFallbackResult(scored, form);
+  assert.equal(result.passed, true);
+  assert.equal(result.assessment.passed, true);
+  assert.equal(result.assessment.overallPercent, 100);
+  assert.deepEqual(result.assessment.criticalViolationRuleIds, []);
+  assert.equal(result.assessment.itemOutcomes.length, 15);
+  assert.equal(require('../assessment').checkAssessment(result.assessment, form, true), true);
+});
