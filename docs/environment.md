@@ -17,6 +17,12 @@ generates its own secrets for each run.
 | `POSTGRES_USER` | postgres | Database superuser (setup only) | `eduagentx_dev` |
 | `POSTGRES_PASSWORD` | postgres | Superuser password | generated |
 | `REGISTRY_DB_PASSWORD` | postgres, agent-registry | Password of the restricted `registry_owner` role | generated |
+| `CERTIFICATION_DB_PASSWORD` | postgres, certification-service | Password of the restricted `certification_owner` role | generated |
+| `CERTIFICATION_INTERNAL_KEY` | certification-service | Shared credential for its trusted internal issuance contract | generated |
+| `CERTIFICATION_KEY_ID` | certification-service | Key identifier embedded in compact credential signatures | `https://eduagentx.example/issuers/eduagentx#dev-ed25519-1` |
+| `CERTIFICATION_PRIVATE_KEY_PATH` | certification-service | Ed25519 private signing key inside the container; generated under ignored `keys/` | `/app/keys/certification-ed25519-private.pem` |
+| `CERTIFICATION_ISSUER` | certification-service | Project issuer URL in the credential | `https://eduagentx.example/issuers/eduagentx` |
+| `CREDENTIAL_BASE_URL` | certification-service | Base URL used for credential IDs | `https://eduagentx.example/credentials` |
 | `POSTGRES_DB` | postgres, agent-registry | Database name | `eduagentx` |
 | `POSTGRES_PORT` | host | Host port for PostgreSQL (127.0.0.1 only) | `5432` |
 | `REDIS_PORT` | host | Host port for Redis (127.0.0.1 only) | `6379` |
@@ -36,6 +42,7 @@ generates its own secrets for each run.
 | `EXAMINATION_GRADING_KEY` | examination-engine | Trusted grading capability for the Engine's grade, finalize and abort routes (`x-internal-grading-key`). Never forwarded by the Gateway. | generated |
 | `GRADING_SERVICE_KEY` | examination-engine, grading-service | Shared key for the Engine's calls to grading-service `POST /v1/item-grades` (`x-grading-service-key`). Without it the route answers 503 and the Engine does not grade. | generated |
 | `GRADING_SERVICE_PORT` | host | Host port for grading-service (127.0.0.1 only) | `4020` |
+| `CERTIFICATION_SWEEP_INTERVAL_MS` | certification-service | Poll interval for completed passing Examination evidence | `1000` |
 
 There are no fallback passwords in the code. The Assurance Console and the
 Synthetic Agent Learner exit at startup when their secret is missing. The API
