@@ -13,6 +13,27 @@ const telemetry = require('../../packages/telemetry');
 // Learner and one admin identity to prove the contract works end to end.
 // Real per-agent identity issuance belongs to Agent Registry (#4) once
 // registration exists; this just proves the gateway enforces the contract.
+//
+// Sprint 2 added a 'reviewer' role as two separate identities (REVIEWER_1,
+// REVIEWER_2) so curriculum package review can require two distinct
+// authenticated identities (see validation-activation's /review endpoint).
+//
+// Sprint 4 (Issue #27, "Governance, Demonstration Lab, and permissions")
+// adds four more single-valued roles, same shape as every role above - one
+// role claim per JWT, no multi-valued permissions claim. The spec's
+// "composable Viewer/Evaluator, Governance Operator, and Demo Operator
+// permissions" is satisfied at the route level: requireRole(...) already
+// accepts any combination of allowed roles per endpoint (e.g.
+// requireRole('viewer', 'evaluator', 'admin')), so composing access for a
+// route needs no change here, only the four new identities below:
+//   - 'viewer'              read-only Assurance Console access (team members)
+//   - 'evaluator'           read-only access to KPI/assurance evidence (system evaluators)
+//   - 'governance_operator' two identities (GOVERNANCE_OPERATOR_1, _2), same
+//                           two-distinct-identities shape as 'reviewer', for
+//                           bounded governance commands that require
+//                           two-person review (corrections, key rotation,
+//                           policy changes, quarantine release)
+//   - 'demo_operator'       operates the isolated, test-labelled Demonstration Lab
 
 const fs = require('fs');
 const jwt = require('jsonwebtoken');
@@ -72,6 +93,29 @@ function knownClients() {
       clientSecret: process.env[`REVIEWER_${index}_CLIENT_SECRET`] || '',
       role: 'reviewer',
     })),
+    {
+      clientId: process.env.VIEWER_CLIENT_ID || '',
+      clientSecret: process.env.VIEWER_CLIENT_SECRET || '',
+      role: 'viewer',
+    },
+    {
+      clientId: process.env.EVALUATOR_CLIENT_ID || '',
+      clientSecret: process.env.EVALUATOR_CLIENT_SECRET || '',
+      role: 'evaluator',
+    },
+    // Two distinct identities, same shape as 'reviewer' above, so a
+    // governance command's two-person review can be checked the same way
+    // package review already is: a Set of distinct req.auth.subject values.
+    ...[1, 2].map(index => ({
+      clientId: process.env[`GOVERNANCE_OPERATOR_${index}_CLIENT_ID`] || '',
+      clientSecret: process.env[`GOVERNANCE_OPERATOR_${index}_CLIENT_SECRET`] || '',
+      role: 'governance_operator',
+    })),
+    {
+      clientId: process.env.DEMO_OPERATOR_CLIENT_ID || '',
+      clientSecret: process.env.DEMO_OPERATOR_CLIENT_SECRET || '',
+      role: 'demo_operator',
+    },
   ].filter((c) => c.clientId && c.clientSecret);
 }
 
