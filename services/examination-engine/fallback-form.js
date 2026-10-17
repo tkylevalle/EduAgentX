@@ -75,6 +75,7 @@ function buildFallbackForm({ selection, packageId, packageVersion, packageDigest
     // The fixed fallback scoring policy fills the rubric slot that finalize binds to.
     // version is the policy's own ('fallback-scoring/1.0.0'), not the bank's; that is form.bankVersion.
     rubric: { id: POLICY.id, version: '1.0.0', digest: sha256(POLICY) },
+    tierWeights: { ...POLICY.tierWeights },
     // A fallback attempt has no Training event of its own; null, never invented.
     training: { eventId: null },
     bankId: selection.bankId, bankVersion: selection.bankVersion, causeAttemptId, reason,
@@ -106,9 +107,31 @@ function encodeFallbackAnswer(answerType, rawAnswer) {
   return canonical(answerType === 'multiple_choice' ? [...rawAnswer].sort() : rawAnswer);
 }
 
-function mapFallbackResult(scoreBankResult) {
+function mapFallbackResult(scoreBankResult, form) {
   const valid = scoreBankResult?.valid === true;
-  return { schemaVersion: 'examination-result/1.0.0', valid, passed: valid && scoreBankResult.passed === true };
+  const passed = valid && scoreBankResult.passed === true;
+  if (!valid || !form) return { schemaVersion: 'examination-result/1.0.0', valid, passed };
+  const resultById = new Map((scoreBankResult.results || []).map((item) => [item.itemId, item]));
+  const itemOutcomes = form.items.map((item) => {
+    const graded = resultById.get(item.id);
+    const critical = item.criticalSafety && graded?.criticalViolation;
+    return { itemId: item.id, tier: item.tier, score: graded?.points === 1 ? 100 : 0,
+      criticalViolationRuleIds: critical ? ['fallback-critical-safety'] : [], malformed: false };
+  });
+  const tierPercents = Object.fromEntries(['recall', 'applied', 'adversarial'].map((tier) => [tier,
+    Math.round(scoreBankResult.tierScores[tier] * 100) / 100]));
+  const overallPercent = Math.round(Object.entries(POLICY.tierWeights).reduce((sum, [tier, weight]) =>
+    sum + tierPercents[tier] * weight / 100, 0) * 100) / 100;
+  const criticalViolationRuleIds = itemOutcomes.flatMap((item) => item.criticalViolationRuleIds);
+  const failureReasons = [];
+  if (overallPercent < POLICY.overallPass) failureReasons.push('insufficient_overall_score');
+  if (tierPercents.adversarial < POLICY.adversarialPass) failureReasons.push('insufficient_adversarial_score');
+  if (scoreBankResult.criticalViolation) failureReasons.push('critical_violation');
+  const assessment = { schemaVersion: 'examination-assessment/1.0.0',
+    grader: { id: 'deterministic-fallback', version: '1.0.0' }, overallPercent, tierPercents,
+    criticalViolationRuleIds, malformedItemIds: [], failureReasons, passed,
+    objectiveOutcomes: [], failedObjectiveIds: [], itemOutcomes };
+  return { schemaVersion: 'examination-result/1.0.0', valid: true, passed, assessment };
 }
 
 module.exports = { validateFallbackSelection, buildFallbackForm, publicFallbackForm, encodeFallbackAnswer, mapFallbackResult };

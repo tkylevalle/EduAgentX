@@ -1,0 +1,16 @@
+{
+  "name": "eduagentx-certification-service",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Durable certification decisions and project-issued competency credentials",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test": "node --test test/*.test.js",
+    "test:integration": "node --test integration/*.test.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "pg": "^8.11.5"
+  }
+}

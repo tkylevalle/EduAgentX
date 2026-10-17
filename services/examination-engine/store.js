@@ -226,6 +226,19 @@ function createPgStore(pool) {
         ORDER BY a.started_at, a.attempt_id LIMIT $1`, [limit]);
       return ids.rows.map((row) => row.attempt_id);
     },
+    async listPassingForCertification(cursor, limit = 50) {
+      const result = await pool.query(`SELECT a.attempt_id, terminal.occurred_at AS completed_at
+        FROM examination_engine.attempts a
+        JOIN examination_engine.attempt_events terminal ON terminal.attempt_id=a.attempt_id
+          AND terminal.event_type='attempt_completed'
+        JOIN examination_engine.attempt_events grade ON grade.attempt_id=a.attempt_id
+          AND grade.event_type='grade_recorded'
+        WHERE grade.payload->'result'->>'passed'='true'
+          AND ($1::timestamptz IS NULL OR (terminal.occurred_at,a.attempt_id)>($1::timestamptz,$2::uuid))
+        ORDER BY terminal.occurred_at,a.attempt_id LIMIT $3`,
+      [cursor?.completedAt || null,cursor?.examinationId || '00000000-0000-0000-0000-000000000000',limit]);
+      return result.rows.map((row) => ({ examinationId: row.attempt_id, completedAt: new Date(row.completed_at).toISOString() }));
+    },
     ...pgRemediationMethods(pool),
     async admit({ actor, key, form, now, deadlineAt, correlationId }) {
       const client = await pool.connect();
