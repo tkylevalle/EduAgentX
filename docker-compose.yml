@@ -23,6 +23,7 @@ services:
       TRAINING_DB_PASSWORD: ${TRAINING_DB_PASSWORD:?Run node scripts/setup-dev.js}
       EXAMINATION_DB_PASSWORD: ${EXAMINATION_DB_PASSWORD:?Run node scripts/setup-dev.js}
       CERTIFICATION_DB_PASSWORD: ${CERTIFICATION_DB_PASSWORD:?Run node scripts/setup-dev.js}
+      MARKETPLACE_DB_PASSWORD: ${MARKETPLACE_DB_PASSWORD:?Run node scripts/setup-dev.js}
     ports:
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
