@@ -1,0 +1,20 @@
+{
+  "gate": "sprint-4",
+  "runAt": "2026-10-19T00:00:00.000Z",
+  "scenarios": [
+    {"scenario": "full_lifecycle", "graded": true, "result": "PASS"},
+    {"scenario": "exactly_once_recovery", "result": "PASS"},
+    {"scenario": "tamper_rejection", "overall": "INVALID", "result": "PASS"},
+    {"scenario": "status_lifecycle", "result": "PASS"},
+    {"scenario": "monitoring_correlation", "result": "PASS"},
+    {"scenario": "evidence_bundle", "result": "PASS"}
+  ],
+  "result": "PASS",
+  "invariants": {
+    "exactly_once_certification": true,
+    "tamper_rejection_verified": true,
+    "revocation_irreversible": true,
+    "monitoring_correlated": true,
+    "evidence_bundle_sanitized": true
+  }
+}
