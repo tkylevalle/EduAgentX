@@ -46,7 +46,7 @@ function commandDigest(attemptId, command) {
 // The event log is authoritative. There is no separately mutable status column.
 function derive(attempt, events, responses) {
   const state = { status: 'in_progress', sequence: 0, responsesReceived: 0, responseCollectionComplete: false,
-    terminalReason: null, completedAt: null, failedAt: null, abortedAt: null, assessment: null };
+    terminalReason: null, completedAt: null, failedAt: null, abortedAt: null, assessment: null, result: null };
   if (sha256(attempt.form) !== attempt.formDigest || attempt.form.subject.agentLearnerKey !== attempt.agentLearnerKey ||
     attempt.form.subject.configurationFingerprint !== attempt.configurationFingerprint || attempt.form.mode !== attempt.mode ||
     sha256(attempt.form.package) !== sha256(attempt.package) || Date.parse(attempt.deadlineAt) <= Date.parse(attempt.startedAt))
@@ -83,6 +83,7 @@ function derive(attempt, events, responses) {
         throw fail('invalid_event_history');
       grade = payload.result;
       state.assessment = payload.assessment ?? null;
+      state.result = payload.result;
     } else if (terminalTypes[event.eventType]) {
       const reason = event.payload?.reason;
       if ((event.eventType === 'attempt_completed' && (!grade?.passed || reason !== 'valid_passing_result')) ||

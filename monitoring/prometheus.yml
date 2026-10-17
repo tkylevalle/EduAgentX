@@ -13,7 +13,9 @@ scrape_configs:
           - http://curriculum-engine:4002/health
           - http://curriculum-index:4003/health
           - http://training-service:4004/health
+          - http://examination-engine:4005/health
           - http://validation-activation:4010/health
+          - http://certification-service:4011/health
           - http://assurance-console:4100/health
           - http://synthetic-agent-learner:4200/health
     relabel_configs:

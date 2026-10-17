@@ -278,7 +278,7 @@ class EvidenceRun:
     def run_component_tests(self):
         self.command([sys.executable, '-m', 'unittest', 'discover', '-s', 'scripts', '-p', 'test_sprint1_*.py'],
                      'gate-unit-tests.txt')
-        self.command(['node', 'scripts/generate-test-keys.js'], 'key-setup.txt')
+        self.command(['node', 'scripts/setup-dev.js'], 'key-setup.txt')
         # Cross-service integration tests import sibling components. Install all
         # dependencies first so a clean checkout does not depend on test order.
         for name, directory in COMPONENTS.items():
