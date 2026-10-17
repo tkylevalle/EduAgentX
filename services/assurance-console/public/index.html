@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>EduAgentX — Assurance Console</title>
+<style>
+:root {
+  --bg: #0f1117;
+  --surface: #1a1d27;
+  --surface2: #22263a;
+  --border: #2e3250;
+  --accent: #6366f1;
+  --accent2: #818cf8;
+  --green: #22c55e;
+  --amber: #f59e0b;
+  --red: #ef4444;
+  --blue: #3b82f6;
+  --text: #e2e8f0;
+  --muted: #64748b;
+  --pill-bg: #1e2035;
+}
+@media(prefers-color-scheme:light){
+  :root{--bg:#f1f5f9;--surface:#fff;--surface2:#f8fafc;--border:#e2e8f0;--text:#0f172a;--muted:#64748b;--pill-bg:#e2e8f0;}
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-serif;min-height:100vh;display:flex;flex-direction:column;}
+
+/* ── Top bar ── */
+.topbar{background:var(--surface);border-bottom:1px solid var(--border);padding:0 24px;height:56px;display:flex;align-items:center;gap:16px;position:sticky;top:0;z-index:100;}
+.logo{font-weight:700;font-size:17px;color:var(--accent2);letter-spacing:-.3px;}
+.logo span{color:var(--text);font-weight:400;}
+.tag{background:var(--accent);color:#fff;font-size:10px;font-weight:600;padding:2px 7px;border-radius:4px;letter-spacing:.5px;}
+.topbar-right{margin-left:auto;display:flex;align-items:center;gap:12px;}
+.status-dot{width:8px;height:8px;border-radius:50%;background:var(--green);animation:pulse 2s infinite;}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:.4;}}
+
+/* ── Nav ── */
+nav{background:var(--surface);border-bottom:1px solid var(--border);padding:0 24px;display:flex;gap:4px;overflow-x:auto;}
+.nav-tab{padding:12px 16px;font-size:13px;font-weight:500;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap;transition:all .15s;}
+.nav-tab:hover{color:var(--text);}
+.nav-tab.active{color:var(--accent2);border-bottom-color:var(--accent);}
+
+/* ── Layout ── */
+.main{flex:1;padding:24px;max-width:1400px;width:100%;margin:0 auto;}
+
+/* ── Cards ── */
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:24px;}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;}
+.card-label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:8px;}
+.card-value{font-size:28px;font-weight:700;line-height:1;}
+.card-sub{font-size:12px;color:var(--muted);margin-top:6px;}
+.card.green .card-value{color:var(--green);}
+.card.amber .card-value{color:var(--amber);}
+.card.red .card-value{color:var(--red);}
+.card.blue .card-value{color:var(--blue);}
+
+/* ── Section ── */
+.section{background:var(--surface);border:1px solid var(--border);border-radius:12px;margin-bottom:20px;overflow:hidden;}
+.section-header{padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;}
+.section-title{font-size:13px;font-weight:600;color:var(--text);}
+.section-body{padding:20px;}
+
+/* ── Lifecycle track ── */
+.lifecycle{display:flex;align-items:center;gap:0;margin-bottom:8px;overflow-x:auto;}
+.stage{flex:1;min-width:120px;text-align:center;padding:14px 8px;background:var(--surface2);border:1px solid var(--border);position:relative;}
+.stage:not(:first-child)::before{content:'';position:absolute;left:-1px;top:50%;transform:translateY(-50%);width:0;height:0;border-top:10px solid transparent;border-bottom:10px solid transparent;border-left:12px solid var(--border);z-index:1;}
+.stage:first-child{border-radius:8px 0 0 8px;}
+.stage:last-child{border-radius:0 8px 8px 0;}
+.stage.done{background:#16213e;border-color:var(--accent);}
+.stage.done::before{border-left-color:var(--accent);}
+.stage.active{background:#1e1b4b;border-color:var(--accent2);}
+.stage-icon{font-size:20px;margin-bottom:4px;}
+.stage-name{font-size:11px;font-weight:600;color:var(--muted);}
+.stage.done .stage-name{color:var(--accent2);}
+.stage.active .stage-name{color:#fff;}
+
+/* ── Table ── */
+table{width:100%;border-collapse:collapse;font-size:13px;}
+th{text-align:left;padding:8px 12px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);border-bottom:1px solid var(--border);}
+td{padding:10px 12px;border-bottom:1px solid var(--border);vertical-align:top;}
+tr:last-child td{border-bottom:none;}
+tr:hover td{background:var(--surface2);}
+
+/* ── Badges ── */
+.badge{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:20px;font-size:11px;font-weight:600;}
+.badge.green{background:#14532d22;color:var(--green);border:1px solid #22c55e44;}
+.badge.amber{background:#78350f22;color:var(--amber);border:1px solid #f59e0b44;}
+.badge.red{background:#7f1d1d22;color:var(--red);border:1px solid #ef444444;}
+.badge.blue{background:#1e3a5f22;color:var(--blue);border:1px solid #3b82f644;}
+.badge.purple{background:#3b0764 22;color:var(--accent2);border:1px solid #818cf844;}
+
+/* ── KPI grid ── */
+.kpi-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;}
+.kpi-item{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;}
+.kpi-domain{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);}
+.kpi-val{font-size:14px;font-weight:700;margin-top:4px;}
+.kpi-val.met{color:var(--green);}
+.kpi-val.not-met{color:var(--red);}
+.kpi-val.unmeasured{color:var(--muted);}
+
+/* ── Agent record ── */
+.agent-record{border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:12px;}
+.agent-record-header{padding:14px 16px;background:var(--surface2);display:flex;align-items:center;gap:12px;cursor:pointer;}
+.agent-id{font-weight:600;font-size:13px;}
+.agent-record-body{padding:16px;display:none;}
+.agent-record-body.open{display:block;}
+.timeline{position:relative;padding-left:20px;}
+.timeline::before{content:'';position:absolute;left:6px;top:0;bottom:0;width:2px;background:var(--border);}
+.tl-item{position:relative;margin-bottom:16px;}
+.tl-dot{position:absolute;left:-17px;top:3px;width:10px;height:10px;border-radius:50%;background:var(--accent);border:2px solid var(--bg);}
+.tl-dot.green{background:var(--green);}
+.tl-dot.red{background:var(--red);}
+.tl-dot.amber{background:var(--amber);}
+.tl-title{font-size:12px;font-weight:600;}
+.tl-meta{font-size:11px;color:var(--muted);margin-top:2px;}
+
+/* ── Search ── */
+.search-bar{display:flex;gap:8px;margin-bottom:16px;}
+.search-bar input{flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px;outline:none;}
+.search-bar input:focus{border-color:var(--accent);}
+.btn{background:var(--accent);color:#fff;border:none;padding:8px 16px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;}
+.btn:hover{background:var(--accent2);}
+.btn-ghost{background:transparent;border:1px solid var(--border);color:var(--text);}
+
+/* ── Attention ── */
+.attention-item{display:flex;gap:12px;padding:12px;border-radius:8px;margin-bottom:8px;border:1px solid var(--border);}
+.attention-item.critical{border-color:#ef444444;background:#7f1d1d11;}
+.attention-item.warning{border-color:#f59e0b44;background:#78350f11;}
+.att-icon{font-size:20px;flex-shrink:0;}
+.att-content{flex:1;}
+.att-title{font-size:13px;font-weight:600;}
+.att-meta{font-size:11px;color:var(--muted);margin-top:3px;}
+.att-action{font-size:11px;color:var(--accent2);margin-top:4px;}
+
+/* ── Page visibility ── */
+.page{display:none;}
+.page.active{display:block;}
+
+/* ── Refresh indicator ── */
+.refresh-time{font-size:11px;color:var(--muted);}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="logo">EduAgentX <span>Assurance Console</span></div>
+  <div class="tag">READ-ONLY</div>
+  <div class="topbar-right">
+    <div class="status-dot" id="systemDot"></div>
+    <span class="refresh-time" id="refreshTime">Refreshing...</span>
+  </div>
+</div>
+
+<nav>
+  <div class="nav-tab active" onclick="showPage('overview',this)">Overview</div>
+  <div class="nav-tab" onclick="showPage('lifecycle',this)">Lifecycle</div>
+  <div class="nav-tab" onclick="showPage('governance',this)">Governance</div>
+  <div class="nav-tab" onclick="showPage('evidence',this)">Evidence</div>
+  <div class="nav-tab" onclick="showPage('operations',this)">Operations</div>
+  <div class="nav-tab" onclick="showPage('marketplace',this)">Marketplace</div>
+</nav>
+
+<div class="main">
+
+<!-- ── OVERVIEW ── -->
+<div class="page active" id="page-overview">
+  <div class="grid" id="kpiCards">
+    <div class="card green"><div class="card-label">Agents Certified</div><div class="card-value" id="certCount">—</div><div class="card-sub">Verifiable credentials issued</div></div>
+    <div class="card blue"><div class="card-label">Active Training</div><div class="card-value" id="trainCount">—</div><div class="card-sub">Sessions in progress</div></div>
+    <div class="card amber"><div class="card-label">Pending Decisions</div><div class="card-value" id="pendCount">—</div><div class="card-sub">Awaiting review</div></div>
+    <div class="card" id="systemHealthCard"><div class="card-label">System Health</div><div class="card-value" id="healthVal">—</div><div class="card-sub">Services online</div></div>
+  </div>
+
+  <div class="section">
+    <div class="section-header"><span class="section-title">🔴 Attention Required</span><span class="refresh-time" id="attTime"></span></div>
+    <div class="section-body" id="attentionList"><div style="color:var(--muted);font-size:13px;">Loading...</div></div>
+  </div>
+
+  <div class="section">
+    <div class="section-header"><span class="section-title">Four-Stage Agent Lifecycle</span></div>
+    <div class="section-body">
+      <div class="lifecycle">
+        <div class="stage done"><div class="stage-icon">🪪</div><div class="stage-name">Registration</div></div>
+        <div class="stage done"><div class="stage-icon">📚</div><div class="stage-name">Curriculum</div></div>
+        <div class="stage done"><div class="stage-icon">📝</div><div class="stage-name">Examination</div></div>
+        <div class="stage active"><div class="stage-icon">🏆</div><div class="stage-name">Certification</div></div>
+      </div>
+      <p style="font-size:12px;color:var(--muted);margin-top:12px;">Zero-human-loop lifecycle — humans govern the package and policy, not the agent's path.</p>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-header"><span class="section-title">KPI Gates</span></div>
+    <div class="section-body">
+      <div class="kpi-grid" id="kpiGrid">
+        <div class="kpi-item"><div class="kpi-domain">Loading...</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── LIFECYCLE ── -->
+<div class="page" id="page-lifecycle">
+  <div class="section">
+    <div class="section-header">
+      <span class="section-title">Agent Assurance Records</span>
+    </div>
+    <div class="section-body">
+      <div class="search-bar">
+        <input type="text" id="agentSearch" placeholder="Search agent ID..." oninput="filterAgents()">
+        <select id="postureFilter" onchange="filterAgents()" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px;">
+          <option value="">All postures</option>
+          <option value="VERIFIED">VERIFIED</option>
+          <option value="UNVERIFIED">UNVERIFIED</option>
+          <option value="SUSPENDED">SUSPENDED</option>
+          <option value="REVOKED">REVOKED</option>
+        </select>
+      </div>
+      <div id="agentList">Loading...</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── GOVERNANCE ── -->
+<div class="page" id="page-governance">
+  <div class="section">
+    <div class="section-header"><span class="section-title">Package Governance</span></div>
+    <div class="section-body">
+      <table>
+        <thead><tr><th>Package ID</th><th>Version</th><th>State</th><th>Digest</th><th>Activated</th></tr></thead>
+        <tbody id="packageTable"><tr><td colspan="5" style="color:var(--muted);">Loading...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+  <div class="section">
+    <div class="section-header"><span class="section-title">Locked Rubric</span></div>
+    <div class="section-body" id="rubricView"><div style="color:var(--muted);">Loading...</div></div>
+  </div>
+</div>
+
+<!-- ── EVIDENCE ── -->
+<div class="page" id="page-evidence">
+  <div class="section">
+    <div class="section-header"><span class="section-title">Grading Evidence</span></div>
+    <div class="section-body">
+      <table>
+        <thead><tr><th>Attempt ID</th><th>Subject</th><th>Score</th><th>Result</th><th>Graded At</th></tr></thead>
+        <tbody id="evidenceTable"><tr><td colspan="5" style="color:var(--muted);">Loading...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ── OPERATIONS ── -->
+<div class="page" id="page-operations">
+  <div class="section">
+    <div class="section-header"><span class="section-title">Service Health</span></div>
+    <div class="section-body">
+      <div class="grid" id="serviceGrid">Loading...</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── MARKETPLACE ── -->
+<div class="page" id="page-marketplace">
+  <div class="section">
+    <div class="section-header"><span class="section-title">Certified Agents</span></div>
+    <div class="section-body">
+      <p style="font-size:13px;color:var(--muted);margin-bottom:16px;">Read-only registry of agents with verifiable competency credentials.</p>
+      <div id="marketplaceList">Loading...</div>
+    </div>
+  </div>
+</div>
+
+</div><!-- /main -->
+
+<script>
+const GATEWAY = window.location.origin.replace('4100','4000');
+const MON = window.location.origin.replace('4100','4040');
+const GRADE = window.location.origin.replace('4100','4020');
+const VALID = window.location.origin.replace('4100','4010');
+
+let agents = [];
+let allAgents = [];
+
+function showPage(name, el) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('page-' + name).classList.add('active');
+  el.classList.add('active');
+}
+
+function badge(text, color) {
+  return `<span class="badge ${color}">${text}</span>`;
+}
+
+function postureColor(p) {
+  return {VERIFIED:'green',UNVERIFIED:'amber',SUSPENDED:'amber',REVOKED:'red',INDETERMINATE:'purple'}[p] || 'purple';
+}
+
+function healthColor(h) {
+  return {HEALTHY:'green',DEGRADED:'amber',UNHEALTHY:'red',UNKNOWN:'purple'}[h] || 'purple';
+}
+
+async function safeFetch(url) {
+  try { const r = await fetch(url); return r.ok ? r.json() : null; } catch { return null; }
+}
+
+// ── Load overview ──────────────────────────────────────────────────
+async function loadOverview() {
+  const snap = await safeFetch(`${MON}/snapshot`);
+  const now = new Date().toLocaleTimeString();
+  document.getElementById('refreshTime').textContent = `Updated ${now}`;
+
+  if (snap) {
+    // Service health
+    const services = Object.values(snap.operationalHealth || {});
+    const healthy = services.filter(s => s.health === 'HEALTHY').length;
+    document.getElementById('healthVal').textContent = `${healthy}/${services.length}`;
+    const hCard = document.getElementById('systemHealthCard');
+    hCard.className = 'card ' + (healthy === services.length ? 'green' : healthy > services.length/2 ? 'amber' : 'red');
+
+    // Attention
+    const att = snap.attention || [];
+    const attEl = document.getElementById('attentionList');
+    if (att.length === 0) {
+      attEl.innerHTML = '<div style="color:var(--muted);font-size:13px;">✅ No attention items — all systems nominal</div>';
+    } else {
+      attEl.innerHTML = att.map(a => `
+        <div class="attention-item ${a.severity.toLowerCase()}">
+          <div class="att-icon">${a.severity === 'CRITICAL' ? '🔴' : '🟡'}</div>
+          <div class="att-content">
+            <div class="att-title">${a.scope} — ${a.reason}</div>
+            <div class="att-meta">Owner: ${a.owner} · ${a.freshness} · Safe state: ${a.safeState}</div>
+            <div class="att-action">→ ${a.nextAction}</div>
+          </div>
+        </div>`).join('');
+    }
+
+    // KPI grid
+    const kpis = snap.kpiEvidence || {};
+    const kpiEl = document.getElementById('kpiGrid');
+    kpiEl.innerHTML = Object.entries(kpis).map(([domain, kpi]) => {
+      const ev = kpi.evidence || 'UNMEASURED';
+      const cls = ev === 'MET' ? 'met' : ev === 'NOT_MET' ? 'not-met' : 'unmeasured';
+      return `<div class="kpi-item">
+        <div class="kpi-domain">${domain}</div>
+        <div class="kpi-val ${cls}">${ev}</div>
+        ${kpi.value != null ? `<div style="font-size:11px;color:var(--muted);">${kpi.value} / ${kpi.target} ${kpi.unit||''}</div>` : ''}
+      </div>`;
+    }).join('');
+
+    // Cert + training counts from posture
+    const postures = Object.values(snap.assurancePosture || {});
+    document.getElementById('certCount').textContent = postures.filter(a => a.assurancePosture === 'VERIFIED').length;
+    document.getElementById('trainCount').textContent = postures.filter(a => a.assurancePosture === 'UNVERIFIED').length;
+    document.getElementById('pendCount').textContent = att.filter(a => a.severity === 'CRITICAL').length;
+
+    allAgents = Object.values(snap.assurancePosture || {});
+    renderAgents(allAgents);
+  }
+}
+
+// ── Lifecycle ──────────────────────────────────────────────────────
+function renderAgents(list) {
+  const el = document.getElementById('agentList');
+  if (!list || list.length === 0) {
+    el.innerHTML = '<div style="color:var(--muted);font-size:13px;">No agent records found.</div>';
+    return;
+  }
+  el.innerHTML = list.map(a => `
+    <div class="agent-record">
+      <div class="agent-record-header" onclick="toggleRecord(this)">
+        <div class="agent-id">${a.agentId}</div>
+        ${badge(a.assurancePosture, postureColor(a.assurancePosture))}
+        <span style="margin-left:auto;color:var(--muted);font-size:11px;">${a.updatedAt ? new Date(a.updatedAt).toLocaleString() : ''}</span>
+        <span style="color:var(--muted);margin-left:8px;">▾</span>
+      </div>
+      <div class="agent-record-body">
+        <div class="timeline">
+          <div class="tl-item"><div class="tl-dot green"></div><div class="tl-title">Registration</div><div class="tl-meta">Agent registered on platform</div></div>
+          <div class="tl-item"><div class="tl-dot ${a.assurancePosture !== 'INDETERMINATE' ? 'green' : ''}"></div><div class="tl-title">Curriculum Delivery</div><div class="tl-meta">Package delivered via training service</div></div>
+          <div class="tl-item"><div class="tl-dot ${['VERIFIED','REVOKED'].includes(a.assurancePosture) ? 'green' : 'amber'}"></div><div class="tl-title">Examination</div><div class="tl-meta">Graded against locked rubric v1.0.0</div></div>
+          <div class="tl-item"><div class="tl-dot ${a.assurancePosture === 'VERIFIED' ? 'green' : a.assurancePosture === 'REVOKED' ? 'red' : 'amber'}"></div>
+            <div class="tl-title">Certification — ${a.assurancePosture}</div>
+            <div class="tl-meta">${a.certificationId ? 'Credential: ' + a.certificationId : 'No credential issued'}</div>
+          </div>
+        </div>
+        ${a.lastEvent ? `<div style="margin-top:12px;padding:10px;background:var(--surface2);border-radius:6px;font-size:11px;color:var(--muted);">Last event: <strong>${a.lastEvent.type}</strong></div>` : ''}
+      </div>
+    </div>`).join('');
+}
+
+function toggleRecord(header) {
+  const body = header.nextElementSibling;
+  body.classList.toggle('open');
+}
+
+function filterAgents() {
+  const q = document.getElementById('agentSearch').value.toLowerCase();
+  const posture = document.getElementById('postureFilter').value;
+  renderAgents(allAgents.filter(a =>
+    (!q || a.agentId.toLowerCase().includes(q)) &&
+    (!posture || a.assurancePosture === posture)
+  ));
+}
+
+// ── Governance ─────────────────────────────────────────────────────
+async function loadGovernance() {
+  const [pkgs, rubric] = await Promise.all([
+    safeFetch(`${VALID}/packages`),
+    safeFetch(`${GRADE}/rubric`),
+  ]);
+
+  const pkgTable = document.getElementById('packageTable');
+  if (pkgs && pkgs.length > 0) {
+    pkgTable.innerHTML = pkgs.map(p => `<tr>
+      <td><code style="font-size:11px;">${p.packageId || p.id || '—'}</code></td>
+      <td>${p.version || '—'}</td>
+      <td>${badge(p.state || 'Unknown', p.state === 'Active' ? 'green' : p.state === 'Superseded' ? 'amber' : 'blue')}</td>
+      <td><code style="font-size:10px;">${(p.digest||'—').slice(0,12)}…</code></td>
+      <td style="font-size:11px;color:var(--muted);">—</td>
+    </tr>`).join('');
+  } else {
+    pkgTable.innerHTML = '<tr><td colspan="5" style="color:var(--muted);">No packages found</td></tr>';
+  }
+
+  const rubricEl = document.getElementById('rubricView');
+  if (rubric) {
+    rubricEl.innerHTML = `
+      <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr)">
+        <div class="kpi-item"><div class="kpi-domain">Overall Pass</div><div class="kpi-val met">${(rubric.overall_pass_threshold*100).toFixed(0)}%</div></div>
+        <div class="kpi-item"><div class="kpi-domain">Adversarial Pass</div><div class="kpi-val met">${(rubric.adversarial_pass_threshold*100).toFixed(0)}%</div></div>
+        <div class="kpi-item"><div class="kpi-domain">Critical Violations</div><div class="kpi-val met">Max ${rubric.critical_violation_limit}</div></div>
+      </div>
+      <p style="font-size:11px;color:var(--muted);margin-top:12px;">Rubric v${rubric.version} — locked at runtime, cannot be overridden.</p>`;
+  }
+}
+
+// ── Evidence ───────────────────────────────────────────────────────
+async function loadEvidence() {
+  const evidence = await safeFetch(`${GRADE}/evidence`);
+  const tbl = document.getElementById('evidenceTable');
+  if (evidence && evidence.length > 0) {
+    tbl.innerHTML = evidence.map(e => `<tr>
+      <td><code style="font-size:11px;">${e.attemptId.slice(0,12)}…</code></td>
+      <td>${e.subject}</td>
+      <td>${(e.overallScore*100).toFixed(1)}%</td>
+      <td>${badge(e.passed ? 'PASS' : 'FAIL', e.passed ? 'green' : 'red')}</td>
+      <td style="font-size:11px;color:var(--muted);">${new Date(e.gradedAt).toLocaleString()}</td>
+    </tr>`).join('');
+  } else {
+    tbl.innerHTML = '<tr><td colspan="5" style="color:var(--muted);">No grading evidence yet</td></tr>';
+  }
+}
+
+// ── Operations ─────────────────────────────────────────────────────
+async function loadOperations() {
+  const snap = await safeFetch(`${MON}/snapshot`);
+  const grid = document.getElementById('serviceGrid');
+  if (snap && snap.operationalHealth) {
+    grid.innerHTML = Object.entries(snap.operationalHealth).map(([svc, data]) => `
+      <div class="card ${healthColor(data.health)}">
+        <div class="card-label">${svc}</div>
+        <div class="card-value" style="font-size:16px;">${data.health}</div>
+        <div class="card-sub">${data.stale ? '⚠ Stale' : data.metrics ? JSON.stringify(data.metrics).slice(0,40) : 'No metrics'}</div>
+      </div>`).join('');
+  } else {
+    grid.innerHTML = '<div style="color:var(--muted);">Monitoring service unavailable</div>';
+  }
+}
+
+// ── Marketplace ────────────────────────────────────────────────────
+async function loadMarketplace() {
+  const snap = await safeFetch(`${MON}/snapshot`);
+  const el = document.getElementById('marketplaceList');
+  const verified = Object.values((snap && snap.assurancePosture) || {}).filter(a => a.assurancePosture === 'VERIFIED');
+  if (verified.length === 0) {
+    el.innerHTML = '<div style="color:var(--muted);font-size:13px;">No certified agents available yet.</div>';
+    return;
+  }
+  el.innerHTML = `<table>
+    <thead><tr><th>Agent ID</th><th>Posture</th><th>Credential</th><th>Last Updated</th></tr></thead>
+    <tbody>${verified.map(a => `<tr>
+      <td><strong>${a.agentId}</strong></td>
+      <td>${badge('VERIFIED','green')}</td>
+      <td><code style="font-size:11px;">${a.certificationId || '—'}</code></td>
+      <td style="font-size:11px;color:var(--muted);">${a.updatedAt ? new Date(a.updatedAt).toLocaleString() : '—'}</td>
+    </tr>`).join('')}</tbody>
+  </table>`;
+}
+
+// ── Auto-refresh ───────────────────────────────────────────────────
+async function refresh() {
+  await loadOverview();
+  await loadGovernance();
+  await loadEvidence();
+  await loadOperations();
+  await loadMarketplace();
+}
+
+refresh();
+setInterval(refresh, 10000);
+</script>
+</body>
+</html>
