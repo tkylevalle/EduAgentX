@@ -550,6 +550,34 @@ services:
       timeout: 5s
       retries: 10
       start_period: 5s
+
+  credential-verification:
+    build:
+      context: ./services/credential-verification
+    container_name: eduagentx-credential-verification
+    environment:
+      PORT: 4030
+      SERVICE_NAME: credential-verification
+      CREDENTIAL_ISSUER: did:example:eduagentx-dev-2026
+      CREDENTIAL_PUBLIC_KEY_PATH: /keys/dev-public.pem
+    ports:
+      - "4030:4030"
+    networks:
+      - eduagentx-net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:4030/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
   prometheus:
     image: prom/prometheus:v3.5.0
     container_name: eduagentx-prometheus
