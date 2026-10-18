@@ -46,3 +46,41 @@ test('a refused examination stops the run at that step with the owning service r
   await assert.rejects(driver.examine('safe-escalation'), (error) =>
     error.code === 'examination_failed' && error.detail.reason === 'remediation_required');
 });
+
+test('the live-model scenario asks the learner for its live model and reports the model usage', async () => {
+  const bodies = {};
+  const fetchImpl = async (url, init = {}) => {
+    const path = new URL(url).pathname;
+    if (init.body) bodies[path] = JSON.parse(init.body);
+    const routes = {
+      '/v1/auth/tokens': [200, { accessToken: 'token', expiresIn: 900 }],
+      '/v1/runs': [200, { outcome: 'accepted', evidence: { label: 'LIVE: Live Agent Learner' },
+        registration: { agentLearnerKey: 'agent' }, live: { provider: 'opencode-go', model: 'glm-5.3-flash' } }],
+      '/v1/training-runs': [200, { outcome: 'completed', sessionId: 'session-1', completedItems: [{ moduleId: 'm1' }],
+        live: { model: 'glm-5.3-flash', calls: 1, promptTokens: 30, completionTokens: 70 } }],
+      '/v1/admin/training-sessions/session-1': [200, { session: { kind: 'standard' } }],
+    };
+    const [status, body] = routes[path] || [404, { error: 'not_found' }];
+    return { status, text: async () => JSON.stringify(body) };
+  };
+  const driver = createLifecycleDriver({ gatewayUrl: GATEWAY, syntheticUrl: LEARNER, admin, fetchImpl });
+
+  const registered = await driver.register('live-model');
+  const trained = await driver.train('live-model');
+
+  assert.equal(bodies['/v1/runs'].learner, 'live');
+  assert.equal(bodies['/v1/training-runs'].learner, 'live');
+  assert.equal(registered.model, 'glm-5.3-flash');
+  assert.deepEqual(trained.live, { calls: 1, promptTokens: 30, completionTokens: 70, model: 'glm-5.3-flash' });
+});
+
+test('synthetic scenarios never ask for the live model', async () => {
+  const bodies = [];
+  const fetchImpl = async (url, init = {}) => {
+    if (init.body) bodies.push(JSON.parse(init.body));
+    return { status: 200, text: async () => JSON.stringify({ outcome: 'accepted', registration: { agentLearnerKey: 'agent' } }) };
+  };
+  const driver = createLifecycleDriver({ gatewayUrl: GATEWAY, syntheticUrl: LEARNER, admin, fetchImpl });
+  await driver.register('safe-escalation');
+  assert.equal(bodies.some((body) => 'learner' in body), false);
+});

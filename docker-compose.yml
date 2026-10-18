@@ -508,6 +508,10 @@ services:
       SERVICE_NAME: synthetic-agent-learner
       AGENT_CLIENT_ID: ${AGENT_CLIENT_ID}
       AGENT_CLIENT_SECRET: ${AGENT_CLIENT_SECRET}
+      # Optional live learner (Lifecycle Lab "Live model"). Empty key = disabled.
+      OPENCODE_API_KEY: ${OPENCODE_API_KEY:-}
+      LIVE_MODEL: ${LIVE_MODEL:-glm-5.3-flash}
+      LIVE_MODEL_URL: ${LIVE_MODEL_URL:-https://opencode.ai/inference/go/openai/v1/chat/completions}
     ports:
       - "127.0.0.1:${SYNTHETIC_AGENT_PORT:-4200}:4200"
     depends_on:

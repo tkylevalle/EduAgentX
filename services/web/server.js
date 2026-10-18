@@ -18,6 +18,7 @@ const REQUEST_TIMEOUT_MS = 8000;
 const HEALTH_TIMEOUT_MS = 1500;
 const REMEDIATION_WAIT_MS = 15_000;
 const REMEDIATION_POLL_MS = 500;
+const HEARTBEAT_MS = 10_000;
 const STATUS_ACTIONS = ['suspend', 'reinstate', 'revoke'];
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -213,6 +214,15 @@ function createServer({ env = process.env, fetchImpl = fetch, driver } = {}) {
     } catch { res.status(503).json({ error: 'learner_unavailable' }); }
   });
 
+  // Whether the learner has a live model configured (name only, never the key).
+  app.get('/api/live-model', async (req, res) => {
+    try {
+      const reply = await call(`${SYNTHETIC_URL}/v1/live-model`);
+      if (reply.status !== 200) return res.json({ available: false });
+      res.json({ available: reply.data.available === true, provider: reply.data.provider, model: reply.data.model });
+    } catch { res.json({ available: false }); }
+  });
+
   // One run at a time: every run uses the same Agent Learner identity.
   // Progress streams as newline-delimited JSON so the page shows each step live.
   app.post('/api/lifecycle/run', async (req, res) => {
@@ -224,6 +234,8 @@ function createServer({ env = process.env, fetchImpl = fetch, driver } = {}) {
     res.flushHeaders();
     const send = (message) => res.write(`${JSON.stringify(message)}\n`);
     send({ type: 'plan', steps: STEPS, scenario });
+    // A live model can take minutes per stage; a heartbeat keeps the stream open.
+    const heartbeat = setInterval(() => send({ type: 'heartbeat', at: new Date().toISOString() }), HEARTBEAT_MS);
     try {
       const report = await lifecycle.run({ scenario, onStep: (step) => send({ type: 'step', step }) });
       if (report.status === 'failed') {
@@ -238,6 +250,7 @@ function createServer({ env = process.env, fetchImpl = fetch, driver } = {}) {
     } catch (error) {
       send({ type: 'done', report: { status: 'failed', error: error.code || 'run_failed' } });
     } finally {
+      clearInterval(heartbeat);
       runInProgress = false;
       res.end();
     }

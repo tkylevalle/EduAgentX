@@ -15,6 +15,11 @@ const DEFAULT_TIMEOUT_MS = 20_000;
 const CERTIFICATION_WAIT_MS = 30_000;
 const POLL_INTERVAL_MS = 1000;
 const MAX_TRAINING_ROUNDS = 5;
+// The live learner asks a real model for every item, so its calls take longer.
+const LIVE_SCENARIO = 'live-model';
+const LIVE_TRAINING_TIMEOUT_MS = 240_000;
+const LIVE_EXAM_TIMEOUT_MS = 420_000;
+const isLive = (scenario) => scenario === LIVE_SCENARIO;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -113,24 +118,29 @@ function createLifecycleDriver({ gatewayUrl, syntheticUrl, validationUrl, curric
       gates: validated.data.gates.map((gate) => gate.name), reviews, moduleCount: pkg.modules?.length ?? null };
   }
 
-  async function register() {
-    const reply = await http(`${syntheticUrl}/v1/runs`, { method: 'POST', body: { profileId: 'competent' } });
+  async function register(scenario = examScenario) {
+    const reply = await http(`${syntheticUrl}/v1/runs`, { method: 'POST',
+      body: { profileId: 'competent', ...(isLive(scenario) ? { learner: 'live' } : {}) } });
     if (reply.status !== 200 || !reply.data.registration) {
       throw new LifecycleError('registration_failed', { status: reply.status, reason: reply.data.reason });
     }
     const registration = reply.data.registration;
     return { agentLearnerKey: registration.agentLearnerKey, agentLearnerId: registration.agentLearnerId,
       configurationVersion: registration.configurationVersion, configurationFingerprint: registration.configurationFingerprint,
-      outcome: reply.data.outcome, evidence: reply.data.evidence?.label };
+      model: reply.data.live?.model || null, outcome: reply.data.outcome, evidence: reply.data.evidence?.label };
   }
 
-  async function train() {
+  async function train(scenario = examScenario) {
+    const live = isLive(scenario);
     let resumeSessionId, completed = [];
+    const usage = { calls: 0, promptTokens: 0, completionTokens: 0 };
     for (let round = 0; round < MAX_TRAINING_ROUNDS; round += 1) {
       const reply = await http(`${syntheticUrl}/v1/training-runs`, { method: 'POST',
-        body: { maxItems: 20, ...(resumeSessionId ? { resumeSessionId } : {}) } });
+        body: { maxItems: 20, ...(resumeSessionId ? { resumeSessionId } : {}), ...(live ? { learner: 'live' } : {}) },
+        ...(live ? { timeoutMs: LIVE_TRAINING_TIMEOUT_MS } : {}) });
       if (reply.status !== 200) throw new LifecycleError('training_failed', { status: reply.status, reason: reply.data.reason });
       completed = completed.concat(reply.data.completedItems || []);
+      for (const key of Object.keys(usage)) usage[key] += reply.data.live?.[key] || 0;
       resumeSessionId = reply.data.sessionId;
       if (reply.data.outcome === 'completed') {
         // Training starts an assigned remediation session in place of a
@@ -139,7 +149,8 @@ function createLifecycleDriver({ gatewayUrl, syntheticUrl, validationUrl, curric
         const session = view.data?.session || {};
         return { sessionId: resumeSessionId, kind: session.kind || 'standard',
           remediationObjectiveIds: session.remediation?.objectiveIds || [], itemsDelivered: completed.length,
-          modules: [...new Set(completed.map((item) => item.moduleId))], modelWeightsModified: false };
+          modules: [...new Set(completed.map((item) => item.moduleId))], modelWeightsModified: false,
+          ...(live ? { live: { ...usage, model: reply.data.live?.model || null } } : {}) };
       }
       if (reply.data.outcome !== 'open') throw new LifecycleError('training_failed', { reason: reply.data.reason });
     }
@@ -148,7 +159,7 @@ function createLifecycleDriver({ gatewayUrl, syntheticUrl, validationUrl, curric
 
   async function examine(scenario = examScenario) {
     const reply = await http(`${syntheticUrl}/v1/exam-runs`, { method: 'POST', body: { scenarioId: scenario },
-      timeoutMs: 120_000 });
+      timeoutMs: isLive(scenario) ? LIVE_EXAM_TIMEOUT_MS : 120_000 });
     if (reply.status !== 200 || !reply.data.attempt) {
       throw new LifecycleError('examination_failed', { status: reply.status, outcome: reply.data.outcome, reason: reply.data.reason });
     }
@@ -159,7 +170,8 @@ function createLifecycleDriver({ gatewayUrl, syntheticUrl, validationUrl, curric
       terminalReason: reply.data.attempt.terminalReason || null, itemsAnswered: reply.data.answered.length,
       scenario, overallPercent: assessment?.overallPercent ?? null,
       tierPercents: assessment?.tierPercents ?? null, criticalViolationRuleIds: assessment?.criticalViolationRuleIds ?? [],
-      passed: reply.data.attempt.status === 'complete' };
+      passed: reply.data.attempt.status === 'complete', evidence: reply.data.evidence?.label || null,
+      ...(reply.data.live ? { live: reply.data.live } : {}) };
   }
 
   async function certify(attemptId) {
@@ -246,8 +258,8 @@ function createLifecycleDriver({ gatewayUrl, syntheticUrl, validationUrl, curric
     };
     try {
       results.package = await step('package', ensurePackage);
-      results.register = await step('register', register);
-      results.train = await step('train', train);
+      results.register = await step('register', () => register(scenario));
+      results.train = await step('train', () => train(scenario));
       results.examine = await step('examine', async () => {
         const exam = await examine(scenario);
         if (!exam.passed) throw new LifecycleError('agent_failed_examination', exam);
@@ -274,4 +286,4 @@ function createLifecycleDriver({ gatewayUrl, syntheticUrl, validationUrl, curric
   return { run, ensurePackage, register, train, examine, certify, verify, changeStatus, monitor, activePackage };
 }
 
-module.exports = { createLifecycleDriver, LifecycleError, STEPS };
+module.exports = { createLifecycleDriver, LifecycleError, STEPS, LIVE_SCENARIO };

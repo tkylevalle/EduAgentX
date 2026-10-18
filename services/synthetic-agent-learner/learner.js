@@ -26,6 +26,7 @@ function createSyntheticAgentLearner({ gatewayClient, idGenerator = randomUUID }
     registration = {},
     correlationId = `synthetic-run-${idGenerator()}`,
     timeoutMs = 5000,
+    evidenceMode = 'synthetic',
   } = {}) {
     const profile = getSyntheticProfile(profileId);
     if (!profile) {
@@ -45,7 +46,7 @@ function createSyntheticAgentLearner({ gatewayClient, idGenerator = randomUUID }
         correlationId,
         idempotencyKey: `synthetic-registration-${correlationId}`,
         timeoutMs,
-        evidence: { mode: 'synthetic' },
+        evidence: { mode: evidenceMode },
         payload: { ...DEFAULT_REGISTRATION, ...registration },
       });
     } catch (error) {
@@ -170,16 +171,19 @@ function createSyntheticAgentLearner({ gatewayClient, idGenerator = randomUUID }
 
   // Sprint 2 path: a synthetic learner exercises the actual Gateway session
   // contract. Bounded runs make interruption/resumption reproducible.
+  // registration, evidenceMode and respond let a live learner reuse this
+  // contract; respond(item) returns the response text for one delivered item.
   async function train({ agentLearnerKey, profileId = 'competent', resumeSessionId,
-    maxItems = 20, correlationId = `synthetic-training-${idGenerator()}`, timeoutMs = 5000 } = {}) {
+    maxItems = 20, correlationId = `synthetic-training-${idGenerator()}`, timeoutMs = 5000,
+    registration = {}, evidenceMode = 'synthetic', respond = null } = {}) {
     const profile = getSyntheticProfile(profileId);
     if (!profile || !agentLearnerKey || !Number.isInteger(maxItems) || maxItems < 1 || maxItems > 20)
       return { outcome: 'rejected', reason: 'invalid_training_request', credentialIssued: false };
-    const evidence = canonicalEvidence('synthetic');
+    const evidence = canonicalEvidence(evidenceMode);
     const registrationMessage = createRegistrationMessage({
       messageId: `synthetic-registration-${idGenerator()}`, correlationId,
       idempotencyKey: `synthetic-registration-${correlationId}`, timeoutMs, evidence,
-      payload: { ...DEFAULT_REGISTRATION, agentLearnerKey },
+      payload: { ...DEFAULT_REGISTRATION, ...registration, agentLearnerKey },
     });
     try {
       const registrationResponse = await gatewayClient.register(registrationMessage);
@@ -203,8 +207,14 @@ function createSyntheticAgentLearner({ gatewayClient, idGenerator = randomUUID }
         const item = delivery.body.item;
         if (!item?.deliveryItemId || delivery.body.bounds?.modelWeightsModified !== false)
           return { outcome: 'rejected', reason: 'unsafe_training_contract', sessionId, completedItems, credentialIssued: false };
+        let response = profile.response || 'deterministic synthetic practice';
+        if (respond) {
+          try { response = await respond(item); } catch (error) {
+            return { outcome: 'system_aborted', reason: error.code || 'learner_unavailable', sessionId, completedItems, credentialIssued: false };
+          }
+        }
         const submitted = await interact('training.session.submit', {
-          sessionId, deliveryItemId: item.deliveryItemId, response: profile.response || 'deterministic synthetic practice',
+          sessionId, deliveryItemId: item.deliveryItemId, response,
         });
         if (!isSuccess(submitted) || submitted.body.modelWeightsModified !== false)
           return { outcome: 'system_aborted', reason: submitted.body?.error || 'training_submit_failed', sessionId, completedItems, credentialIssued: false };
