@@ -21,8 +21,15 @@ make down      # stop (data stays); make reset deletes data
 
 Without `make`, run the same commands that the [Makefile](Makefile) lists.
 
+To drive one Agent Learner through the whole lifecycle (package, training,
+examination, credential, verification, status change, monitoring) from the
+command line, run `node scripts/poc-lifecycle.js [scenario]`. The report is
+written to `artifacts/poc/lifecycle-run.json`. The web app's Lifecycle Lab
+runs the same driver live.
+
 | URL | What |
 |---|---|
+| http://localhost:4300 | EduAgentX web app: overview, Lifecycle Lab, credentials, verifier |
 | http://localhost:8080 | API Gateway |
 | http://localhost:4173 | Assurance Console |
 | http://localhost:4200 | Synthetic Agent Learner |
