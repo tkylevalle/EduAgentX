@@ -15,10 +15,12 @@ const MAX_TRAINING_SESSION_ROWS = 20;
 
 const app = express();
 
-// Serve the Assurance Console UI
+// Serve the new Assurance Console UI at /console
+// The root GET / route is preserved for the original renderPage() output
+// so existing tests and smoke checks continue to pass.
 const consolePath = require('node:path').join(__dirname, 'public');
 if (require('node:fs').existsSync(consolePath)) {
-  app.use(express.static(consolePath));
+  app.use('/console', express.static(consolePath));
 }
 
 app.get('/health', (req, res) => {
