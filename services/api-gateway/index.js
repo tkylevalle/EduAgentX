@@ -23,6 +23,7 @@ const {
 } = require('../../packages/external-agent-protocol');
 const { authHealth, issueToken, requireRole } = require('./auth');
 const { createRateLimit } = require('./rate-limit');
+const { registerAssuranceRoutes } = require('./assurance-routes');
 
 const PORT = process.env.PORT || 4000;
 const SERVICE_NAME = process.env.SERVICE_NAME || 'api-gateway';
@@ -63,6 +64,11 @@ function createApp({
   // No default URL: without both values every Marketplace route answers 503.
   marketplaceServiceUrl = process.env.MARKETPLACE_SERVICE_URL,
   marketplaceInternalKey = process.env.MARKETPLACE_INTERNAL_KEY,
+  certificationServiceUrl = process.env.CERTIFICATION_SERVICE_URL,
+  certificationInternalKey = process.env.CERTIFICATION_INTERNAL_KEY,
+  credentialVerificationUrl = process.env.CREDENTIAL_VERIFICATION_URL,
+  credentialInternalKey = process.env.CREDENTIAL_INTERNAL_KEY,
+  monitoringServiceUrl = process.env.MONITORING_SERVICE_URL,
   protocolIdempotencyStore = new Map(),
   // Issue #27: pending two-person approvals for governance commands, keyed
   // by `${packageId}:${scopeType}:${scopeId}`. Ephemeral and per-instance,
@@ -85,6 +91,14 @@ function createApp({
   app.use(createRateLimit(rateLimit));
 
   app.use(express.json({ limit: '64kb' }));
+
+  // Best effort: monitoring is a read-only projection, so its outage never
+  // changes a lifecycle answer.
+  const notifyMonitoring = (event) => {
+    if (!monitoringServiceUrl) return;
+    fetch(`${monitoringServiceUrl}/events`, { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ...event, source: 'api-gateway' }), timeout: 2000 }).catch(() => {});
+  };
 
   app.get('/health', async (req, res) => {
     const controller = new AbortController();
@@ -488,6 +502,9 @@ function createApp({
         method: 'POST', body, correlationId: message.correlationId, timeoutMs: message.timeoutMs,
         headers: trainingHeaders(req),
       });
+      if (training.action === 'start' && upstream.status >= 200 && upstream.status < 300) {
+        notifyMonitoring({ type: 'training.started', agentId: req.auth.subject, sessionId: upstream.body.sessionId });
+      }
       // Not stored in the Gateway's idempotency cache: Training keeps the
       // durable record and re-checks the package on every retry, so a cached
       // reply here could hide a later Quarantine.
@@ -668,6 +685,9 @@ function createApp({
       `${examinationEngineUrl}/internal/admin/attempts/${encodeURIComponent(req.params.attemptId)}/remediation`,
       { headers: examinationHeaders(req) });
   });
+
+  registerAssuranceRoutes(app, { requireRole, proxyJson, certificationServiceUrl, certificationInternalKey,
+    credentialVerificationUrl, credentialInternalKey, monitoringServiceUrl });
 
   app.use((error, req, res, next) => {
     if (res.headersSent) return next(error);

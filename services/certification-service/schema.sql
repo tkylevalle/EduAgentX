@@ -52,3 +52,10 @@ CREATE TABLE IF NOT EXISTS certification_engine.issuance_cursor (
   completed_at timestamptz NOT NULL,
   examination_id uuid NOT NULL
 );
+
+-- Outbox: one row once a credential has been registered for status and
+-- published to the certification.credentials stream (publisher.js).
+CREATE TABLE IF NOT EXISTS certification_engine.credential_publications (
+  credential_id uuid PRIMARY KEY REFERENCES certification_engine.credentials(credential_id),
+  published_at timestamptz NOT NULL
+);

@@ -1,0 +1,10 @@
+{
+  "name": "@eduagentx/demo-lifecycle",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Drives one Agent Learner through the full EduAgentX lifecycle over public routes.",
+  "main": "index.js",
+  "scripts": {
+    "test": "node --test"
+  }
+}

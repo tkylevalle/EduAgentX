@@ -9,6 +9,7 @@ volumes:
   redis-data:
   chromadb-data:
   curriculum-index-cache:
+  credential-status:
 
 services:
   postgres:
@@ -384,6 +385,11 @@ services:
       MARKETPLACE_SERVICE_URL: http://marketplace-service:4012
       MARKETPLACE_INTERNAL_KEY: ${MARKETPLACE_INTERNAL_KEY:?Run node scripts/setup-dev.js}
       SERVICE_NAME: api-gateway
+      CERTIFICATION_SERVICE_URL: http://certification-service:4011
+      CERTIFICATION_INTERNAL_KEY: ${CERTIFICATION_INTERNAL_KEY:?Run node scripts/setup-dev.js}
+      CREDENTIAL_VERIFICATION_URL: http://credential-verification:4030
+      CREDENTIAL_INTERNAL_KEY: ${CREDENTIAL_INTERNAL_KEY:?Run node scripts/setup-dev.js}
+      MONITORING_SERVICE_URL: http://monitoring-service:4040
       JWT_ISSUER: ${JWT_ISSUER}
       JWT_AUDIENCE: ${JWT_AUDIENCE}
       JWT_ACCESS_TOKEN_TTL_SECONDS: ${JWT_ACCESS_TOKEN_TTL_SECONDS}
@@ -457,6 +463,12 @@ services:
       EXAMINATION_INTERNAL_KEY: ${EXAMINATION_INTERNAL_KEY:?Run node scripts/setup-dev.js}
       VALIDATION_ACTIVATION_URL: http://validation-activation:4010
       CURRICULUM_INTERNAL_KEY: ${CURRICULUM_INTERNAL_KEY:?Run node scripts/setup-dev.js}
+      # Outbox delivery of issued credentials (publisher.js).
+      REDIS_URL: redis://redis:6379
+      CREDENTIAL_EVENT_STREAM: ${CREDENTIAL_EVENT_STREAM:-certification.credentials}
+      CREDENTIAL_VERIFICATION_URL: http://credential-verification:4030
+      CREDENTIAL_INTERNAL_KEY: ${CREDENTIAL_INTERNAL_KEY:?Run node scripts/setup-dev.js}
+      MONITORING_URL: http://monitoring-service:4040
     volumes:
       - ./keys:/app/keys:ro
     depends_on:
@@ -628,10 +640,17 @@ services:
     environment:
       PORT: 4030
       SERVICE_NAME: credential-verification
-      CREDENTIAL_ISSUER: did:example:eduagentx-dev-2026
-      CREDENTIAL_PUBLIC_KEY_PATH: /keys/dev-public.pem
+      # Trusts the issuer certification-service signs as, with its public key.
+      CREDENTIAL_ISSUER: ${CERTIFICATION_ISSUER:-https://eduagentx.example/issuers/eduagentx}
+      CREDENTIAL_PUBLIC_KEY_PATH: /keys/certification-ed25519-public.pem
+      CREDENTIAL_INTERNAL_KEY: ${CREDENTIAL_INTERNAL_KEY:?Run node scripts/setup-dev.js}
+      CREDENTIAL_STATUS_PATH: /data/credential-status.json
+      MONITORING_URL: http://monitoring-service:4040
+    volumes:
+      - ./keys:/keys:ro
+      - credential-status:/data
     ports:
-      - "4030:4030"
+      - "127.0.0.1:4030:4030"
     networks:
       - eduagentx-net
     deploy:
@@ -657,7 +676,7 @@ services:
       PORT: 4040
       SERVICE_NAME: monitoring-service
     ports:
-      - "4040:4040"
+      - "127.0.0.1:4040:4040"
     networks:
       - eduagentx-net
     deploy:

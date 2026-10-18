@@ -5,6 +5,14 @@ const { fail } = require('./evidence');
 
 const clone = (value) => structuredClone(value);
 
+// Answer-free view of one decision and its credential for operator reads.
+const credentialSummary = ({ examinationId, decision, subjectId, packageId, packageVersion, mode, scores, credential }) => ({
+  credentialId: credential.credentialId, examinationId, agentLearnerKey: subjectId, packageId, packageVersion, mode,
+  overallPercent: scores?.overallPercent ?? null, tierPercents: scores?.tierPercents ?? null,
+  decision, issuedAt: credential.issuedAt, keyId: credential.keyId, validUntil: credential.credential?.validUntil ?? null,
+  compactJws: credential.compactJws,
+});
+
 function createMemoryStore() {
   const byAttempt = new Map(), byKey = new Map();
   let cursor = null;
@@ -41,6 +49,12 @@ function createMemoryStore() {
       const processing = [...byAttempt.values()].map((row) => row.processingLatencyMs).sort((a, b) => a - b);
       return { sampleCount: values.length, p95Ms: values.length ? values[Math.ceil(values.length * 0.95) - 1] : 0,
         processingP95Ms: processing.length ? processing[Math.ceil(processing.length * 0.95) - 1] : 0 };
+    },
+    async listCredentials(limit = 50) {
+      return [...byAttempt.values()].sort((a, b) => b.credential.issuedAt.localeCompare(a.credential.issuedAt))
+        .slice(0, limit).map((row) => credentialSummary({ examinationId: row.examinationId, decision: row.decision,
+          subjectId: row.evidence.subjectId, packageId: row.evidence.packageId, packageVersion: row.evidence.packageVersion,
+          mode: row.evidence.mode, scores: row.evidence.scores, credential: row.credential }));
     },
     async getCursor() { return clone(cursor); },
     async advanceCursor(next) { cursor = clone(next); },
@@ -110,6 +124,17 @@ function createPgStore(pool) {
       const processing = await pool.query(`SELECT COALESCE(percentile_cont(0.95) WITHIN GROUP
         (ORDER BY processing_latency_ms),0)::int AS p95_ms FROM certification_engine.credentials`);
       return { sampleCount: rows[0].sample_count, p95Ms: rows[0].p95_ms, processingP95Ms: processing.rows[0].p95_ms };
+    },
+    async listCredentials(limit = 50) {
+      const { rows } = await pool.query(`SELECT d.examination_id, d.decided_at, d.subject_id, d.package_id, d.package_version,
+        d.mode, d.scores, c.credential_id, c.credential, c.compact_jws, c.key_id, c.issued_at
+        FROM certification_engine.decisions d JOIN certification_engine.credentials c USING (decision_id)
+        ORDER BY c.issued_at DESC LIMIT $1`, [limit]);
+      return rows.map((row) => credentialSummary({ examinationId: row.examination_id,
+        decision: { outcome: 'certified', decidedAt: new Date(row.decided_at).toISOString() },
+        subjectId: row.subject_id, packageId: row.package_id, packageVersion: row.package_version, mode: row.mode,
+        scores: row.scores, credential: { credentialId: row.credential_id, credential: row.credential,
+          compactJws: row.compact_jws, keyId: row.key_id, issuedAt: new Date(row.issued_at).toISOString() } }));
     },
     async getCursor() {
       const { rows } = await pool.query('SELECT completed_at, examination_id FROM certification_engine.issuance_cursor WHERE cursor_id=1');
