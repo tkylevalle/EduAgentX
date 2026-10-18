@@ -36,6 +36,7 @@ Prometheus + blackbox-exporter ──▶ /health of every service ──▶ Graf
 | `examination-engine` | 4005 | Immutable Examination attempts, standard/fallback grading, and answer-free certification evidence (#16–#21) |
 | `validation-activation` | 4010 (host 127.0.0.1 only) | Package validation, review and activation (#10), plus freshness evidence, scoped quarantine and fallback selection (#14). Lifecycle, freshness, scope and package evidence use the `curriculum_engine` PostgreSQL schema when `DATABASE_URL` is configured; in-memory storage is for tests/development without it. |
 | `certification-service` | 4011 (internal only) | Durable idempotent Certification Decisions and Ed25519-signed project credentials (#23) |
+| `marketplace-service` | 4012 (no host port) | Simulated Capability Requests, Agent Learner listings and hard Marketplace Eligibility checks; fails closed when any gate is uncheckable (#30) |
 | `assurance-console` | 4100 (host 4173) | Read-only page that shows the latest registration trace |
 | `synthetic-agent-learner` | 4200 | Deterministic test learner. Uses the public Gateway protocol like any external agent |
 

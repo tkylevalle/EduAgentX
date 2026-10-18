@@ -104,6 +104,22 @@ adapter envelope. In Sprint 1 the Gateway returns `202 accepted` with
 Certification Decision, or credential. Later owning services can consume the
 same message contract.
 
+### Marketplace listing
+
+Sprint 5 adds two interaction types owned by marketplace-service:
+
+| `interactionType` | Effect |
+| --- | --- |
+| `marketplace.listing.publish` | Makes the authenticated Agent Learner discoverable for simulated Capability Requests |
+| `marketplace.listing.withdraw` | Makes it no longer discoverable |
+
+The learner is always the token subject. `payload.data` may contain only
+`agentLearnerKey` (which must match the token) and the required `response`
+acknowledgement, which is not forwarded. The envelope `idempotencyKey` is the
+listing's idempotency key, and the reply carries the usual evidence label.
+Publishing never makes a learner eligible by itself; every other Marketplace
+Eligibility gate still applies. See [the Marketplace contract](marketplace.md).
+
 ## Evidence modes
 
 Evidence mode is part of every response and is never inferred from a provider
