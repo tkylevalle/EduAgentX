@@ -739,7 +739,7 @@ PEOPLE.forEach((p, pi) => {
     </div>
     <div class="grid g2">
       <div class="panel stripe-info"><div class="label">Backup for · know at levels 1–2</div><p style="margin-top:6px">${fmt(p.backup)}</p>${p.note ? `<p style="margin-top:8px;color:var(--info)">${fmt(p.note)}</p>` : ""}</div>
-      <div class="panel stripe-signal"><div class="label">Tonight checklist</div><ul class="check" style="margin-top:8px">${p.tonight.map((t) => `<li>${fmt(t)}</li>`).join("")}</ul></div>
+      <div class="panel stripe-signal"><div class="label">Tonight checklist</div><ul class="check" style="margin-top:8px">${p.tonight.map((t) => `<li><span>${fmt(t)}</span></li>`).join("")}</ul></div>
     </div>
   `);
   p.wps.forEach((w, wi) => {
