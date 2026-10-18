@@ -397,6 +397,8 @@ services:
       JWT_PUBLIC_KEY_PATH: ${JWT_PUBLIC_KEY_PATH}
       AGENT_CLIENT_ID: ${AGENT_CLIENT_ID}
       AGENT_CLIENT_SECRET: ${AGENT_CLIENT_SECRET}
+      LIVE_AGENT_CLIENT_ID: ${LIVE_AGENT_CLIENT_ID:-live-agent-learner-dev}
+      LIVE_AGENT_CLIENT_SECRET: ${LIVE_AGENT_CLIENT_SECRET:-}
       ADMIN_CLIENT_ID: ${ADMIN_CLIENT_ID}
       ADMIN_CLIENT_SECRET: ${ADMIN_CLIENT_SECRET}
       REVIEWER_1_CLIENT_ID: ${REVIEWER_1_CLIENT_ID:-}
@@ -509,6 +511,8 @@ services:
       AGENT_CLIENT_ID: ${AGENT_CLIENT_ID}
       AGENT_CLIENT_SECRET: ${AGENT_CLIENT_SECRET}
       # Optional live learner (Lifecycle Lab "Live model"). Empty key = disabled.
+      LIVE_AGENT_CLIENT_ID: ${LIVE_AGENT_CLIENT_ID:-live-agent-learner-dev}
+      LIVE_AGENT_CLIENT_SECRET: ${LIVE_AGENT_CLIENT_SECRET:-}
       OPENCODE_API_KEY: ${OPENCODE_API_KEY:-}
       LIVE_MODEL: ${LIVE_MODEL:-glm-5.3-flash}
       LIVE_MODEL_URL: ${LIVE_MODEL_URL:-https://opencode.ai/inference/go/openai/v1/chat/completions}
