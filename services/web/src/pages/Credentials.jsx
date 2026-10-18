@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Ban, PauseCircle, PlayCircle, ScanLine } from 'lucide-react';
-import { CredentialArtifact, Empty, Panel, Pill, Skeleton, Verdict, VerifyChecks } from '../ui.jsx';
+import { CredentialArtifact, Empty, PageHead, Panel, Pill, Skeleton, Verdict, VerifyChecks } from '../ui.jsx';
 import { api, ago, pct, short, stamp, STATUS_TONE } from '../lib.js';
 
 const selectedFromHash = () => window.location.hash.split('/')[2] || null;
@@ -50,13 +50,9 @@ export default function Credentials() {
 
   return (
     <main className="page">
-      <div className="page-head">
-        <div>
-          <h1 className="page-title">Credentials</h1>
-          <p className="page-lede">Each credential is a W3C Verifiable Credential signed with Ed25519 at the moment a passing examination is certified.
-            Status is held separately, so a credential can be suspended or revoked without ever being rewritten.</p>
-        </div>
-      </div>
+      <PageHead index="03" title="Credentials" sub="W3C Verifiable Credentials, Ed25519-signed at certification. Status lives apart, so a credential is never rewritten."
+        readouts={[['Issued', credentials ? credentials.length : null], ['Active', credentials ? credentials.filter((c) => c.status === 'active').length : null],
+          ['Suspended / revoked', credentials ? credentials.filter((c) => c.status !== 'active').length : null]]} />
       {error && <div className="notice bad" style={{ marginBottom: 18 }}>Credentials unavailable: {error}</div>}
 
       <div className="grid cols-main" style={{ alignItems: 'start' }}>

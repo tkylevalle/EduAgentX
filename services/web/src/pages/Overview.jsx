@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ArrowRight, FlaskConical } from 'lucide-react';
-import { Empty, Panel, Pill, ScoreBars, Skeleton } from '../ui.jsx';
+import { CountUp, Empty, PageHead, Panel, Pill, ScoreBars, Skeleton } from '../ui.jsx';
 import { api, ago, EVENT_COPY, pct, short } from '../lib.js';
 
 const POSTURE_TONE = { VERIFIED: 'ok', SUSPENDED: 'warn', REVOKED: 'bad', UNVERIFIED: 'info', INDETERMINATE: '' };
@@ -27,38 +27,34 @@ export default function Overview() {
 
   return (
     <main className="page">
-      <div className="page-head">
-        <div>
-          <h1 className="page-title">Assurance, <em>with evidence</em></h1>
-          <p className="page-lede">Every number on this page is read live from the platform: certification decisions, credential status,
-            training completion and service health. Nothing here is illustrative.</p>
-        </div>
-        <button className="btn btn-primary btn-lg" onClick={() => { window.location.hash = '/lab'; }}>
-          <FlaskConical size={17} /> Run a lifecycle
-        </button>
-      </div>
+      <PageHead index="01" title="Assurance overview" sub="Live from the platform. Nothing on this page is illustrative."
+        readouts={[['Services', data ? `${healthy}/${data.services.length}` : null], ['Package', pkg ? `v${pkg.version}` : data ? 'none' : null],
+          ['Last decision', latest ? ago(latest.decision?.decidedAt) : data ? 'none' : null]]}
+        action={<button className="btn btn-primary btn-lg" onClick={() => { window.location.hash = '/lab'; }}><FlaskConical size={16} /> Run a lifecycle</button>} />
 
-      {error && <div className="notice bad" style={{ marginBottom: 18 }}>Overview unavailable: {error}. The page retries every 10 seconds.</div>}
+      {error && <div className="notice bad" style={{ marginBottom: 12 }}>Overview unavailable: {error}. The page retries every 10 seconds.</div>}
 
       <div className="ledger" aria-label="Platform facts">
-        <Fact label="Certified agents" value={data ? agents.size : null} foot={`${credentials.length} credential${credentials.length === 1 ? '' : 's'} issued`} />
-        <Fact label="Issuance latency p95" value={kpi?.sampleCount ? kpi.p95Ms : data ? '—' : null} unit={kpi?.sampleCount ? 'ms' : ''}
-          foot={kpi?.sampleCount ? `Target ${kpi.targetMs} ms · ${kpi.targetMet ? 'met' : 'not met'}` : 'No samples yet'} />
-        <Fact label="Training completion" value={data?.training?.completionRate != null ? pct(data.training.completionRate * 100) : data ? '—' : null}
+        <Fact label="Credentials issued" value={data ? <CountUp value={credentials.length} /> : null} foot={`${agents.size} certified agent${agents.size === 1 ? '' : 's'}`} />
+        <Fact label="Issuance p95" value={kpi?.sampleCount ? <CountUp value={kpi.p95Ms} /> : data ? '—' : null} unit={kpi?.sampleCount ? 'ms' : ''}
+          foot={kpi?.sampleCount ? `Target ${kpi.targetMs} ms · ${kpi.targetMet ? 'met' : 'missed'}` : 'No samples yet'} />
+        <Fact label="Training completion" value={data?.training?.completionRate != null ? <CountUp value={data.training.completionRate * 100} /> : data ? '—' : null}
+          unit={data?.training?.completionRate != null ? '%' : ''}
           foot={data?.training?.counts ? `${data.training.counts.completed} of ${data.training.sessions} sessions` : ' '} />
-        <Fact label="Active package" value={pkg ? `v${pkg.version}` : data ? 'None' : null}
-          foot={pkg ? `${pkg.modules.length} modules · ${pkg.gates.filter((gate) => gate.passed).length}/6 gates` : 'Run a lifecycle to activate'} />
-        <Fact label="Services healthy" value={data ? `${healthy}/${data.services.length}` : null} foot="Probed every 10 s" />
+        <Fact label="Validation gates" value={pkg ? <CountUp value={pkg.gates.filter((gate) => gate.passed).length} /> : data ? '—' : null} unit={pkg ? '/ 6' : ''}
+          foot={pkg ? `${pkg.modules.length} modules · 2 reviewers` : 'Run a lifecycle to activate'} />
+        <Fact label="Latest overall" value={latest ? <CountUp value={latest.overallPercent} decimals={1} /> : data ? '—' : null} unit={latest ? '%' : ''}
+          foot={latest ? `Adversarial ${pct(latest.tierPercents?.adversarial)}` : 'No examination yet'} />
       </div>
 
       <div className="grid cols-main">
         <div className="stack">
-          <Panel title="Latest certification" note={latest ? `Decided ${ago(latest.decision?.decidedAt)}` : 'Certification Decisions come only from a passed, graded examination'}
+          <Panel title="Latest certification" note={latest ? `Decided ${ago(latest.decision?.decidedAt)}` : 'Only a passed, graded examination is certified'}
             action={latest && <Pill tone="ok" dot>certified</Pill>}>
             {!data ? <Skeleton height={140} /> : !latest ? (
               <Empty title="No credential yet">Run the Lifecycle Lab to take an agent from registration to a signed credential.</Empty>
             ) : (
-              <div className="grid cols-2" style={{ gap: 28 }}>
+              <div className="grid cols-2" style={{ gap: 24 }}>
                 <dl className="kv" style={{ gridTemplateColumns: '108px 1fr' }}>
                   <dt>Agent</dt><dd><code>{latest.agentLearnerKey}</code></dd>
                   <dt>Credential</dt><dd><code>{short(latest.credentialId, 13, 6)}</code></dd>
@@ -72,7 +68,7 @@ export default function Overview() {
             )}
           </Panel>
 
-          <Panel title="Credentials" note="Signed by certification-service, checked by credential-verification" flush
+          <Panel title="Credentials" flush
             action={<button className="btn btn-ghost" onClick={() => { window.location.hash = '/credentials'; }}>All credentials <ArrowRight size={15} /></button>}>
             {!data ? <div className="panel-body"><Skeleton height={90} /></div> : credentials.length === 0 ? (
               <Empty title="Nothing issued yet">Credentials appear here as soon as the certification sweep issues them.</Empty>
@@ -96,7 +92,7 @@ export default function Overview() {
         </div>
 
         <div className="stack">
-          <Panel title="Assurance posture" note="Monitoring projection, per Agent Learner" flush>
+          <Panel title="Assurance posture" flush>
             {!data ? <div className="panel-body"><Skeleton height={60} /></div> : !Array.isArray(data.posture) || data.posture.length === 0 ? (
               <Empty title="No agents observed">Posture appears after an agent starts training.</Empty>
             ) : (
@@ -104,7 +100,7 @@ export default function Overview() {
                 {data.posture.map((agent) => (
                   <li key={agent.agentId}>
                     <span className={`dot ${POSTURE_TONE[agent.assurancePosture] || ''}`} />
-                    <div><code>{agent.agentId}</code><div className="faint" style={{ fontSize: 12 }}>{EVENT_COPY[agent.lastEvent?.type]?.[0] || agent.lastEvent?.type}</div></div>
+                    <div><code>{agent.agentId}</code><div className="feed-meta">{EVENT_COPY[agent.lastEvent?.type]?.[0] || agent.lastEvent?.type}</div></div>
                     <Pill tone={POSTURE_TONE[agent.assurancePosture]}>{agent.assurancePosture.toLowerCase()}</Pill>
                   </li>
                 ))}
@@ -112,21 +108,21 @@ export default function Overview() {
             )}
           </Panel>
 
-          <Panel title="Activity" note="Domain events received by monitoring-service" flush>
+          <Panel title="Activity" action={<span className="row label" style={{ gap: 7 }}><span className="dot ok live" /> live</span>} flush>
             {!data ? <div className="panel-body"><Skeleton height={160} /></div> : data.events.length === 0 ? (
               <Empty title="Quiet so far">Events stream in as agents train and credentials change status.</Empty>
             ) : (
-              <ul className="feed" style={{ maxHeight: 420, overflow: 'auto' }}>
+              <ul className="feed" style={{ maxHeight: 460, overflow: 'auto' }}>
                 {data.events.map((event, index) => {
                   const [copy, tone] = EVENT_COPY[event.type] || [event.type, ''];
                   return (
                     <li key={`${event.receivedAt}-${index}`}>
                       <span className={`dot ${tone}`} />
                       <div>
-                        <div>{copy}</div>
-                        <div className="faint" style={{ fontSize: 12 }}>{event.agentId} · {event.source || 'platform'}</div>
+                        <div className="feed-title">{copy}</div>
+                        <div className="feed-meta">{event.agentId} · {event.source || 'platform'}</div>
                       </div>
-                      <span className="faint" style={{ fontSize: 12 }}>{ago(event.receivedAt)}</span>
+                      <span className="feed-time">{ago(event.receivedAt)}</span>
                     </li>
                   );
                 })}
@@ -143,7 +139,7 @@ function Fact({ label, value, unit, foot }) {
   return (
     <div className="ledger-cell">
       <div className="label">{label}</div>
-      <div className="ledger-value">{value === null ? <Skeleton height={30} width="60%" /> : <>{value}{unit && <small>{unit}</small>}</>}</div>
+      <div className="ledger-value">{value === null ? <Skeleton height={34} width="60%" /> : <>{value}{unit && <small>{unit}</small>}</>}</div>
       <div className="ledger-foot">{foot}</div>
     </div>
   );

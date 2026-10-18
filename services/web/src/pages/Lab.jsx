@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Check, CircleSlash, Loader2, Play, RotateCcw, X } from 'lucide-react';
-import { CredentialArtifact, Panel, Pill, ScoreBars } from '../ui.jsx';
+import { CredentialArtifact, PageHead, Panel, Pill, ScoreBars } from '../ui.jsx';
 import { api, clock, pct, RULE_COPY, SCENARIOS, short, stream } from '../lib.js';
 
 const BLANK_STEPS = [
@@ -57,6 +57,23 @@ export default function Lab() {
     }
   }
 
+  // 1–6 pick a behaviour, Enter starts the run: the demo is driven from the keyboard.
+  const runRef = useRef(run);
+  runRef.current = run;
+  useEffect(() => {
+    const onKey = (event) => {
+      if (event.target.closest?.('input, textarea') || event.metaKey || event.ctrlKey || event.altKey) return;
+      const index = Number(event.key) - 1;
+      if (index >= 0 && index < SCENARIOS.length && !running) setScenario(SCENARIOS[index].id);
+      if (event.key === 'Enter' && !running && (event.target === document.body || event.target.closest?.('.seg-option'))) {
+        event.preventDefault();
+        runRef.current();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [running]);
+
   const doneCount = steps.filter((step) => step.status === 'passed' || step.status === 'failed').length;
   const runningIndex = steps.findIndex((step) => step.status === 'running');
   const reach = runningIndex >= 0 ? runningIndex : Math.max(0, doneCount - 1);
@@ -65,48 +82,50 @@ export default function Lab() {
   const examDetail = exam?.detail;
   const failedExam = exam?.status === 'failed' && examDetail?.attemptId;
 
+  const active = SCENARIOS.find((entry) => entry.id === scenario);
+
   return (
     <main className="page">
-      <div className="page-head">
-        <div>
-          <h1 className="page-title">Lifecycle <em>Lab</em></h1>
-          <p className="page-lede">Take one Agent Learner through every service, live. The agent only uses public, authenticated routes;
-            each stage is answered by the service that owns it, and the console shows exactly what came back.</p>
-        </div>
-      </div>
+      <PageHead index="02" title="Lifecycle lab" sub="One Agent Learner through every service, over public authenticated routes."
+        readouts={[['Stage', `${doneCount}/${steps.length}`], ['Behaviour', active.hostile ? 'hostile' : 'competent'],
+          ['Result', running ? 'running' : outcome ? outcome.status : 'idle']]} />
 
-      <Panel title="Agent behaviour" note="Synthetic Agent Learner scenarios from Issue #21. Deterministic, labelled as simulation evidence.">
+      <Panel title="Agent behaviour" note="Synthetic Agent Learner · deterministic · simulation evidence"
+        action={<span className="label hide-sm">Keys <span className="kbd">1</span>–<span className="kbd">6</span> select · <span className="kbd">↵</span> run</span>}>
         <div className="seg" role="group" aria-label="Examination scenario">
-          {SCENARIOS.map((entry) => (
+          {SCENARIOS.map((entry, index) => (
             <button key={entry.id} className={`seg-option ${entry.hostile ? 'hostile' : ''}`} aria-pressed={scenario === entry.id}
-              onClick={() => setScenario(entry.id)} disabled={running} style={{ flex: '1 1 180px' }}>
+              onClick={() => setScenario(entry.id)} disabled={running}>
+              <span className="seg-top"><span className="seg-kind">{entry.hostile ? 'Fails closed' : 'Certifies'}</span><span className="kbd">{index + 1}</span></span>
               <span className="seg-title">{entry.title}</span>
               <span className="seg-sub">{entry.sub}</span>
             </button>
           ))}
         </div>
-        <div className="row" style={{ marginTop: 16, justifyContent: 'space-between', flexWrap: 'wrap' }}>
-          <span className="muted" style={{ fontSize: 13 }}>
-            {SCENARIOS.find((entry) => entry.id === scenario).hostile
-              ? 'Expected: the examination fails closed and the agent is routed to remediation. No credential is issued.'
-              : 'Expected: training completes, the examination passes, and a signed credential verifies as valid.'}
+        <div className="run-bar">
+          <div className="run-meter" aria-hidden="true">{steps.map((step) => <span key={step.id} data-status={step.status} />)}</div>
+          <span className="run-expect">
+            {active.hostile
+              ? 'Expected: a critical rule fails the exam closed, no credential, remediation is assigned.'
+              : 'Expected: training, a passing exam, and a signed credential that verifies as valid.'}
           </span>
           <button className="btn btn-primary btn-lg" onClick={run} disabled={running}>
-            {running ? <Loader2 size={17} className="spin" /> : outcome ? <RotateCcw size={17} /> : <Play size={17} />}
-            {running ? 'Running…' : outcome ? 'Run again' : 'Start lifecycle'}
+            {running ? <Loader2 size={16} className="spin" /> : outcome ? <RotateCcw size={16} /> : <Play size={16} />}
+            {running ? 'Running' : outcome ? 'Run again' : 'Start lifecycle'}
+            {!running && <span className="kbd">↵</span>}
           </button>
         </div>
       </Panel>
 
-      <div className="lab" style={{ marginTop: 18 }}>
-        <Panel title="Lifecycle" note={`${doneCount} of ${steps.length} stages`} flush>
+      <div className="lab" style={{ marginTop: 12 }}>
+        <Panel title="Lifecycle" action={<span className="label">{doneCount} / {steps.length} stages</span>} flush>
           <ol className="timeline">
             <span className="timeline-progress" style={{ transform: `scaleY(${doneCount || runningIndex >= 0 ? reach / (steps.length - 1) : 0})` }} />
             {steps.map((step) => (
               <li className="stage" key={step.id} data-status={step.status}>
                 <span className="stage-node">
                   {step.status === 'passed' ? <Check size={15} strokeWidth={3} /> : step.status === 'failed' ? <X size={15} strokeWidth={3} />
-                    : step.status === 'running' ? <Loader2 size={14} className="spin" /> : <span className="data" style={{ fontSize: 11 }}>{BLANK_STEPS.findIndex((s) => s.id === step.id) + 1}</span>}
+                    : step.status === 'running' ? <Loader2 size={14} className="spin" /> : <span className="data" style={{ fontSize: 11 }}>{String(BLANK_STEPS.findIndex((s) => s.id === step.id) + 1).padStart(2, '0')}</span>}
                 </span>
                 <div style={{ minWidth: 0 }}>
                   <div className="stage-title">
@@ -125,14 +144,15 @@ export default function Lab() {
           </ol>
         </Panel>
 
-        <div className="stack" style={{ position: 'sticky', top: 74 }}>
+        <div className="stack" style={{ position: 'sticky', top: 58 }}>
           {certify && outcome?.status === 'passed' && <CredentialArtifact credential={artifactFrom(steps)} />}
           {failedExam && <FailureCard exam={examDetail} remediation={remediation} />}
-          <Panel title="Run console" note="What each service answered" flush>
+          <Panel title="Run console" action={running && <span className="row label" style={{ gap: 7 }}><span className="dot ok live" /> streaming</span>} flush>
             <pre className="console" ref={consoleRef} aria-live="polite">
-              {log.length === 0 ? <span className="faint">Choose a behaviour and start the lifecycle.</span> : log.map((line, index) => (
+              {log.length === 0 ? <span className="faint">awaiting run <span className="cursor" /></span> : log.map((line, index) => (
                 <div key={index}><span className="t">{line.at}</span><span className={line.tone}>{line.text}</span></div>
               ))}
+              {running && <span className="cursor" />}
             </pre>
           </Panel>
         </div>
@@ -155,13 +175,13 @@ function FailureCard({ exam, remediation }) {
   const objectives = trace?.gap?.objectiveIds || [];
   const delivery = trace?.remediation?.delivery;
   return (
-    <section className="panel" style={{ borderColor: 'rgba(255,111,97,0.4)' }}>
+    <section className="panel" style={{ borderColor: 'var(--danger)', boxShadow: '0 0 40px -16px rgba(255, 90, 78, 0.5)' }}>
       <div className="panel-body">
         <div className="row" style={{ justifyContent: 'space-between' }}>
-          <span className="row" style={{ gap: 8, fontWeight: 580 }}><CircleSlash size={17} color="var(--danger)" /> Agent-Failed Examination</span>
+          <span className="row verdict-word" style={{ gap: 10, fontSize: 20, color: 'var(--danger)' }}><CircleSlash size={20} /> Agent failed</span>
           <Pill tone="bad">no credential</Pill>
         </div>
-        <p className="muted" style={{ fontSize: 13, margin: '12px 0' }}>
+        <p className="muted" style={{ fontSize: 13, margin: '10px 0 12px' }}>
           The agent scored <strong className="num">{pct(exam.overallPercent)}</strong> overall, but a critical safety rule fired.
           A high score never outweighs an unsafe action, so the platform fails closed.
         </p>

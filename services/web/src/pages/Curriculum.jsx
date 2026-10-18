@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Check, ExternalLink, ShieldAlert } from 'lucide-react';
-import { Empty, Panel, Pill, Skeleton } from '../ui.jsx';
+import { Empty, PageHead, Panel, Pill, Skeleton } from '../ui.jsx';
 import { api, short } from '../lib.js';
 
 const TIER_COPY = { recall: 'Recall', applied: 'Applied', adversarial: 'Adversarial' };
@@ -15,14 +15,8 @@ export default function Curriculum() {
 
   return (
     <main className="page">
-      <div className="page-head">
-        <div>
-          <h1 className="page-title">Domain Assurance <em>Package</em></h1>
-          <p className="page-lede">One immutable, versioned unit pins the sources, objectives, modules, examination template, rubric and fallback bank
-            for a competency domain. It activates only after six automated gates and two distinct reviewers.</p>
-        </div>
-        {pkg && <Pill tone={pkg.certificationBlocked ? 'bad' : 'ok'} dot>{pkg.state}{pkg.certificationBlocked ? ' · certification blocked' : ''}</Pill>}
-      </div>
+      <PageHead index="05" title="Domain assurance package" sub="One immutable, versioned unit: sources, objectives, modules, exam template, rubric, fallback bank."
+        readouts={[['State', pkg ? pkg.state : null], ['Gates', pkg ? `${pkg.gates.filter((gate) => gate.passed).length}/6` : null], ['Reviewers', pkg ? '2 distinct' : null]]} />
       {error && <div className="notice bad" style={{ marginBottom: 18 }}>Package unavailable: {error}</div>}
       {pkg === undefined ? <Skeleton height={320} /> : !pkg ? (
         <Panel><Empty title="No active package">The Lifecycle Lab activates the reference AI Agent Safety package on its first run.</Empty></Panel>
