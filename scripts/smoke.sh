@@ -229,5 +229,20 @@ metrics_status=$(curl -s -o /tmp/training-metrics.json -w '%{http_code}' \
 grep -q '"completionRate"' /tmp/training-metrics.json || fail "training metrics response omitted completionRate"
 echo "   OK: training metrics reachable through the Gateway admin route"
 
+echo "16) Capability Requests must be created only by an operator, and readable by an admin, through the Gateway..."
+market_agent_status=$(curl -s -o /tmp/marketplace-agent.json -w '%{http_code}' \
+  -X POST "${BASE_URL}/v1/marketplace/capability-requests" \
+  -H "content-type: application/json" \
+  -H "authorization: Bearer ${AGENT_TOKEN}" \
+  -d '{"idempotencyKey":"smoke-agent-must-be-refused","request":{}}')
+[ "$market_agent_status" = "403" ] || fail "agent token on capability request creation returned ${market_agent_status}, expected 403: $(cat /tmp/marketplace-agent.json)"
+market_status=$(curl -s -o /tmp/marketplace-requests.json -w '%{http_code}' \
+  "${BASE_URL}/v1/marketplace/capability-requests" \
+  -H "authorization: Bearer ${ADMIN_TOKEN}" \
+  -H "x-correlation-id: marketplace-${CORRELATION_ID}")
+[ "$market_status" = "200" ] || fail "capability requests returned ${market_status}: $(cat /tmp/marketplace-requests.json)"
+grep -q '"requests":\[' /tmp/marketplace-requests.json || fail "capability requests response omitted the requests list"
+echo "   OK: marketplace-service reachable through the Gateway; agent refused with 403"
+
 echo ""
 echo "SMOKE TEST PASSED"
