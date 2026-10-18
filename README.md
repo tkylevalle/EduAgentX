@@ -21,6 +21,12 @@ make down      # stop (data stays); make reset deletes data
 
 Without `make`, run the same commands that the [Makefile](Makefile) lists.
 
+On Windows, double-click `EduAgentX-Start.bat` for a demo. It starts Docker
+Desktop if needed, creates `.env` and keys if missing, starts the stack as
+Compose project `eduagentx-poc`, waits for health and opens the web app. Add
+`rebuild` to rebuild the images first. `EduAgentX-Stop.bat` stops the stack and
+keeps the data.
+
 To drive one Agent Learner through the whole lifecycle (package, training,
 examination, credential, verification, status change, monitoring) from the
 command line, run `node scripts/poc-lifecycle.js [scenario]`. The report is
