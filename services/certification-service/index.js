@@ -5,9 +5,11 @@ const path = require('node:path');
 const { randomUUID, timingSafeEqual } = require('node:crypto');
 const express = require('express');
 const { Pool } = require('pg');
+const { createClient } = require('redis');
 const telemetry = require('../../packages/telemetry');
 const { fail, digest, validatedEvidence, issueCredential } = require('./evidence');
 const { createPgStore } = require('./store');
+const { createCredentialPublisher } = require('./publisher');
 
 const matchesSecret = (a, b) => {
   if (typeof a !== 'string' || typeof b !== 'string') return false;
@@ -32,8 +34,10 @@ function createApp({ store, examinationEvidence, internalKey = process.env.CERTI
   });
   app.use('/internal', (req, res, next) => {
     if (!matchesSecret(req.header('x-internal-service-key'), internalKey)) return res.status(403).json({ error: 'forbidden' });
-    if (req.header('x-actor-role') !== 'examination-engine' || !req.header('x-actor-subject'))
-      return res.status(403).json({ error: 'forbidden' });
+    // The Gateway may only read; decisions are commanded by the Examination Engine.
+    const role = req.header('x-actor-role');
+    const allowed = role === 'examination-engine' || (role === 'gateway' && req.method === 'GET');
+    if (!allowed || !req.header('x-actor-subject')) return res.status(403).json({ error: 'forbidden' });
     next();
   });
   const issueOne = async (examinationId, idempotencyKey, correlationId) => {
@@ -74,6 +78,14 @@ function createApp({ store, examinationEvidence, internalKey = process.env.CERTI
       if (!row) return res.status(404).json({ apiVersion: 'v1', error: 'decision_not_found', correlationId: req.correlationId });
       res.json({ apiVersion: 'v1', outcome: 'found', decision: row.decision, credential: row.credential,
         correlationId: req.correlationId });
+    } catch { res.status(503).json({ apiVersion: 'v1', error: 'certification_unavailable', correlationId: req.correlationId }); }
+  });
+  app.get('/internal/credentials', async (req, res) => {
+    const limit = Number(req.query.limit || 50);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 200)
+      return res.status(400).json({ apiVersion: 'v1', error: 'invalid_request', correlationId: req.correlationId });
+    try {
+      res.json({ apiVersion: 'v1', credentials: await store.listCredentials(limit), correlationId: req.correlationId });
     } catch { res.status(503).json({ apiVersion: 'v1', error: 'certification_unavailable', correlationId: req.correlationId }); }
   });
   app.get('/internal/kpi/issuance', async (_req, res) => {
@@ -121,6 +133,17 @@ async function start() {
     return pkg;
   };
   const store = createPgStore(pool);
+  const redis = process.env.REDIS_URL ? createClient({ url: process.env.REDIS_URL, disableOfflineQueue: true,
+    socket: { connectTimeout: 2000 } }) : null;
+  if (redis) {
+    redis.on('error', () => telemetry.log('certification-service', 'redis_connection_error'));
+    redis.connect().catch(() => telemetry.log('certification-service', 'redis_connect_failed'));
+  }
+  const publisher = createCredentialPublisher({ pool, redis,
+    stream: process.env.CREDENTIAL_EVENT_STREAM || 'certification.credentials',
+    verificationUrl: process.env.CREDENTIAL_VERIFICATION_URL || null,
+    verificationKey: process.env.CREDENTIAL_INTERNAL_KEY || null,
+    monitoringUrl: process.env.MONITORING_URL || null });
   const server = createApp({ store, examinationEvidence,
     internalKey: process.env.CERTIFICATION_INTERNAL_KEY, privateKey, packageTrust }).listen(process.env.PORT || 4011);
   let running = false;
@@ -161,12 +184,14 @@ async function start() {
         await store.advanceCursor(candidate);
       }
     } catch { telemetry.log('certification-service', 'issuance_sweep_unavailable'); }
+    try { await publisher.publishPending(); }
+    catch { telemetry.log('certification-service', 'credential_publication_unavailable'); }
     finally { running = false; }
   };
   const timer = setInterval(() => void sweep(), Number(process.env.CERTIFICATION_SWEEP_INTERVAL_MS || 1000));
   timer.unref();
   void sweep();
-  server.on('close', () => { clearInterval(timer); void pool.end(); });
+  server.on('close', () => { clearInterval(timer); void pool.end(); if (redis?.isOpen) void redis.quit(); });
   return server;
 }
 
