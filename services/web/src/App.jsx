@@ -46,6 +46,8 @@ function useLatestEvent() {
 
 export default function App() {
   const [page, setPage] = useState(pageFromHash);
+  const [liveAvailable, setLiveAvailable] = useState(false);
+  useEffect(() => { api('/api/live-model').then((data) => setLiveAvailable(data.available === true)).catch(() => {}); }, []);
   const [now, setNow] = useState(() => new Date());
   const [health, setHealth] = useState(null);
   const [event, fresh] = useLatestEvent();
@@ -101,7 +103,7 @@ export default function App() {
         ))}
         <div className="rail-foot">
           Local Compose<br />
-          Simulation evidence
+          {liveAvailable ? 'Simulation + live evidence' : 'Simulation evidence'}
         </div>
       </nav>
       <div className="main">
@@ -114,7 +116,7 @@ export default function App() {
               <span className="ticker-text">{eventCopy} · <code>{event.agentId}</code> · {ago(event.receivedAt)}</span>
             </span>
           )}
-          <span className="env-chip hide-sm"><Activity size={12} /> Synthetic learner</span>
+          <span className="env-chip hide-sm"><Activity size={12} /> {liveAvailable ? 'Synthetic + live learner' : 'Synthetic learner'}</span>
           <button className="env-chip" style={{ background: 'none', cursor: 'pointer' }} onClick={() => { window.location.hash = '/system'; }}>
             <span className={`dot ${tone} ${tone === 'ok' ? 'live' : ''}`} />{health ? `${healthy}/${total} up` : 'Checking'}
           </button>

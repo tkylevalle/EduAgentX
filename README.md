@@ -33,6 +33,21 @@ command line, run `node scripts/poc-lifecycle.js [scenario]`. The report is
 written to `artifacts/poc/lifecycle-run.json`. The web app's Lifecycle Lab
 runs the same driver live.
 
+The Lifecycle Lab's **Live model** scenario lets a real LLM train and sit the
+exam. Its evidence is labelled LIVE, and the same rules grade it. It runs as
+its own Agent Learner (`live-agent-learner-dev`), so a failing live run never
+blocks the synthetic profiles. To enable it, add an OpenCode Go key to `.env`
+and rebuild:
+
+```
+OPENCODE_API_KEY=your-key
+LIVE_MODEL=glm-5.3-flash   # optional; deepseek-v4.1-flash also works
+```
+
+After you pull new code, run `EduAgentX-Start.bat rebuild` (or `make up`). It
+adds any new local secrets to `.env` and rebuilds the images. Without a key
+the Live model tile is disabled and everything else works.
+
 | URL | What |
 |---|---|
 | http://localhost:4300 | EduAgentX web app: overview, Lifecycle Lab, credentials, verifier |

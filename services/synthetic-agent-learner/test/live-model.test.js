@@ -84,7 +84,7 @@ const stubLearner = { run: async () => ({}), train: async () => ({}) };
 
 test('GET /v1/live-model reports availability and the model, never the key', async () => {
   const liveModel = createLiveModel({ apiKey: KEY, model: 'glm-5.3-flash' });
-  await withService(createApp({ learner: stubLearner, liveModel }), async (base) => {
+  await withService(createApp({ learner: stubLearner, liveModel, liveLearner: stubLearner }), async (base) => {
     const reply = await fetch(`${base}/v1/live-model`);
     const text = await reply.text();
     assert.equal(reply.status, 200);
@@ -115,7 +115,8 @@ test('the live exam run uses the model for every item and returns LIVE evidence 
     for (const item of [ITEM, { ...ITEM, id: 'standard-2' }]) answered.push(await answerFor(item));
     return { outcome: 'complete', attempt: { attemptId: 'a-1', status: 'complete' }, answered: [{}, {}] };
   } };
-  await withService(createApp({ learner: stubLearner, examRunner, liveModel }), async (base) => {
+  const syntheticRunner = { examine: async () => { throw new Error('the live exam must not use the synthetic identity'); } };
+  await withService(createApp({ learner: stubLearner, examRunner: syntheticRunner, liveExamRunner: examRunner, liveModel }), async (base) => {
     const reply = await fetch(`${base}/v1/exam-runs`, { method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ scenarioId: 'live-model' }) });
     const text = await reply.text();
@@ -132,12 +133,40 @@ test('a model failure during the exam is reported as a system abort, not an agen
   const liveModel = { available: true, provider: 'opencode-go', model: 'glm-5.3-flash', registration: {},
     answerExam: async () => { throw new LiveModelError('live_model_timeout'); } };
   const examRunner = { examine: async ({ answerFor }) => { await answerFor(ITEM); return {}; } };
-  await withService(createApp({ learner: stubLearner, examRunner, liveModel }), async (base) => {
+  await withService(createApp({ learner: stubLearner, liveExamRunner: examRunner, liveModel }), async (base) => {
     const reply = await fetch(`${base}/v1/exam-runs`, { method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ scenarioId: 'live-model' }) });
     assert.equal(reply.status, 503);
     const body = await reply.json();
     assert.equal(body.outcome, 'system_aborted');
     assert.equal(body.reason, 'live_model_timeout');
+  });
+});
+
+test('live runs sign in as the live agent, never as the synthetic learner', async () => {
+  const seen = [];
+  const recorder = (name) => ({
+    run: async (input) => { seen.push([name, 'run', input.registration.agentLearnerKey]); return { outcome: 'accepted' }; },
+    train: async (input) => { seen.push([name, 'train', input.agentLearnerKey]); return { outcome: 'completed' }; },
+  });
+  const liveModel = createLiveModel({ apiKey: KEY });
+  await withService(createApp({ learner: recorder('synthetic'), liveLearner: recorder('live'), liveModel }), async (base) => {
+    for (const path of ['/v1/runs', '/v1/training-runs']) {
+      await fetch(base + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ learner: 'live' }) });
+      await fetch(base + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    }
+  });
+  assert.deepEqual(seen, [['live', 'run', 'live-agent-learner-dev'], ['synthetic', 'run', 'synthetic-agent-learner-dev'],
+    ['live', 'train', 'live-agent-learner-dev'], ['synthetic', 'train', 'synthetic-agent-learner-dev']]);
+});
+
+test('without its own agent identity the live learner stays unavailable', async () => {
+  const liveModel = createLiveModel({ apiKey: KEY });
+  await withService(createApp({ learner: stubLearner, liveModel }), async (base) => {
+    assert.equal((await (await fetch(base + '/v1/live-model')).json()).available, false);
+    const reply = await fetch(base + '/v1/exam-runs', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ scenarioId: 'live-model' }) });
+    assert.equal(reply.status, 503);
+    assert.equal((await reply.json()).reason, 'live_agent_not_configured');
   });
 });

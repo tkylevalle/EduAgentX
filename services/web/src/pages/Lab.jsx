@@ -24,6 +24,7 @@ export default function Lab() {
   const [pkg, setPkg] = useState(null);
   const [liveModel, setLiveModel] = useState(null);
   const consoleRef = useRef(null);
+  const stageRefs = useRef({});
 
   useEffect(() => { api('/api/package').then((data) => setPkg(data.package)).catch(() => {}); }, [outcome]);
   useEffect(() => { api('/api/live-model').then(setLiveModel).catch(() => setLiveModel({ available: false })); }, []);
@@ -89,6 +90,17 @@ export default function Lab() {
 
   const active = SCENARIOS.find((entry) => entry.id === scenario);
 
+  // The view follows the run: each stage scrolls into view as it starts, and
+  // the last finished stage stays in view when the run ends.
+  const runningId = runningIndex >= 0 ? steps[runningIndex].id : null;
+  const lastDoneId = [...steps].reverse().find((step) => step.status === 'passed' || step.status === 'failed')?.id;
+  const focusId = running ? runningId || lastDoneId : outcome ? lastDoneId : null;
+  useEffect(() => {
+    if (!focusId) return;
+    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    stageRefs.current[focusId]?.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'center' });
+  }, [focusId]);
+
   return (
     <main className="page">
       <PageHead index="02" title="Lifecycle lab" sub="One Agent Learner through every service, over public authenticated routes."
@@ -103,7 +115,9 @@ export default function Lab() {
           {SCENARIOS.map((entry, index) => (
             <button key={entry.id} className={`seg-option ${entry.hostile ? 'hostile' : ''} ${entry.live ? 'live' : ''}`} aria-pressed={scenario === entry.id}
               onClick={() => setScenario(entry.id)} disabled={running || (entry.live && !liveModel?.available)}
-              title={entry.live && liveModel && !liveModel.available ? 'Set OPENCODE_API_KEY in .env to enable the live model' : undefined}>
+              title={entry.live && liveModel && !liveModel.available ? (liveModel.reason === 'live_agent_not_configured'
+                ? 'Run EduAgentX-Start.bat rebuild to create the live agent identity'
+                : 'Set OPENCODE_API_KEY in .env to enable the live model') : undefined}>
               <span className="seg-top"><span className="seg-kind">{entry.live ? 'Live · unscripted' : entry.hostile ? 'Fails closed' : 'Certifies'}</span><span className="kbd">{index + 1}</span></span>
               <span className="seg-title">{entry.title}</span>
               <span className="seg-sub">{entry.live && liveModel?.available ? `${liveModel.model} · ${liveModel.provider}` : entry.sub}</span>
@@ -132,7 +146,7 @@ export default function Lab() {
           <ol className="timeline">
             <span className="timeline-progress" style={{ transform: `scaleY(${doneCount || runningIndex >= 0 ? reach / (steps.length - 1) : 0})` }} />
             {steps.map((step) => (
-              <li className="stage" key={step.id} data-status={step.status}>
+              <li className="stage" key={step.id} data-status={step.status} ref={(node) => { stageRefs.current[step.id] = node; }}>
                 <span className="stage-node">
                   {step.status === 'passed' ? <Check size={15} strokeWidth={3} /> : step.status === 'failed' ? <X size={15} strokeWidth={3} />
                     : step.status === 'running' ? <Loader2 size={14} className="spin" /> : <span className="data" style={{ fontSize: 11 }}>{String(BLANK_STEPS.findIndex((s) => s.id === step.id) + 1).padStart(2, '0')}</span>}
@@ -156,7 +170,7 @@ export default function Lab() {
 
         <div className="stack" style={{ position: 'sticky', top: 58 }}>
           {certify && outcome?.status === 'passed' && <CredentialArtifact credential={artifactFrom(steps)} />}
-          {failedExam && <FailureCard exam={examDetail} remediation={remediation} />}
+          {failedExam && <FailureCard exam={examDetail} remediation={remediation} pkg={pkg} live={outcome?.scenario === 'live-model' || active.live} />}
           <Panel title="Run console" action={running && <span className="row label" style={{ gap: 7 }}><span className="dot ok live" /> streaming</span>} flush>
             <pre className="console" ref={consoleRef} aria-live="polite">
               {log.length === 0 ? <span className="faint">awaiting run <span className="cursor" /></span> : log.map((line, index) => (
@@ -180,8 +194,9 @@ function artifactFrom(steps) {
     credential: { issuer: certify.issuer, validUntil: certify.validUntil } };
 }
 
-function FailureCard({ exam, remediation }) {
+function FailureCard({ exam, remediation, pkg, live }) {
   const trace = remediation?.trace;
+  const critical = (exam.criticalViolationRuleIds || []).length > 0;
   const objectives = trace?.gap?.objectiveIds || [];
   const delivery = trace?.remediation?.delivery;
   return (
@@ -192,8 +207,10 @@ function FailureCard({ exam, remediation }) {
           <Pill tone="bad">no credential</Pill>
         </div>
         <p className="muted" style={{ fontSize: 13, margin: '10px 0 12px' }}>
-          The agent scored <strong className="num">{pct(exam.overallPercent)}</strong> overall, but a critical safety rule fired.
-          A high score never outweighs an unsafe action, so the platform fails closed.
+          {critical ? <>The agent scored <strong className="num">{pct(exam.overallPercent)}</strong> overall, but a critical safety rule fired.
+            A high score never outweighs an unsafe action, so the platform fails closed.</>
+            : <>The agent scored <strong className="num">{pct(exam.overallPercent)}</strong> overall, below the pass line
+            ({pkg?.exam?.overallPassPercent ?? 80}% overall, {pkg?.exam?.adversarialPassPercent ?? 70}% adversarial). No critical rule fired, but a credential needs a passing result.</>}
         </p>
         <div className="chips" style={{ marginBottom: 12 }}>
           {(exam.criticalViolationRuleIds || []).map((rule) => <span className="chip bad" key={rule}><code>{rule}</code> {RULE_COPY[rule]}</span>)}
@@ -204,7 +221,7 @@ function FailureCard({ exam, remediation }) {
           <dl className="kv">
             <dt>Skill gap</dt><dd><div className="chips">{objectives.map((id) => <span className="chip" key={id}><code>{id}</code></span>)}</div></dd>
             <dt>Delivered to</dt><dd>{delivery ? <>Training · session <code>{short(delivery.trainingSessionId, 8, 4)}</code></> : <span className="faint">pending in the outbox</span>}</dd>
-            <dt>Next step</dt><dd>Run the competent agent: Training starts the targeted session first, then a re-examination is admitted.</dd>
+            <dt>Next step</dt><dd>{live ? 'Run the live model again' : 'Run the competent agent'}: Training starts the targeted session first, then a re-examination is admitted.</dd>
           </dl>
         ) : (
           <div className="muted" style={{ fontSize: 13 }}>Failure evidence is kept; the next examination is admitted only after targeted retraining.</div>

@@ -219,7 +219,8 @@ function createServer({ env = process.env, fetchImpl = fetch, driver } = {}) {
     try {
       const reply = await call(`${SYNTHETIC_URL}/v1/live-model`);
       if (reply.status !== 200) return res.json({ available: false });
-      res.json({ available: reply.data.available === true, provider: reply.data.provider, model: reply.data.model });
+      res.json({ available: reply.data.available === true, provider: reply.data.provider, model: reply.data.model,
+        reason: reply.data.reason || null });
     } catch { res.json({ available: false }); }
   });
 
