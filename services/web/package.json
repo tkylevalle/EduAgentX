@@ -1,0 +1,26 @@
+{
+  "name": "eduagentx-web",
+  "version": "1.0.0",
+  "private": true,
+  "description": "EduAgentX Assurance web app: operator console, live lifecycle lab and credential verifier",
+  "main": "server.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "start": "node server.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  },
+  "devDependencies": {
+    "@fontsource-variable/geist": "^5.1.0",
+    "@fontsource-variable/geist-mono": "^5.1.0",
+    "@fontsource/instrument-serif": "^5.1.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "lucide-react": "^0.460.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "vite": "^5.4.11"
+  }
+}

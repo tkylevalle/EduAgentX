@@ -133,7 +133,12 @@ function createLifecycleDriver({ gatewayUrl, syntheticUrl, validationUrl, curric
       completed = completed.concat(reply.data.completedItems || []);
       resumeSessionId = reply.data.sessionId;
       if (reply.data.outcome === 'completed') {
-        return { sessionId: resumeSessionId, itemsDelivered: completed.length,
+        // Training starts an assigned remediation session in place of a
+        // standard one; the admin view says which kind this was.
+        const view = await http(`${gatewayUrl}/v1/admin/training-sessions/${resumeSessionId}`, { token: await adminToken() });
+        const session = view.data?.session || {};
+        return { sessionId: resumeSessionId, kind: session.kind || 'standard',
+          remediationObjectiveIds: session.remediation?.objectiveIds || [], itemsDelivered: completed.length,
           modules: [...new Set(completed.map((item) => item.moduleId))], modelWeightsModified: false };
       }
       if (reply.data.outcome !== 'open') throw new LifecycleError('training_failed', { reason: reply.data.reason });
@@ -141,8 +146,8 @@ function createLifecycleDriver({ gatewayUrl, syntheticUrl, validationUrl, curric
     throw new LifecycleError('training_incomplete', { sessionId: resumeSessionId });
   }
 
-  async function examine() {
-    const reply = await http(`${syntheticUrl}/v1/exam-runs`, { method: 'POST', body: { scenarioId: examScenario },
+  async function examine(scenario = examScenario) {
+    const reply = await http(`${syntheticUrl}/v1/exam-runs`, { method: 'POST', body: { scenarioId: scenario },
       timeoutMs: 120_000 });
     if (reply.status !== 200 || !reply.data.attempt) {
       throw new LifecycleError('examination_failed', { status: reply.status, outcome: reply.data.outcome, reason: reply.data.reason });
@@ -152,7 +157,7 @@ function createLifecycleDriver({ gatewayUrl, syntheticUrl, validationUrl, curric
     const assessment = view.data.attempt?.assessment || null;
     return { attemptId: reply.data.attempt.attemptId, status: reply.data.attempt.status,
       terminalReason: reply.data.attempt.terminalReason || null, itemsAnswered: reply.data.answered.length,
-      scenario: examScenario, overallPercent: assessment?.overallPercent ?? null,
+      scenario, overallPercent: assessment?.overallPercent ?? null,
       tierPercents: assessment?.tierPercents ?? null, criticalViolationRuleIds: assessment?.criticalViolationRuleIds ?? [],
       passed: reply.data.attempt.status === 'complete' };
   }
@@ -220,7 +225,7 @@ function createLifecycleDriver({ gatewayUrl, syntheticUrl, validationUrl, curric
 
   // Runs every step in order. onStep receives a record when a step starts and
   // when it ends, so a UI can show progress live.
-  async function run({ onStep = () => {}, statusDemo = true } = {}) {
+  async function run({ onStep = () => {}, statusDemo = true, scenario = examScenario } = {}) {
     const results = {};
     const report = { runId: randomUUID(), startedAt: new Date().toISOString(), status: 'running', steps: [] };
     const step = async (id, action) => {
@@ -244,7 +249,7 @@ function createLifecycleDriver({ gatewayUrl, syntheticUrl, validationUrl, curric
       results.register = await step('register', register);
       results.train = await step('train', train);
       results.examine = await step('examine', async () => {
-        const exam = await examine();
+        const exam = await examine(scenario);
         if (!exam.passed) throw new LifecycleError('agent_failed_examination', exam);
         return exam;
       });
