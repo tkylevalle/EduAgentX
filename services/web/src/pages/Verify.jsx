@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { FileWarning, ScanLine, Wand2 } from 'lucide-react';
-import { Panel, Verdict, VerifyChecks } from '../ui.jsx';
+import { PageHead, Panel, Verdict, VerifyChecks } from '../ui.jsx';
 import { api, pct, stamp } from '../lib.js';
 
 // Edits one score inside the signed payload and keeps the original
@@ -49,13 +49,8 @@ export default function Verify() {
   const vc = result?.credential;
   return (
     <main className="page">
-      <div className="page-head">
-        <div>
-          <h1 className="page-title">Verify a <em>credential</em></h1>
-          <p className="page-lede">Anyone holding an EduAgentX credential can check it here. The verifier recomputes the Ed25519 signature,
-            checks the schema and validity window, asks the status registry, and applies issuer and credential policy. Each check reports on its own.</p>
-        </div>
-      </div>
+      <PageHead index="04" title="Verify a credential" sub="Signature, schema, validity window, status registry and policy, each checked on its own."
+        readouts={[['Verdict', result ? result.report.overall.toLowerCase() : 'none'], ['Checks', result ? `${['signature', 'schema', 'time', 'suspension', 'revocation', 'issuerPolicy', 'credentialPolicy'].filter((k) => result.report[k]?.status === 'PASS').length}/7` : '—']]} />
       <div className="grid cols-2">
         <Panel title="Credential" note="Compact JWS: header.payload.signature">
           <textarea value={jws} onChange={(event) => { setJws(event.target.value); setTampered(false); }} rows={9}

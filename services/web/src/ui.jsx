@@ -1,15 +1,59 @@
+import { useEffect, useRef, useState } from 'react';
 import { CheckCircle2, CircleAlert, CircleHelp, KeyRound, ShieldCheck, ShieldAlert, ShieldX } from 'lucide-react';
 import { pct, short, stamp } from './lib.js';
 
 export function BrandMark({ size = 30 }) {
   return (
     <svg className="brand-mark" width={size} height={size} viewBox="0 0 32 32" fill="none" aria-hidden="true">
-      <rect x="1" y="1" width="30" height="30" rx="9" fill="#0f131a" stroke="rgba(214,226,255,0.16)" />
-      <path d="M9.5 9.5 22.5 22.5" stroke="#e8ecf2" strokeWidth="3" strokeLinecap="round" />
-      <path d="M22.5 9.5 17.6 14.4" stroke="#6ff0c0" strokeWidth="3" strokeLinecap="round" />
-      <path d="M14.4 17.6 9.5 22.5" stroke="#6ff0c0" strokeWidth="3" strokeLinecap="round" />
+      <rect x="1" y="1" width="30" height="30" rx="5" fill="#0b0d11" stroke="rgba(220,230,255,0.2)" />
+      <path d="M9.5 9.5 22.5 22.5" stroke="#f2f4f7" strokeWidth="3.4" strokeLinecap="square" />
+      <path d="M22.5 9.5 17.6 14.4" stroke="#5cf2b4" strokeWidth="3.4" strokeLinecap="square" />
+      <path d="M14.4 17.6 9.5 22.5" stroke="#5cf2b4" strokeWidth="3.4" strokeLinecap="square" />
     </svg>
   );
+}
+
+// One bar per page: index, title, a short line, live readouts, one action.
+export function PageHead({ index, title, sub, readouts = [], action }) {
+  return (
+    <header className="page-head">
+      <div className="head-index" aria-hidden="true">{index}</div>
+      <div className="head-main">
+        <h1 className="page-title">{title}</h1>
+        {sub && <p className="page-sub">{sub}</p>}
+      </div>
+      {(readouts.length > 0 || action) && (
+        <div className="head-side">
+          {readouts.map(([label, value]) => (
+            <dl className="readout" key={label}><dt>{label}</dt><dd>{value ?? '—'}</dd></dl>
+          ))}
+          {action && <div className="head-action">{action}</div>}
+        </div>
+      )}
+    </header>
+  );
+}
+
+// Counts from the previous value to the new one, so live numbers visibly move.
+export function CountUp({ value, decimals = 0, duration = 700 }) {
+  const [shown, setShown] = useState(Number.isFinite(value) ? value : 0);
+  const from = useRef(shown);
+  useEffect(() => {
+    if (!Number.isFinite(value)) return undefined;
+    const start = performance.now();
+    const origin = from.current;
+    let frame;
+    const tick = (now) => {
+      const t = Math.min(1, (now - start) / duration);
+      const eased = 1 - (1 - t) ** 3;
+      setShown(origin + (value - origin) * eased);
+      if (t < 1) frame = requestAnimationFrame(tick);
+      else from.current = value;
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [value, duration]);
+  return <>{Number.isFinite(value) ? shown.toFixed(decimals) : '—'}</>;
 }
 
 export function Pill({ tone, children, dot = false }) {
@@ -55,10 +99,11 @@ export function ScoreBars({ tierPercents, overallPercent, overallPass = 80, adve
         <div className="bar-row" key={name}>
           <span className="label">{name}</span>
           <div className="bar-track">
-            <div className={`bar-fill ${failed && (name === 'Overall' || name === 'Adversarial') ? 'fail' : ''}`} style={{ width: `${Math.max(2, value || 0)}%` }} />
+            <div className={`bar-fill ${failed && (name === 'Overall' || name === 'Adversarial') ? 'fail' : ''}`}
+              style={{ width: `${Math.max(2, value || 0)}%`, '--w': Math.max(2, value || 0) }} />
             {mark && <span className="bar-mark" style={{ left: `${mark}%` }} title={`Pass line ${mark}%`} />}
           </div>
-          <span className="data" style={{ textAlign: 'right' }}>{pct(value)}</span>
+          <span className="bar-value">{pct(value)}</span>
         </div>
       ))}
     </div>
@@ -83,10 +128,10 @@ export function Verdict({ overall }) {
     indeterminate: 'The signature checks out, but current status could not be confirmed.' }[tone];
   return (
     <div className={`verdict ${tone}`} role="status">
-      <Icon size={30} color={tone === 'valid' ? 'var(--signal)' : tone === 'invalid' ? 'var(--danger)' : 'var(--amber)'} />
+      <Icon size={28} color={tone === 'valid' ? 'var(--signal)' : tone === 'invalid' ? 'var(--danger)' : 'var(--amber)'} />
       <div>
         <div className="verdict-word">{overall === 'VALID' ? 'Valid' : overall === 'INVALID' ? 'Invalid' : 'Indeterminate'}</div>
-        <div className="muted" style={{ fontSize: 13 }}>{copy}</div>
+        <div className="muted" style={{ fontSize: 12.5, marginTop: 4 }}>{copy}</div>
       </div>
     </div>
   );
@@ -123,7 +168,7 @@ export function CredentialArtifact({ credential, domain, status = 'active' }) {
   return (
     <article className={`credential ${status === 'suspended' ? 'suspended' : status === 'revoked' ? 'revoked' : ''}`} aria-label="Competency credential">
       <div className="credential-issuer">
-        <span className="row" style={{ gap: 8 }}><BrandMark size={22} /> EduAgentX Competency Credential</span>
+        <span className="row" style={{ gap: 8 }}><BrandMark size={20} /> EduAgentX · Competency credential</span>
         <Pill tone={status === 'active' ? 'ok' : status === 'suspended' ? 'warn' : status === 'revoked' ? 'bad' : 'info'} dot>{status}</Pill>
       </div>
       <h3 className="credential-domain">{domain || 'AI Agent Safety and Secure Tool Use'}</h3>

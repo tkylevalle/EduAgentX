@@ -22,10 +22,12 @@ operators of the platform. Desktop first; usable down to 375 px.
 
 ## Visual world
 
-"Dark assurance lab": near-black ink, one mint signal colour for verified
-state, amber for suspended or remediation, red for failure. Geist and Geist
-Mono for interface and data, Instrument Serif italic for one emphasised word
-per page title. Evidence is shown as it was answered: ids, digests and
+"Flight deck": near-black ink with a faint dot grid, one mint signal colour for verified
+state, amber for suspended or remediation, red for failure. Archivo (expanded,
+heavy, uppercase titles) for people and Geist Mono for machine answers. Dense
+panels, live readouts instead of hero copy, keyboard-driven runs (1–6, Enter)
+and pointer-lit surfaces. No serif accent titles, no airy hero space.
+Evidence is shown as it was answered: ids, digests and
 durations are real values, never decoration.
 
 ## Constraints and assumptions
