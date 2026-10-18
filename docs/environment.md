@@ -23,6 +23,8 @@ generates its own secrets for each run.
 | `CERTIFICATION_PRIVATE_KEY_PATH` | certification-service | Ed25519 private signing key inside the container; generated under ignored `keys/` | `/app/keys/certification-ed25519-private.pem` |
 | `CERTIFICATION_ISSUER` | certification-service | Project issuer URL in the credential | `https://eduagentx.example/issuers/eduagentx` |
 | `CREDENTIAL_BASE_URL` | certification-service | Base URL used for credential IDs | `https://eduagentx.example/credentials` |
+| `MARKETPLACE_DB_PASSWORD` | postgres, marketplace-service | Password of the restricted `marketplace_owner` role | generated |
+| `MARKETPLACE_INTERNAL_KEY` | api-gateway, marketplace-service | Shared credential for the Gateway's calls to Marketplace internal routes | generated |
 | `POSTGRES_DB` | postgres, agent-registry | Database name | `eduagentx` |
 | `POSTGRES_PORT` | host | Host port for PostgreSQL (127.0.0.1 only) | `5432` |
 | `REDIS_PORT` | host | Host port for Redis (127.0.0.1 only) | `6379` |
