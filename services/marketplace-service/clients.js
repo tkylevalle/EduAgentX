@@ -71,28 +71,28 @@ function toPackageAnswer(body, packageId, version) {
   return { digest: text(body.digest) ? body.digest : null, domain, objectiveIds };
 }
 
-// POST /verify on credential-verification. Each check is mapped on its own and
-// only an explicit PASS counts; FAIL maps to invalid, INDETERMINATE stays indeterminate.
-function toVerification(report) {
+// POST /verify on credential-verification, used for signature and schema only.
+// Each check is mapped on its own and only an explicit PASS counts.
+function toSignatureAndSchema(report) {
   if (!object(report)) return null;
-  const check = (part) => ({ PASS: 'pass', FAIL: 'fail', INDETERMINATE_STATUS: 'indeterminate' })[part?.status] ?? null;
+  const check = (part) => ({ PASS: 'pass', FAIL: 'fail' })[part?.status] ?? null;
   // Authentic means a good signature from an issuer the verifier accepts.
   const both = (a, b) => (a === 'fail' || b === 'fail' ? 'invalid' : a === 'pass' && b === 'pass' ? 'valid' : null);
   let signature = both(check(report.signature), check(report.issuerPolicy));
   let schema = both(check(report.schema), check(report.credentialPolicy));
-  const revocation = check(report.revocation);
-  const suspension = check(report.suspension);
-  let status = revocation === 'fail' ? 'revoked' : suspension === 'fail' ? 'suspended'
-    : revocation === 'indeterminate' || suspension === 'indeterminate' ? 'indeterminate'
-      : revocation === 'pass' && suspension === 'pass' ? 'active' : null;
-  // The verifier's own overall verdict can only make the answer stricter: if it
-  // is not VALID while every part looks fine, something we did not map failed.
-  if (report.overall !== 'VALID' && signature === 'valid' && schema === 'valid' && status === 'active') {
-    if (report.overall === 'INDETERMINATE') status = 'indeterminate';
-    else schema = 'invalid';
-  }
-  if (!['VALID', 'INVALID', 'INDETERMINATE'].includes(report.overall)) { signature = signature === 'invalid' ? 'invalid' : null; }
-  return { signature, schema, status };
+  // Without a credentialId the verifier cannot judge status, so INDETERMINATE overall is
+  // expected. INVALID while both parts look fine means a check we do not map failed (time).
+  if (report.overall === 'INVALID' && signature === 'valid' && schema === 'valid') schema = 'invalid';
+  if (!['VALID', 'INVALID', 'INDETERMINATE'].includes(report.overall)) signature = signature === 'invalid' ? 'invalid' : null;
+  return { signature, schema };
+}
+
+// GET /status/:credentialId on credential-verification (read-only). Only an answer
+// about this exact credential with a known state maps through; anything else is indeterminate.
+const KNOWN_STATUSES = ['active', 'suspended', 'revoked'];
+function toStatus(body, credentialId) {
+  if (!object(body) || body.credentialId !== credentialId || !KNOWN_STATUSES.includes(body.status)) return 'indeterminate';
+  return body.status;
 }
 
 // The credential record certification-service issues ({ credentialId, credential, compactJws },
@@ -179,20 +179,34 @@ function createPackageSource({ baseUrl, internalKey, timeoutMs } = {}) {
   };
 }
 
-// Blocker 2 (owner Luis): /verify registers an unknown credentialId as "active",
-// and status lives in memory. Today the verifier looks status up by the VC id
-// (a URL), not by the credentialId we send, so the answer is INDETERMINATE and
-// the candidate is excluded. If that lookup is changed without fixing the
-// registration, this call would turn unknown credentials active; fix blocker 2 first.
+// Blocker 2 (owner Luis): POST /verify registers any credentialId it is given as
+// "active", and status lives in memory. So /verify is called with the jws only
+// (never a credentialId) and is trusted for signature and schema only; status
+// comes from the read-only GET /status/:credentialId. Today that store is empty
+// after any restart, so status is indeterminate and the candidate is excluded.
 function createVerificationSource({ baseUrl, timeoutMs } = {}) {
+  async function readStatus(credentialId, options) {
+    try {
+      const body = await requestJson('credential-verification', `${baseUrl}/status/${encodeURIComponent(credentialId)}`,
+        { ...options, timeoutMs });
+      return body === null ? 'indeterminate' : toStatus(body, credentialId);
+    } catch {
+      // An unreachable status service is not knowledge of the status.
+      return 'indeterminate';
+    }
+  }
   return {
     async verify(candidate, options = {}) {
       if (!text(candidate?.compactJws) || !text(candidate?.credentialId))
         throw new SourceError('credential-verification', 'contract_violation');
-      // 422 is the verifier's "INVALID" answer and still carries the per-check report.
-      const report = await requestJson('credential-verification', `${baseUrl}/verify`, { ...options, timeoutMs,
-        method: 'POST', body: { jws: candidate.compactJws, credentialId: candidate.credentialId }, accept: [200, 422] });
-      return report === null ? null : toVerification(report);
+      const [report, status] = await Promise.all([
+        // 422 is the verifier's "INVALID" answer and still carries the per-check report.
+        requestJson('credential-verification', `${baseUrl}/verify`, { ...options, timeoutMs,
+          method: 'POST', body: { jws: candidate.compactJws }, accept: [200, 422] }),
+        readStatus(candidate.credentialId, options),
+      ]);
+      const parts = report === null ? null : toSignatureAndSchema(report);
+      return { signature: parts?.signature ?? null, schema: parts?.schema ?? null, status };
     },
   };
 }
@@ -207,6 +221,6 @@ function createLifecycleSource() {
 }
 
 module.exports = {
-  SourceError, askSource, toCurrentFingerprint, toPackageAnswer, toVerification, toCandidate,
+  SourceError, askSource, toCurrentFingerprint, toPackageAnswer, toSignatureAndSchema, toStatus, toCandidate,
   createRegistrySource, createPackageSource, createVerificationSource, createLifecycleSource,
 };

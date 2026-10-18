@@ -7,7 +7,7 @@ const { generateKeyPairSync } = require('node:crypto');
 // The real issuer code, so the mapper is tested against the exact credential shape it produces.
 const { issueCredential } = require('../../certification-service/evidence');
 const {
-  askSource, toCandidate, toVerification, createRegistrySource, createPackageSource, createVerificationSource,
+  askSource, toCandidate, toSignatureAndSchema, toStatus, createRegistrySource, createPackageSource, createVerificationSource,
   createLifecycleSource,
 } = require('../clients');
 
@@ -120,65 +120,105 @@ test('package: unknown domain text, missing or bad fields, quarantine, 404, 500 
   assert.equal(noKey.seen.length, 0);
 });
 
-// --- verification
+// --- verification: POST /verify (jws only) for signature and schema, GET /status/:id for status
 
 const pass = { status: 'PASS', reason: null };
 const fail = { status: 'FAIL', reason: 'x' };
-const indeterminate = { status: 'INDETERMINATE_STATUS', reason: 'status_unavailable' };
-const report = (patch = {}) => ({ signature: pass, schema: pass, time: pass, suspension: pass, revocation: pass,
-  issuerPolicy: pass, credentialPolicy: pass, overall: 'VALID', reasonCodes: [], ...patch });
+const noStatus = { status: 'INDETERMINATE_STATUS', reason: 'no_status_store' };
+// What the verifier answers for a good credential when no credentialId is sent: status cannot be judged.
+const report = (patch = {}) => ({ signature: pass, schema: pass, time: pass, suspension: noStatus, revocation: noStatus,
+  issuerPolicy: pass, credentialPolicy: pass, overall: 'INDETERMINATE', reasonCodes: ['INDETERMINATE_STATUS'], ...patch });
 const candidate = { credentialId: 'cred-1', compactJws: 'aaa.bbb.ccc' };
+const STATUS_PATH = 'GET /status/cred-1';
+const statusBody = (status, credentialId = 'cred-1') => ({ credentialId, status, history: [] });
+const verifyWith = async (t, routes, timeoutMs = 100) => {
+  const upstream = await stub(t, routes);
+  const result = await asked(() => createVerificationSource({ baseUrl: upstream.url, timeoutMs }).verify(candidate));
+  return { result, upstream };
+};
 
-test('verification: a fully valid report maps to valid, valid, active and sends the jws and credentialId', async (t) => {
-  const upstream = await stub(t, { 'POST /verify': [200, report()] });
-  const result = await asked(() => createVerificationSource({ baseUrl: upstream.url }).verify(candidate));
+test('verification: a good report and an active status map to valid, valid, active', async (t) => {
+  const { result } = await verifyWith(t, { 'POST /verify': [200, report()], [STATUS_PATH]: [200, statusBody('active')] });
   assert.deepEqual(result, { outcome: 'answered', value: { signature: 'valid', schema: 'valid', status: 'active' } });
-  assert.deepEqual(upstream.seen[0].body, { jws: 'aaa.bbb.ccc', credentialId: 'cred-1' });
 });
 
-test('verification: each failing or unclear check maps to invalid, indeterminate or null, never valid', () => {
+test('verification: the verify call sends only the jws and never a credentialId', async (t) => {
+  const { upstream } = await verifyWith(t, { 'POST /verify': [200, report()], [STATUS_PATH]: [200, statusBody('active')] });
+  const verifyCalls = upstream.seen.filter((call) => call.method === 'POST');
+  assert.equal(verifyCalls.length, 1);
+  assert.deepEqual(verifyCalls[0].body, { jws: 'aaa.bbb.ccc' });
+  assert.ok(!JSON.stringify(verifyCalls[0].body).includes('cred-1'));
+  // Status is read with GET only, which cannot register anything.
+  assert.deepEqual(upstream.seen.filter((call) => call.method !== 'POST').map((call) => [call.method, call.url]),
+    [['GET', '/status/cred-1']]);
+});
+
+test('verification: suspended and revoked map through; 404, unknown, other credential, error and timeout are indeterminate', async (t) => {
+  const cases = [
+    [[200, statusBody('suspended')], 'suspended'],
+    [[200, statusBody('revoked')], 'revoked'],
+    [undefined, 'indeterminate'],
+    [[404, { error: 'not_found', status: 'INDETERMINATE_STATUS' }], 'indeterminate'],
+    [[200, statusBody('ACTIVE')], 'indeterminate'],
+    [[200, statusBody('pending')], 'indeterminate'],
+    [[200, statusBody(undefined)], 'indeterminate'],
+    [[200, statusBody('active', 'cred-2')], 'indeterminate'],
+    [[200, []], 'indeterminate'],
+    [[500, {}], 'indeterminate'],
+    ['invalid-json', 'indeterminate'],
+    ['hang', 'indeterminate'],
+  ];
+  for (const [route, status] of cases) {
+    const routes = { 'POST /verify': [200, report()], ...(route === undefined ? {} : { [STATUS_PATH]: route }) };
+    const { result } = await verifyWith(t, routes);
+    assert.equal(result.value.status, status, JSON.stringify(route));
+    assert.notEqual(result.value.status, 'active');
+  }
+});
+
+test('verification: each failing or unclear verify check maps to invalid or null, never valid', () => {
   const cases = [
     [{ signature: fail, overall: 'INVALID' }, { signature: 'invalid' }],
     [{ issuerPolicy: fail, overall: 'INVALID' }, { signature: 'invalid' }],
     [{ schema: fail, overall: 'INVALID' }, { schema: 'invalid' }],
     [{ credentialPolicy: fail, overall: 'INVALID' }, { schema: 'invalid' }],
-    [{ suspension: fail, overall: 'INVALID' }, { status: 'suspended' }],
-    [{ revocation: fail, overall: 'INVALID' }, { status: 'revoked' }],
-    [{ suspension: indeterminate, revocation: indeterminate, overall: 'INDETERMINATE' }, { status: 'indeterminate' }],
     [{ signature: { status: 'UNCHECKED' } }, { signature: null }],
     [{ signature: undefined }, { signature: null }],
     [{ schema: { status: 'pass' } }, { schema: null }],
-    [{ revocation: undefined }, { status: null }],
-    // Every part looks fine but the verifier did not say VALID: stricter, never valid.
+    [{ schema: noStatus }, { schema: null }],
+    // Both parts look fine but the verifier said INVALID (for example time): stricter, never valid.
     [{ time: fail, overall: 'INVALID' }, { schema: 'invalid' }],
-    [{ overall: 'INDETERMINATE' }, { status: 'indeterminate' }],
     [{ overall: 'MAYBE' }, { signature: null }],
   ];
   for (const [patch, expected] of cases) {
-    const mapped = toVerification(report(patch));
+    const mapped = toSignatureAndSchema(report(patch));
     for (const [field, value] of Object.entries(expected)) assert.equal(mapped[field], value, JSON.stringify(patch));
-    const allValid = mapped.signature === 'valid' && mapped.schema === 'valid' && mapped.status === 'active';
-    assert.equal(allValid, false, JSON.stringify(patch));
+    assert.equal(mapped.signature === 'valid' && mapped.schema === 'valid', false, JSON.stringify(patch));
   }
-  for (const body of [null, [], 'VALID', 7]) assert.equal(toVerification(body), null);
+  for (const body of [null, [], 'VALID', 7]) assert.equal(toSignatureAndSchema(body), null);
+  assert.equal(toStatus(statusBody('active'), 'cred-1'), 'active');
+  assert.equal(toStatus(null, 'cred-1'), 'indeterminate');
 });
 
-test('verification: 422 still carries a report; 404, 500, 503, bad JSON, timeout and a missing jws do not', async (t) => {
-  const invalid = await stub(t, { 'POST /verify': [422, report({ schema: fail, overall: 'INVALID' })] });
-  assert.equal((await asked(() => createVerificationSource({ baseUrl: invalid.url }).verify(candidate))).value.schema, 'invalid');
-  for (const [route, outcome] of [[undefined, 'answered'], [[500, {}], 'source_unavailable'],
+test('verification: 422 still carries a report; 404 gives no signature; 500, bad JSON, timeout and a missing jws give nothing', async (t) => {
+  const status = { [STATUS_PATH]: [200, statusBody('active')] };
+  const invalid = await verifyWith(t, { 'POST /verify': [422, report({ schema: fail, overall: 'INVALID' })], ...status });
+  assert.equal(invalid.result.value.schema, 'invalid');
+  const missing = await verifyWith(t, status);
+  assert.deepEqual(missing.result.value, { signature: null, schema: null, status: 'active' });
+  for (const [route, outcome] of [[[500, {}], 'source_unavailable'],
     [[503, { error: 'no_public_key_configured' }], 'source_unavailable'], ['invalid-json', 'contract_violation'], ['hang', 'timeout']]) {
-    const upstream = await stub(t, route === undefined ? {} : { 'POST /verify': route });
-    const result = await asked(() => createVerificationSource({ baseUrl: upstream.url, timeoutMs: 100 }).verify(candidate));
+    const { result } = await verifyWith(t, { 'POST /verify': route, ...status });
     assert.deepEqual(result, { value: null, outcome }, String(route));
   }
-  const upstream = await stub(t, { 'POST /verify': [200, report()] });
+  const upstream = await stub(t, { 'POST /verify': [200, report()], ...status });
   for (const bad of [{ credentialId: 'cred-1' }, { compactJws: 'a.b.c' }, null]) {
     assert.deepEqual(await asked(() => createVerificationSource({ baseUrl: upstream.url }).verify(bad)),
       { value: null, outcome: 'contract_violation' });
   }
   assert.equal(upstream.seen.length, 0);
 });
+
 
 // --- lifecycle origin
 

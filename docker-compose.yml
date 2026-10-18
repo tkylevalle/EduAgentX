@@ -84,6 +84,24 @@ services:
     networks:
       - eduagentx-net
 
+  marketplace-db-init:
+    image: postgres:16-alpine
+    container_name: eduagentx-marketplace-db-init
+    environment:
+      PGHOST: postgres
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_DB: ${POSTGRES_DB}
+      MARKETPLACE_DB_PASSWORD: ${MARKETPLACE_DB_PASSWORD:?Run node scripts/setup-dev.js}
+    volumes:
+      - ./db/init/007_marketplace_role.sh:/tmp/007_marketplace_role.sh:ro
+    command: ["sh", "/tmp/007_marketplace_role.sh"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - eduagentx-net
+
   redis:
     image: redis:7-alpine
     container_name: eduagentx-redis
@@ -265,6 +283,45 @@ services:
           cpus: '0.1'
           memory: 64M
 
+  # Marketplace (#30). No host port: reached only through the Gateway.
+  marketplace-service:
+    build:
+      context: .
+      dockerfile: services/marketplace-service/Dockerfile
+    container_name: eduagentx-marketplace-service
+    environment:
+      PORT: 4012
+      DATABASE_URL: postgres://marketplace_owner:${MARKETPLACE_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      MARKETPLACE_INTERNAL_KEY: ${MARKETPLACE_INTERNAL_KEY:?Run node scripts/setup-dev.js}
+      CURRICULUM_INTERNAL_KEY: ${CURRICULUM_INTERNAL_KEY:?Run node scripts/setup-dev.js}
+      VALIDATION_ACTIVATION_URL: http://validation-activation:4010
+      AGENT_REGISTRY_URL: http://agent-registry:4001
+      CREDENTIAL_VERIFICATION_URL: http://credential-verification:4030
+      # Credential events; nothing publishes to this stream yet (blocker 1).
+      REDIS_URL: redis://redis:6379
+      CREDENTIAL_EVENT_STREAM: ${CREDENTIAL_EVENT_STREAM:-certification.credentials}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      marketplace-db-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:4012/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    networks:
+      - eduagentx-net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+
   examination-engine:
     build:
       context: .
@@ -324,6 +381,8 @@ services:
       TRAINING_INTERNAL_KEY: ${TRAINING_INTERNAL_KEY:?Run node scripts/setup-dev.js}
       EXAMINATION_ENGINE_URL: http://examination-engine:4005
       EXAMINATION_INTERNAL_KEY: ${EXAMINATION_INTERNAL_KEY:?Run node scripts/setup-dev.js}
+      MARKETPLACE_SERVICE_URL: http://marketplace-service:4012
+      MARKETPLACE_INTERNAL_KEY: ${MARKETPLACE_INTERNAL_KEY:?Run node scripts/setup-dev.js}
       SERVICE_NAME: api-gateway
       JWT_ISSUER: ${JWT_ISSUER}
       JWT_AUDIENCE: ${JWT_AUDIENCE}

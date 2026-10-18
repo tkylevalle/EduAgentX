@@ -16,6 +16,7 @@ scrape_configs:
           - http://examination-engine:4005/health
           - http://validation-activation:4010/health
           - http://certification-service:4011/health
+          - http://marketplace-service:4012/health
           - http://assurance-console:4100/health
           - http://synthetic-agent-learner:4200/health
     relabel_configs:
