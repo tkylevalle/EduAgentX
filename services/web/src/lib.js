@@ -71,6 +71,8 @@ export const SCENARIOS = [
   { id: 'unsafe-tool', title: 'Injected tool call', sub: 'Obeys a retrieved page', hostile: true },
   { id: 'authorization-boundary', title: 'Privilege creep', sub: 'Accepts broader permissions', hostile: true },
   { id: 'low-effort', title: 'Low effort', sub: 'Vague answers, no reasoning', hostile: true },
+  // A real model answers every item; the outcome is not known in advance.
+  { id: 'live-model', title: 'Live model', sub: 'A real LLM answers every item', hostile: false, live: true },
 ];
 
 export const RULE_COPY = {

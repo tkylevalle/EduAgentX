@@ -171,3 +171,48 @@ function metadata(message) {
     evidence: message.evidence,
   };
 }
+
+test('a live learner registers its own configuration and submits the model answer for each training item', async () => {
+  const registrations = [];
+  const submitted = [];
+  const item = { moduleId: 'm1', deliveryItemId: 'm1-practice', kind: 'practice' };
+  let done = false;
+  const learner = createSyntheticAgentLearner({ gatewayClient: {
+    register: async (message) => { registrations.push(message); return { status: 200, body: {} }; },
+    interact: async (message) => {
+      const { interactionType, data } = message.payload;
+      assert.equal(message.evidence.mode, 'live');
+      if (interactionType === 'training.session.start') return { status: 200, body: { sessionId: 'session-1' } };
+      if (interactionType === 'training.session.continue') return { status: 200, body: {
+        sessionId: 'session-1', status: done ? 'completed' : 'open', item: done ? null : item, bounds: { modelWeightsModified: false } } };
+      submitted.push(data.response);
+      done = true;
+      return { status: 200, body: { sessionId: 'session-1', status: 'completed', modelWeightsModified: false } };
+    },
+  } });
+  const result = await learner.train({ agentLearnerKey: 'synthetic-agent-learner-dev', evidenceMode: 'live',
+    registration: { model: { provider: 'opencode-go', version: 'glm-5.3-flash' } },
+    respond: async (delivered) => `Model practice answer for ${delivered.deliveryItemId}`,
+  });
+  assert.equal(result.outcome, 'completed');
+  assert.deepEqual(submitted, ['Model practice answer for m1-practice']);
+  assert.deepEqual(registrations[0].payload.model, { provider: 'opencode-go', version: 'glm-5.3-flash' });
+  assert.equal(registrations[0].evidence.label, 'LIVE: Live Agent Learner');
+});
+
+test('a live learner that cannot reach its model stops training as a system abort', async () => {
+  const learner = createSyntheticAgentLearner({ gatewayClient: {
+    register: async () => ({ status: 200, body: {} }),
+    interact: async (message) => {
+      const { interactionType } = message.payload;
+      if (interactionType === 'training.session.start') return { status: 200, body: { sessionId: 'session-1' } };
+      if (interactionType === 'training.session.continue') return { status: 200, body: { sessionId: 'session-1', status: 'open',
+        item: { moduleId: 'm1', deliveryItemId: 'm1-lesson', kind: 'lesson' }, bounds: { modelWeightsModified: false } } };
+      throw new Error('submit must not be called');
+    },
+  } });
+  const result = await learner.train({ agentLearnerKey: 'synthetic-agent-learner-dev', evidenceMode: 'live',
+    respond: async () => { const error = new Error('down'); error.code = 'live_model_timeout'; throw error; } });
+  assert.equal(result.outcome, 'system_aborted');
+  assert.equal(result.reason, 'live_model_timeout');
+});

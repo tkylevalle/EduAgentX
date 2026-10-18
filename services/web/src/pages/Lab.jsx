@@ -22,9 +22,11 @@ export default function Lab() {
   const [outcome, setOutcome] = useState(null);
   const [remediation, setRemediation] = useState(null);
   const [pkg, setPkg] = useState(null);
+  const [liveModel, setLiveModel] = useState(null);
   const consoleRef = useRef(null);
 
   useEffect(() => { api('/api/package').then((data) => setPkg(data.package)).catch(() => {}); }, [outcome]);
+  useEffect(() => { api('/api/live-model').then(setLiveModel).catch(() => setLiveModel({ available: false })); }, []);
   useEffect(() => { consoleRef.current?.scrollTo({ top: consoleRef.current.scrollHeight, behavior: 'smooth' }); }, [log]);
 
   const write = (text, tone = '') => setLog((lines) => [...lines, { at: clock(), text, tone }]);
@@ -41,6 +43,8 @@ export default function Lab() {
           if (step.status === 'running') write(`→ ${step.title}`);
           else if (step.status === 'passed') write(`✓ ${step.title} · ${step.durationMs} ms`, 'ok');
           else write(`✗ ${step.title} · ${step.error}`, 'bad');
+          const used = step.detail?.live;
+          if (step.status !== 'running' && used) write(`  LIVE · ${used.model} · ${used.calls} model calls · ${used.promptTokens + used.completionTokens} tokens`);
         }
         if (message.type === 'remediation') setRemediation(message.remediation);
         if (message.type === 'done') {
@@ -64,7 +68,8 @@ export default function Lab() {
     const onKey = (event) => {
       if (event.target.closest?.('input, textarea') || event.metaKey || event.ctrlKey || event.altKey) return;
       const index = Number(event.key) - 1;
-      if (index >= 0 && index < SCENARIOS.length && !running) setScenario(SCENARIOS[index].id);
+      const picked = SCENARIOS[index];
+      if (picked && !running && (!picked.live || liveModel?.available)) setScenario(picked.id);
       if (event.key === 'Enter' && !running && (event.target === document.body || event.target.closest?.('.seg-option'))) {
         event.preventDefault();
         runRef.current();
@@ -72,7 +77,7 @@ export default function Lab() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [running]);
+  }, [running, liveModel]);
 
   const doneCount = steps.filter((step) => step.status === 'passed' || step.status === 'failed').length;
   const runningIndex = steps.findIndex((step) => step.status === 'running');
@@ -87,25 +92,30 @@ export default function Lab() {
   return (
     <main className="page">
       <PageHead index="02" title="Lifecycle lab" sub="One Agent Learner through every service, over public authenticated routes."
-        readouts={[['Stage', `${doneCount}/${steps.length}`], ['Behaviour', active.hostile ? 'hostile' : 'competent'],
+        readouts={[['Stage', `${doneCount}/${steps.length}`], ['Behaviour', active.live ? 'live model' : active.hostile ? 'hostile' : 'competent'],
           ['Result', running ? 'running' : outcome ? outcome.status : 'idle']]} />
 
-      <Panel title="Agent behaviour" note="Synthetic Agent Learner · deterministic · simulation evidence"
-        action={<span className="label hide-sm">Keys <span className="kbd">1</span>–<span className="kbd">6</span> select · <span className="kbd">↵</span> run</span>}>
+      <Panel title="Agent behaviour" note={active.live
+        ? `LIVE · ${liveModel?.model || 'model'} via ${liveModel?.provider || 'provider'} · not deterministic`
+        : 'Synthetic Agent Learner · deterministic · simulation evidence'}
+        action={<span className="label hide-sm">Keys <span className="kbd">1</span>–<span className="kbd">{SCENARIOS.length}</span> select · <span className="kbd">↵</span> run</span>}>
         <div className="seg" role="group" aria-label="Examination scenario">
           {SCENARIOS.map((entry, index) => (
-            <button key={entry.id} className={`seg-option ${entry.hostile ? 'hostile' : ''}`} aria-pressed={scenario === entry.id}
-              onClick={() => setScenario(entry.id)} disabled={running}>
-              <span className="seg-top"><span className="seg-kind">{entry.hostile ? 'Fails closed' : 'Certifies'}</span><span className="kbd">{index + 1}</span></span>
+            <button key={entry.id} className={`seg-option ${entry.hostile ? 'hostile' : ''} ${entry.live ? 'live' : ''}`} aria-pressed={scenario === entry.id}
+              onClick={() => setScenario(entry.id)} disabled={running || (entry.live && !liveModel?.available)}
+              title={entry.live && liveModel && !liveModel.available ? 'Set OPENCODE_API_KEY in .env to enable the live model' : undefined}>
+              <span className="seg-top"><span className="seg-kind">{entry.live ? 'Live · unscripted' : entry.hostile ? 'Fails closed' : 'Certifies'}</span><span className="kbd">{index + 1}</span></span>
               <span className="seg-title">{entry.title}</span>
-              <span className="seg-sub">{entry.sub}</span>
+              <span className="seg-sub">{entry.live && liveModel?.available ? `${liveModel.model} · ${liveModel.provider}` : entry.sub}</span>
             </button>
           ))}
         </div>
         <div className="run-bar">
           <div className="run-meter" aria-hidden="true">{steps.map((step) => <span key={step.id} data-status={step.status} />)}</div>
           <span className="run-expect">
-            {active.hostile
+            {active.live
+              ? 'Unscripted: a real model trains and sits the exam. The same rules decide; a run takes a few minutes.'
+              : active.hostile
               ? 'Expected: a critical rule fails the exam closed, no credential, remediation is assigned.'
               : 'Expected: training, a passing exam, and a signed credential that verifies as valid.'}
           </span>

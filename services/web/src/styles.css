@@ -191,7 +191,7 @@ button.env-chip:hover { border-color: var(--signal-line); color: var(--text); }
 .kbd { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 3px; border: 1px solid var(--line-strong); font-family: var(--font-data); font-size: 10px; color: var(--text-3); }
 .btn-primary .kbd { border-color: rgba(2, 26, 16, 0.3); color: var(--signal-ink); }
 
-.seg { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; }
+.seg { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; }
 .seg-option {
   position: relative; display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 11px 12px 12px; border-radius: var(--radius-sm); text-align: left;
   border: 1px solid var(--line); background: var(--surface-2); cursor: pointer; transition: border-color 140ms, background 140ms, transform 120ms var(--ease-out);
@@ -204,6 +204,9 @@ button.env-chip:hover { border-color: var(--signal-line); color: var(--text); }
 .seg-top { display: flex; justify-content: space-between; align-items: center; }
 .seg-kind { font-family: var(--font-data); font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--signal); }
 .hostile .seg-kind { color: var(--danger); }
+.seg-option.live { border-style: dashed; border-color: rgba(134, 174, 255, 0.45); }
+.seg-option[aria-pressed='true'].live { border-style: solid; border-color: var(--info); box-shadow: inset 0 0 0 1px var(--info), 0 0 24px -8px rgba(134, 174, 255, 0.55); }
+.live .seg-kind { color: var(--info); }
 .seg-title { font-weight: 750; font-stretch: 110%; font-size: 13.5px; letter-spacing: -0.01em; }
 .seg-sub { color: var(--text-3); font-size: 11.5px; }
 
@@ -397,6 +400,7 @@ input:focus, textarea:focus { outline: none; border-color: var(--signal-line); b
 
 @media (max-width: 1280px) {
   .seg { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .seg-option.live { grid-column: 1 / -1; }
   .readout { min-width: 96px; padding: 0 12px; }
 }
 @media (max-width: 1100px) {
