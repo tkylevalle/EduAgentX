@@ -42,6 +42,15 @@ const TRAINING_INTERACTIONS = Object.freeze({
   'training.session.submit': { action: 'submit', needsSession: true, needsItem: true },
 });
 
+// Issue #30: an Agent Learner lists or withdraws itself in the Marketplace.
+const MARKETPLACE_INTERACTIONS = Object.freeze({
+  'marketplace.listing.publish': 'publish',
+  'marketplace.listing.withdraw': 'withdraw',
+});
+// Who may change Capability Requests and run checks, and who may only read them.
+const MARKETPLACE_WRITERS = Object.freeze(['admin', 'demo_operator']);
+const MARKETPLACE_READERS = Object.freeze([...MARKETPLACE_WRITERS, 'viewer', 'evaluator', 'governance_operator']);
+
 function createApp({
   agentRegistryUrl = process.env.AGENT_REGISTRY_URL || 'http://agent-registry:4001',
   curriculumEngineUrl = process.env.CURRICULUM_ENGINE_URL || 'http://curriculum-engine:4002',
@@ -51,6 +60,9 @@ function createApp({
   trainingInternalKey = process.env.TRAINING_INTERNAL_KEY,
   examinationEngineUrl = process.env.EXAMINATION_ENGINE_URL || 'http://examination-engine:4005',
   examinationInternalKey = process.env.EXAMINATION_INTERNAL_KEY,
+  // No default URL: without both values every Marketplace route answers 503.
+  marketplaceServiceUrl = process.env.MARKETPLACE_SERVICE_URL,
+  marketplaceInternalKey = process.env.MARKETPLACE_INTERNAL_KEY,
   protocolIdempotencyStore = new Map(),
   // Issue #27: pending two-person approvals for governance commands, keyed
   // by `${packageId}:${scopeType}:${scopeId}`. Ephemeral and per-instance,
@@ -221,6 +233,8 @@ function createApp({
 
     const training = TRAINING_INTERACTIONS[message.payload.interactionType];
     if (training) return forwardTrainingInteraction(req, res, message, training);
+    const listing = MARKETPLACE_INTERACTIONS[message.payload.interactionType];
+    if (listing) return forwardListingInteraction(req, res, message, listing);
 
     // Sprint 1 has no curriculum/training owner yet. The gateway still proves
     // the real public interaction seam and returns a deliberately bounded
@@ -531,6 +545,79 @@ function createApp({
     await proxyJson(req, res, `${trainingServiceUrl}/internal/remediations`,
       { method: 'POST', body, headers: trainingHeaders(req) });
   });
+
+  // Issue #30: Marketplace. Like Training, marketplace-service trusts the two
+  // headers, so the actor is always the token subject, never a body field.
+  const marketplaceHeaders = (req) => ({
+    'x-internal-service-key': marketplaceInternalKey,
+    'x-actor-subject': req.auth.subject,
+  });
+  const marketplaceUnavailable = (req, res, message) => {
+    const body = { apiVersion: 'v1', error: 'marketplace_unavailable', correlationId: req.correlationId };
+    return res.status(503).json(message ? decorateProtocolResponse(message, body) : body);
+  };
+
+  async function forwardListingInteraction(req, res, message, action) {
+    // Only the identity and the protocol's acknowledgement are allowed; the learner listed is the token subject.
+    const unexpected = Object.keys(message.payload.data).filter((name) => !['agentLearnerKey', 'response'].includes(name));
+    if (unexpected.length) {
+      return res.status(400).json(decorateProtocolResponse(message, { apiVersion: 'v1', error: 'invalid_lifecycle_payload',
+        details: unexpected.map((name) => ({ field: `payload.data.${name}`, code: 'unexpected', message: `${name} is not accepted` })),
+        correlationId: req.correlationId }));
+    }
+    if (!marketplaceServiceUrl || !marketplaceInternalKey) return marketplaceUnavailable(req, res, message);
+    try {
+      const upstream = await forwardJson(req, `${marketplaceServiceUrl}/internal/listings/${action}`, {
+        method: 'POST', body: { idempotencyKey: message.idempotencyKey }, correlationId: message.correlationId,
+        timeoutMs: message.timeoutMs, headers: marketplaceHeaders(req),
+      });
+      // Not cached here: marketplace-service keeps the durable idempotency record.
+      return res.status(upstream.status).json(decorateProtocolResponse(message, upstream.body));
+    } catch (error) {
+      return proxyFailure(req, res, error, message);
+    }
+  }
+
+  // One forwarding route. Unknown body fields are refused before anything is
+  // sent; marketplace-service validates the rest and stores the actor.
+  const marketplaceRoute = (method, buildPath, allowedFields) => async (req, res) => {
+    let body;
+    if (method === 'POST') {
+      body = req.body;
+      if (!body || typeof body !== 'object' || Array.isArray(body)) {
+        return res.status(400).json({ apiVersion: 'v1', error: 'invalid_request', details: ['body'], correlationId: req.correlationId });
+      }
+      const unexpected = Object.keys(body).filter((name) => !allowedFields.includes(name));
+      if (unexpected.length) {
+        return res.status(400).json({ apiVersion: 'v1', error: 'invalid_request',
+          details: unexpected.map((name) => `unexpected:${name}`), correlationId: req.correlationId });
+      }
+    }
+    if (!marketplaceServiceUrl || !marketplaceInternalKey) return marketplaceUnavailable(req, res);
+    await proxyJson(req, res, `${marketplaceServiceUrl}${buildPath(req)}`,
+      { method, ...(body === undefined ? {} : { body }), headers: marketplaceHeaders(req) });
+  };
+  const requestPath = (req, suffix = '') =>
+    `/internal/capability-requests/${encodeURIComponent(req.params.id)}${suffix}`;
+
+  app.post('/v1/marketplace/capability-requests', requireRole(...MARKETPLACE_WRITERS),
+    marketplaceRoute('POST', () => '/internal/capability-requests', ['idempotencyKey', 'request']));
+  app.post('/v1/marketplace/capability-requests/:id/versions', requireRole(...MARKETPLACE_WRITERS),
+    marketplaceRoute('POST', (req) => requestPath(req, '/versions'), ['idempotencyKey', 'request']));
+  app.post('/v1/marketplace/capability-requests/:id/open', requireRole(...MARKETPLACE_WRITERS),
+    marketplaceRoute('POST', (req) => requestPath(req, '/open'), ['version']));
+  app.post('/v1/marketplace/capability-requests/:id/close', requireRole(...MARKETPLACE_WRITERS),
+    marketplaceRoute('POST', (req) => requestPath(req, '/close'), []));
+  app.post('/v1/marketplace/capability-requests/:id/eligibility-checks', requireRole(...MARKETPLACE_WRITERS),
+    marketplaceRoute('POST', (req) => requestPath(req, '/eligibility-checks'), ['idempotencyKey']));
+  app.get('/v1/marketplace/capability-requests', requireRole(...MARKETPLACE_READERS),
+    marketplaceRoute('GET', () => '/internal/capability-requests'));
+  app.get('/v1/marketplace/capability-requests/:id', requireRole(...MARKETPLACE_READERS),
+    marketplaceRoute('GET', (req) => requestPath(req)));
+  app.get('/v1/marketplace/eligibility-checks/:checkId', requireRole(...MARKETPLACE_READERS),
+    marketplaceRoute('GET', (req) => `/internal/eligibility-checks/${encodeURIComponent(req.params.checkId)}`));
+  app.get('/v1/marketplace/listings/:agentLearnerKey', requireRole(...MARKETPLACE_READERS),
+    marketplaceRoute('GET', (req) => `/internal/listings/${encodeURIComponent(req.params.agentLearnerKey)}`));
 
   // Issue #16: public Exam delivery is possible only after the Examination
   // Engine has committed an immutable attempt. No caller-supplied package,
