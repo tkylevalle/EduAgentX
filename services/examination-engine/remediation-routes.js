@@ -16,8 +16,13 @@ async function requireRemediation(store, { actor, pkg, completion, now }) {
   if (await store.hasAttemptAwaitingOutcome({ ...scope, now })) throw fail('previous_attempt_awaiting_outcome');
   const event = await store.latestRemediationEvent(scope);
   if (!event) return;
-  if (completion?.sessionKind !== 'remediation' || completion.remediationRequestId !== event.eventId)
-    throw fail('remediation_required');
+  if (completion?.sessionKind === 'remediation' && completion.remediationRequestId === event.eventId) return;
+  // A remediation closed by a passing re-examination no longer gates new attempts.
+  for (const attemptId of await store.findReexaminations(event.eventId)) {
+    const attempt = await store.get(attemptId);
+    if (attempt?.status === 'complete') return;
+  }
+  throw fail('remediation_required');
 }
 
 // Identifiers and outcomes only: no response, prompt or rationale crosses here.

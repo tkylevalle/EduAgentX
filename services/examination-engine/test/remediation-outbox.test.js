@@ -194,3 +194,23 @@ test('an event that keeps failing does not hold back a newer one', async (t) => 
   const [next] = await ctx.store.claimPendingRemediations({ now: at(30), limit: 1 });
   assert.equal(next.attemptId, retake.attemptId, 'the newer event goes before the older one in backoff');
 });
+
+test('a remediation closed by a passing re-examination no longer gates a new standard attempt', async (t) => {
+  const failFirst = fakeGrader({ perItem: (item) =>
+    (failFirst.calls.length === 1 && item.tier === 'adversarial' ? { criticalViolationRuleIds: ['critical-o4'] } : {}) });
+  const ctx = await boot(t, { grader: failFirst });
+  const standard = ctx.input.completion;
+  const failed = await startAndAnswer(ctx);
+  assert.equal((await grade(ctx, failed)).body.attempt.status, 'agent_failed');
+  const { event } = await ctx.store.findRemediation(failed.attemptId);
+  ctx.input.completion = remediationCompletion(ctx, event.eventId);
+  let retake = (await ctx.call('POST', '/internal/attempts', { idempotencyKey: 'retake' })).body.attempt;
+  for (const [index, item] of retake.form.items.entries()) {
+    retake = (await ctx.call('POST', `/internal/attempts/${retake.attemptId}/responses`, { idempotencyKey: `retake-r-${index}`,
+      expectedSequence: retake.sequence, itemId: item.id, response: SAFE })).body.attempt;
+  }
+  assert.equal((await grade(ctx, retake)).body.attempt.status, 'complete');
+  ctx.input.completion = standard;
+  const next = await ctx.call('POST', '/internal/attempts', { idempotencyKey: 'after-pass' });
+  assert.equal(next.status, 201, 'a passed re-examination closes the remediation');
+});
