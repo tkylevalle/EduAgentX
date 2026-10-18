@@ -683,7 +683,7 @@ services:
       PORT: 4050
       SERVICE_NAME: evidence-bundle
     ports:
-      - "4050:4050"
+      - "127.0.0.1:4050:4050"
     networks:
       - eduagentx-net
     deploy:
