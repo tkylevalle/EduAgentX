@@ -27,6 +27,18 @@ Sprint 2 Training routes (training-service has no host port; the Gateway is its 
 | GET | `/v1/admin/training-completion-events` | Admin; the completion outbox, one `training.session.completed` envelope per completed session. The relay also publishes each one, at least once, to the Redis Stream `training.session.completed` (fields `eventId`, `envelope`) |
 | POST | `/v1/admin/training-remediations` | Admin; assigns targeted remediation for named objectives and keeps the causing evidence. An unknown field gets 400 `unexpected:<field>`. See [the Issue 13 handoff](../sprint-2/handoff-issue-13.md). |
 
+Sprint 5 Marketplace routes (marketplace-service has no host port; the Gateway is its only public entry). Details, reason codes and the credential event feed are in [the Marketplace contract](marketplace.md):
+
+| Method | Path | Access and behavior |
+|---|---|---|
+| POST | `/v1/agent-learner/interactions` with `marketplace.listing.publish` or `marketplace.listing.withdraw` | Agent; lists or withdraws the token subject only. Discoverable = latest listing event is `published` |
+| POST | `/v1/marketplace/capability-requests` | admin, demo_operator; creates an immutable Capability Request and version 1 |
+| POST | `/v1/marketplace/capability-requests/:id/versions` | admin, demo_operator; adds the next version; older versions never change |
+| POST | `/v1/marketplace/capability-requests/:id/open` and `/close` | admin, demo_operator; opens one version; close is final |
+| POST | `/v1/marketplace/capability-requests/:id/eligibility-checks` | admin, demo_operator; stores eligible and excluded candidates with reason codes. Not a ranking |
+| GET | `/v1/marketplace/capability-requests`, `/v1/marketplace/capability-requests/:id` | admin, demo_operator, viewer, evaluator, governance_operator |
+| GET | `/v1/marketplace/eligibility-checks/:checkId`, `/v1/marketplace/listings/:agentLearnerKey` | Same readers; stored point-in-time evidence |
+
 Sprint 2 also adds internal curriculum lifecycle routes to `validation-activation`
 for freshness checks, quarantine, and the prevalidated fallback bank. These
 routes are service-to-service only and do not pass through the public Gateway;
@@ -41,4 +53,4 @@ Registration envelope idempotency keys bind the authenticated identity and norma
 
 The Assurance Console on local port 4173 is an unauthenticated local demonstration UI with server-side read-only admin access. It is bound to loopback and must not be reverse-proxied or exposed externally. Grafana and the synthetic test adapter are also local-only tools.
 
-The Certification Service issues decisions and credentials internally from complete passing Examination evidence; it has no public Gateway command route. See [the Certification Service contract](certification.md). Public credential retrieval/verification and Marketplace, Skill Gap and full Monitoring APIs belong to later sprints. No `/auth/login`, `/agents`, `/certify`, or marketplace endpoint is implemented by this Gateway contract.
+The Certification Service issues decisions and credentials internally from complete passing Examination evidence; it has no public Gateway command route. See [the Certification Service contract](certification.md). Public credential retrieval/verification, Marketplace ranking and Near Matches (#31), Skill Gap and full Monitoring APIs belong to later work. No `/auth/login`, `/agents` or `/certify` endpoint is implemented by this Gateway contract; the Marketplace routes are the ones listed above.
