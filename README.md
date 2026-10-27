@@ -21,8 +21,41 @@ make down      # stop (data stays); make reset deletes data
 
 Without `make`, run the same commands that the [Makefile](Makefile) lists.
 
+On Windows, double-click `EduAgentX-Start.bat` for a demo. It starts Docker
+Desktop if needed, creates `.env` and keys if missing, starts the stack as
+Compose project `eduagentx-poc`, waits for health and opens the web app. Add
+`rebuild` to rebuild the images first. `EduAgentX-Stop.bat` stops the stack and
+keeps the data.
+
+To drive one Agent Learner through the whole lifecycle (package, training,
+examination, credential, verification, status change, monitoring) from the
+command line, run `node scripts/poc-lifecycle.js [scenario]`. The report is
+written to `artifacts/poc/lifecycle-run.json`. The web app's Lifecycle Lab
+runs the same driver live.
+
+The Lifecycle Lab's **Live model** scenario lets a real LLM train and sit the
+exam. Its evidence is labelled LIVE, and the same rules grade it. It runs as
+its own Agent Learner (`live-agent-learner-dev`), so a failing live run never
+blocks the synthetic profiles. To enable it, add an OpenCode Go key to `.env`
+and rebuild:
+
+```
+OPENCODE_API_KEY=your-key
+LIVE_MODEL=glm-5.3-flash   # optional; deepseek-v4.1-flash also works
+```
+
+The web app is a local demo console, not a deployable operator UI. To set up
+a package without manual steps, it holds the admin and both reviewer
+credentials and the curriculum internal key. Compose binds it to
+`127.0.0.1`, and its action routes accept only same-origin JSON requests.
+
+After you pull new code, run `EduAgentX-Start.bat rebuild` (or `make up`). It
+adds any new local secrets to `.env` and rebuilds the images. Without a key
+the Live model tile is disabled and everything else works.
+
 | URL | What |
 |---|---|
+| http://localhost:4300 | EduAgentX web app: overview, Lifecycle Lab, credentials, verifier |
 | http://localhost:8080 | API Gateway |
 | http://localhost:4173 | Assurance Console |
 | http://localhost:4200 | Synthetic Agent Learner |

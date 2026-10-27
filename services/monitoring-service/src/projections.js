@@ -132,6 +132,8 @@ function ingestEvent(event) {
 }
 
 // ── Full projection snapshot ───────────────────────────────────────
+const RECENT_EVENT_LIMIT = 25;
+
 function getSnapshot() {
   const serviceList = ['api-gateway', 'agent-registry', 'curriculum-engine', 'curriculum-index',
     'training-service', 'grading-service', 'certification-service', 'credential-verification',
@@ -146,6 +148,8 @@ function getSnapshot() {
     kpiEvidence: getAllKPIs(),
     attention: getAttention(),
     eventCount: projections.events.length,
+    // Most recent first, bounded, for the activity feed.
+    recentEvents: projections.events.slice(-RECENT_EVENT_LIMIT).reverse(),
   };
 }
 

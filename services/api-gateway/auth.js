@@ -83,6 +83,13 @@ function knownClients() {
       clientSecret: process.env.AGENT_CLIENT_SECRET || '',
       role: 'agent',
     },
+    // The live-model learner is a different agent, so it has its own identity:
+    // its remediation and evidence never block the synthetic profiles.
+    {
+      clientId: process.env.LIVE_AGENT_CLIENT_ID || '',
+      clientSecret: process.env.LIVE_AGENT_CLIENT_SECRET || '',
+      role: 'agent',
+    },
     {
       clientId: process.env.ADMIN_CLIENT_ID || '',
       clientSecret: process.env.ADMIN_CLIENT_SECRET || '',
