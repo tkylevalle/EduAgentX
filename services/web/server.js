@@ -21,6 +21,9 @@ const REMEDIATION_POLL_MS = 500;
 const HEARTBEAT_MS = 10_000;
 const STATUS_ACTIONS = ['suspend', 'reinstate', 'revoke'];
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const MAX_AGENT_KEY_LENGTH = 256;
+// The app is served to this machine only (Compose binds 127.0.0.1).
+const LOCAL_HOST = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i;
 
 // The platform's services, in lifecycle order, with the issue that built each.
 const SERVICES = [
@@ -44,6 +47,23 @@ const SERVICES = [
 function loadCandidate() {
   const file = path.join(__dirname, '..', 'curriculum-engine', 'examples', 'ai-safety-candidate.js');
   return fs.existsSync(file) ? require(file) : null;
+}
+
+// Every action route is called by this app's own page with a JSON body.
+// Requiring JSON forces a CORS preflight on any other site, the Origin check
+// refuses cross-site posts, and the Host check refuses DNS rebinding.
+function sameOriginJson(req, res, next) {
+  if (req.method !== 'POST') return next();
+  const host = req.get('host') || '';
+  if (!LOCAL_HOST.test(host)) return res.status(403).json({ error: 'host_not_allowed' });
+  const origin = req.get('origin');
+  if (origin && !sameHost(origin, host)) return res.status(403).json({ error: 'cross_origin_refused' });
+  if (!req.is('application/json')) return res.status(415).json({ error: 'json_required' });
+  return next();
+}
+
+function sameHost(origin, host) {
+  try { return new URL(origin).host.toLowerCase() === host.toLowerCase(); } catch { return false; }
 }
 
 function createServer({ env = process.env, fetchImpl = fetch, driver } = {}) {
@@ -134,6 +154,7 @@ function createServer({ env = process.env, fetchImpl = fetch, driver } = {}) {
   const app = express();
   app.disable('x-powered-by');
   app.use(express.json({ limit: '80kb' }));
+  app.use(sameOriginJson);
 
   app.get('/api/health', async (req, res) => res.json({ services: await healthMap(), checkedAt: new Date().toISOString() }));
 
@@ -193,7 +214,7 @@ function createServer({ env = process.env, fetchImpl = fetch, driver } = {}) {
     if (!UUID.test(credentialId) || !STATUS_ACTIONS.includes(action) || !reason) return res.status(400).json({ error: 'invalid_request' });
     try {
       const reply = await gateway(`/v1/admin/credentials/${credentialId}/${action}`, { method: 'POST',
-        body: { reason: reason.slice(0, 400), ...(req.body.agentLearnerKey ? { agentLearnerKey: String(req.body.agentLearnerKey) } : {}) } });
+        body: { reason: reason.slice(0, 400), ...(req.body.agentLearnerKey ? { agentLearnerKey: String(req.body.agentLearnerKey).slice(0, MAX_AGENT_KEY_LENGTH) } : {}) } });
       res.status(reply.status).json(reply.data);
     } catch { res.status(503).json({ error: 'verification_unavailable' }); }
   });
@@ -233,10 +254,14 @@ function createServer({ env = process.env, fetchImpl = fetch, driver } = {}) {
     runInProgress = true;
     res.status(200).set({ 'content-type': 'application/x-ndjson', 'cache-control': 'no-store', 'x-accel-buffering': 'no' });
     res.flushHeaders();
-    const send = (message) => res.write(`${JSON.stringify(message)}\n`);
+    // Closing the tab does not stop the run (the driver cannot be cancelled
+    // mid-stage), so the lock holds until it ends; only the writes stop.
+    let open = true;
+    const send = (message) => { if (open) res.write(`${JSON.stringify(message)}\n`); };
     send({ type: 'plan', steps: STEPS, scenario });
     // A live model can take minutes per stage; a heartbeat keeps the stream open.
     const heartbeat = setInterval(() => send({ type: 'heartbeat', at: new Date().toISOString() }), HEARTBEAT_MS);
+    res.on('close', () => { open = false; clearInterval(heartbeat); });
     try {
       const report = await lifecycle.run({ scenario, onStep: (step) => send({ type: 'step', step }) });
       if (report.status === 'failed') {

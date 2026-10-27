@@ -30,7 +30,7 @@ const driver = createLifecycleDriver({
 driver.run({ onStep: (step) => {
   if (step.status === 'running') return;
   const mark = step.status === 'passed' ? 'PASS' : 'FAIL';
-  console.log(`${mark}  ${step.title.padEnd(42)} ${String(step.durationMs).padStart(6)} ms${step.error ? `  ${step.error}` : ''}`);
+  console.log(`${mark}  ${step.title.padEnd(42)} ${String(step.durationMs).padStart(6)} ms${step.error ? `  ${step.error}` : ''}${step.detail?.kind ? ` (${step.detail.kind})` : ''}`);
 } }).then((report) => {
   // The credential is evidence; the compact JWS is kept, operator secrets never are.
   fs.mkdirSync(path.dirname(output), { recursive: true });

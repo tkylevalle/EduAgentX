@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Ban, PauseCircle, PlayCircle, ScanLine } from 'lucide-react';
 import { CredentialArtifact, Empty, PageHead, Panel, Pill, Skeleton, Verdict, VerifyChecks } from '../ui.jsx';
 import { api, ago, pct, short, stamp, STATUS_TONE } from '../lib.js';
@@ -21,12 +21,21 @@ export default function Credentials() {
 
   const selected = credentials?.find((credential) => credential.credentialId === selectedId) || credentials?.[0] || null;
 
+  // Only the reply for the most recent request is shown, so a slow answer for
+  // a previously selected credential cannot replace the current one.
+  const latestVerify = useRef(0);
   const verify = useCallback(async (credential) => {
     if (!credential) return;
+    const request = ++latestVerify.current;
     setBusy('verify');
-    try { setReport((await api('/api/verify', { method: 'POST', body: { jws: credential.compactJws } })).report); }
-    catch (reason) { setToast(`Verification unavailable: ${reason.message}`); }
-    finally { setBusy(null); }
+    try {
+      const { report: result } = await api('/api/verify', { method: 'POST', body: { jws: credential.compactJws } });
+      if (request === latestVerify.current) setReport(result);
+    } catch (reason) {
+      if (request === latestVerify.current) setToast(`Verification unavailable: ${reason.message}`);
+    } finally {
+      if (request === latestVerify.current) setBusy(null);
+    }
   }, []);
 
   useEffect(() => { setReport(null); setConfirmRevoke(false); setReason(''); if (selected) verify(selected); }, [selected?.credentialId]); // eslint-disable-line react-hooks/exhaustive-deps

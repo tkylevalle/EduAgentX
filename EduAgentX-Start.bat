@@ -37,7 +37,7 @@ echo  [..] Starting Docker Desktop...
 start "" "%DOCKER_DESKTOP%"
 for /l %%i in (1,1,60) do (
   docker info >nul 2>&1 && goto :docker_ready
-  timeout /t 3 /nobreak >nul
+  call :sleep 3
 )
 echo  [error] Docker did not start within 3 minutes. Open Docker Desktop, wait for it, then run this again.
 goto :fail
@@ -71,7 +71,7 @@ if /i "%~1"=="rebuild" (
 rem 5. Wait until the web app answers.
 for /l %%i in (1,1,40) do (
   call :app_ready && goto :ready
-  timeout /t 3 /nobreak >nul
+  call :sleep 3
 )
 echo  [error] The services started, but the web app did not answer on port 4300.
 echo          Check it with: docker compose -p %PROJECT% logs web
@@ -88,7 +88,12 @@ echo.
 echo  Demo keys in the Lifecycle Lab: 2 then Enter = hostile agent, 1 then Enter = competent agent.
 echo  Stop the platform with EduAgentX-Stop.bat (your data is kept).
 echo.
-timeout /t 8 >nul
+call :sleep 8
+exit /b 0
+
+rem Waits about %1 seconds. timeout /t needs a console, ping does not.
+:sleep
+ping -n %~1 127.0.0.1 >nul
 exit /b 0
 
 rem Returns 0 when the web app answers with a status below 500.

@@ -67,7 +67,7 @@ function createLifecycleDriver({ gatewayUrl, syntheticUrl, validationUrl, curric
     const cached = tokens.get(clientId);
     if (cached && cached.expiresAt > Date.now()) return cached.value;
     const reply = await http(`${gatewayUrl}/v1/auth/tokens`, { method: 'POST', body: { clientId, clientSecret } });
-    if (reply.status !== 200) throw new LifecycleError('authentication_failed', { clientId, status: reply.status });
+    if (reply.status !== 200) throw new LifecycleError('authentication_failed', { status: reply.status });
     tokens.set(clientId, { value: reply.data.accessToken, expiresAt: Date.now() + Math.max(0, (reply.data.expiresIn - 60) * 1000) });
     return reply.data.accessToken;
   }
@@ -194,12 +194,18 @@ function createLifecycleDriver({ gatewayUrl, syntheticUrl, validationUrl, curric
   async function verify(compactJws) {
     const auth = await adminToken();
     // Status registration is delivered by the certification outbox; give it a moment.
+    let status = null;
     for (let tries = 0; tries < 10; tries += 1) {
       const reply = await http(`${gatewayUrl}/v1/credentials/verify`, { method: 'POST', token: auth, body: { jws: compactJws } });
       if (reply.data.overall === 'VALID' || reply.data.overall === 'INVALID') return reply.data;
+      // A refused request will not succeed on retry; INDETERMINATE (200) may.
+      if (reply.status >= 400 && reply.status < 500 && reply.status !== 422) {
+        throw new LifecycleError('verification_refused', { status: reply.status, error: reply.data.error });
+      }
+      status = reply.status;
       await sleep(POLL_INTERVAL_MS);
     }
-    throw new LifecycleError('verification_indeterminate');
+    throw new LifecycleError('verification_indeterminate', { status });
   }
 
   async function changeStatus(credentialId, action, reason, agentLearnerKey) {
@@ -209,11 +215,27 @@ function createLifecycleDriver({ gatewayUrl, syntheticUrl, validationUrl, curric
     return reply.data;
   }
 
+  // The step proves both directions: a suspended credential must verify as
+  // INVALID and a reinstated one as VALID again. If anything fails while the
+  // credential is suspended, it is reinstated so the run leaves no trace.
   async function statusCycle(credential, agentLearnerKey) {
-    await changeStatus(credential.credentialId, 'suspend', 'PoC demonstration: reversible suspension', agentLearnerKey);
-    const whileSuspended = await verify(credential.compactJws);
-    const reinstated = await changeStatus(credential.credentialId, 'reinstate', 'PoC demonstration: suspension cleared', agentLearnerKey);
+    const id = credential.credentialId;
+    await changeStatus(id, 'suspend', 'PoC demonstration: reversible suspension', agentLearnerKey);
+    let reinstated = null;
+    let whileSuspended;
+    try {
+      whileSuspended = await verify(credential.compactJws);
+      if (whileSuspended.overall !== 'INVALID') {
+        throw new LifecycleError('suspension_not_enforced', { overall: whileSuspended.overall });
+      }
+      reinstated = await changeStatus(id, 'reinstate', 'PoC demonstration: suspension cleared', agentLearnerKey);
+    } finally {
+      if (!reinstated) await changeStatus(id, 'reinstate', 'PoC demonstration: restored after a failed check', agentLearnerKey).catch(() => {});
+    }
     const afterReinstate = await verify(credential.compactJws);
+    if (afterReinstate.overall !== 'VALID') {
+      throw new LifecycleError('reinstatement_not_enforced', { overall: afterReinstate.overall });
+    }
     return { whileSuspended: { overall: whileSuspended.overall, reasonCodes: whileSuspended.reasonCodes },
       afterReinstate: { overall: afterReinstate.overall, reasonCodes: afterReinstate.reasonCodes },
       history: reinstated.history };
@@ -250,8 +272,12 @@ function createLifecycleDriver({ gatewayUrl, syntheticUrl, validationUrl, curric
         report.steps.push(record); onStep(record);
         return detail;
       } catch (error) {
+        // Only lifecycle errors carry a code and detail meant for display; any
+        // other failure is reported by its kind alone (ECONNREFUSED,
+        // TimeoutError), never by a message that may name internal hosts.
+        const known = error instanceof LifecycleError;
         const record = { ...meta, status: 'failed', durationMs: Date.now() - started,
-          error: error.code || error.message, detail: error.detail || null };
+          error: known ? error.code : 'step_failed', detail: known ? error.detail : { kind: error.cause?.code || error.name || 'Error' } };
         report.steps.push(record); onStep(record);
         throw error;
       }
@@ -276,14 +302,14 @@ function createLifecycleDriver({ gatewayUrl, syntheticUrl, validationUrl, curric
       report.status = 'passed';
     } catch (error) {
       report.status = 'failed';
-      report.error = error.code || error.message;
+      report.error = error instanceof LifecycleError ? error.code : 'step_failed';
     }
     report.completedAt = new Date().toISOString();
     report.results = results;
     return report;
   }
 
-  return { run, ensurePackage, register, train, examine, certify, verify, changeStatus, monitor, activePackage };
+  return { run, ensurePackage, register, train, examine, certify, verify, changeStatus, statusCycle, monitor, activePackage };
 }
 
 module.exports = { createLifecycleDriver, LifecycleError, STEPS, LIVE_SCENARIO };

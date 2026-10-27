@@ -23,19 +23,26 @@ export default function Lab() {
   const [remediation, setRemediation] = useState(null);
   const [pkg, setPkg] = useState(null);
   const [liveModel, setLiveModel] = useState(null);
+  const [ranScenario, setRanScenario] = useState(null);
   const consoleRef = useRef(null);
+  const abortRef = useRef(null);
   const stageRefs = useRef({});
 
   useEffect(() => { api('/api/package').then((data) => setPkg(data.package)).catch(() => {}); }, [outcome]);
   useEffect(() => { api('/api/live-model').then(setLiveModel).catch(() => setLiveModel({ available: false })); }, []);
   useEffect(() => { consoleRef.current?.scrollTo({ top: consoleRef.current.scrollHeight, behavior: 'smooth' }); }, [log]);
+  // Leaving the page stops reading the stream (the server finishes the run).
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   const write = (text, tone = '') => setLog((lines) => [...lines, { at: clock(), text, tone }]);
 
   async function run() {
-    setRunning(true); setOutcome(null); setRemediation(null); setSteps(BLANK_STEPS); setLog([]);
+    setRunning(true); setOutcome(null); setRemediation(null); setSteps(BLANK_STEPS); setLog([]); setRanScenario(scenario);
     const chosen = SCENARIOS.find((entry) => entry.id === scenario);
     write(`run requested · scenario ${scenario} (${chosen.title})`);
+    const controller = new AbortController();
+    abortRef.current = controller;
+    let finished = false;
     try {
       await stream('/api/lifecycle/run', { scenario }, (message) => {
         if (message.type === 'step') {
@@ -49,12 +56,18 @@ export default function Lab() {
         }
         if (message.type === 'remediation') setRemediation(message.remediation);
         if (message.type === 'done') {
+          finished = true;
           setOutcome(message.report);
           write(message.report.status === 'passed' ? 'lifecycle complete · credential issued and verified' : `lifecycle stopped · ${message.report.error}`,
             message.report.status === 'passed' ? 'ok' : 'bad');
         }
-      });
+      }, { signal: controller.signal });
+      if (!finished) {
+        write('stream ended before the run reported a result', 'bad');
+        setOutcome({ status: 'failed', error: 'stream_ended' });
+      }
     } catch (error) {
+      if (controller.signal.aborted) return;
       write(error.status === 409 ? 'another run is in progress; wait for it to finish' : `run failed · ${error.message}`, 'bad');
       setOutcome({ status: 'failed', error: error.message });
     } finally {
@@ -170,7 +183,7 @@ export default function Lab() {
 
         <div className="stack" style={{ position: 'sticky', top: 58 }}>
           {certify && outcome?.status === 'passed' && <CredentialArtifact credential={artifactFrom(steps)} />}
-          {failedExam && <FailureCard exam={examDetail} remediation={remediation} pkg={pkg} live={outcome?.scenario === 'live-model' || active.live} />}
+          {failedExam && <FailureCard exam={examDetail} remediation={remediation} pkg={pkg} live={ranScenario === 'live-model'} />}
           <Panel title="Run console" action={running && <span className="row label" style={{ gap: 7 }}><span className="dot ok live" /> streaming</span>} flush>
             <pre className="console" ref={consoleRef} aria-live="polite">
               {log.length === 0 ? <span className="faint">awaiting run <span className="cursor" /></span> : log.map((line, index) => (

@@ -15,5 +15,6 @@ COPY services/web/server.js ./
 COPY services/curriculum-engine/model.js services/curriculum-engine/fallback.js /app/services/curriculum-engine/
 COPY services/curriculum-engine/examples /app/services/curriculum-engine/examples
 COPY --from=build /app/services/web/dist ./dist
+USER node
 EXPOSE 4300
 CMD ["node", "server.js"]

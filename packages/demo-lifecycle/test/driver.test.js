@@ -84,3 +84,55 @@ test('synthetic scenarios never ask for the live model', async () => {
   await driver.register('safe-escalation');
   assert.equal(bodies.some((body) => 'learner' in body), false);
 });
+
+// Answers each verify call from a queue, and records every status change.
+function statusFetch(verdicts) {
+  const changes = [];
+  const fetchImpl = async (url, init = {}) => {
+    const reply = (status, body) => ({ status, text: async () => JSON.stringify(body) });
+    if (url.endsWith('/v1/auth/tokens')) return reply(200, { accessToken: 'token', expiresIn: 900 });
+    if (url.endsWith('/v1/credentials/verify')) {
+      const [status, overall] = verdicts.shift();
+      return reply(status, overall ? { overall, reasonCodes: [] } : { error: 'forbidden' });
+    }
+    const action = url.split('/').pop();
+    changes.push(action);
+    return reply(200, { history: [{ status: action }] });
+  };
+  return { fetchImpl, changes };
+}
+const credential = { credentialId: 'c-1', compactJws: 'jws' };
+
+test('the status step passes only when suspension and reinstatement both change the verdict', async () => {
+  const { fetchImpl, changes } = statusFetch([[200, 'INVALID'], [200, 'VALID']]);
+  const driver = createLifecycleDriver({ gatewayUrl: GATEWAY, syntheticUrl: LEARNER, admin, fetchImpl });
+  const result = await driver.statusCycle(credential, 'agent');
+  assert.equal(result.whileSuspended.overall, 'INVALID');
+  assert.equal(result.afterReinstate.overall, 'VALID');
+  assert.deepEqual(changes, ['suspend', 'reinstate']);
+});
+
+test('a suspension that does not change the verdict fails the step and still reinstates', async () => {
+  const { fetchImpl, changes } = statusFetch([[200, 'VALID']]);
+  const driver = createLifecycleDriver({ gatewayUrl: GATEWAY, syntheticUrl: LEARNER, admin, fetchImpl });
+  await assert.rejects(driver.statusCycle(credential, 'agent'), { code: 'suspension_not_enforced' });
+  assert.deepEqual(changes, ['suspend', 'reinstate']);
+});
+
+test('a refused verification fails at once instead of polling', async () => {
+  const { fetchImpl } = statusFetch([[403, null], [200, 'VALID']]);
+  const driver = createLifecycleDriver({ gatewayUrl: GATEWAY, syntheticUrl: LEARNER, admin, fetchImpl });
+  await assert.rejects(driver.verify('jws'), (error) => error.code === 'verification_refused' && error.detail.status === 403);
+});
+
+test('a failure that is not a lifecycle error is reported by its kind, not its message', async () => {
+  const fetchImpl = async () => { throw new TypeError('fetch failed: connect ECONNREFUSED 10.0.0.7:4020'); };
+  const steps = [];
+  const driver = createLifecycleDriver({ gatewayUrl: GATEWAY, syntheticUrl: LEARNER, admin, fetchImpl,
+    validationUrl: 'http://validation', curriculumInternalKey: 'key' });
+  const report = await driver.run({ onStep: (step) => steps.push(step) });
+  assert.equal(report.error, 'step_failed');
+  const failed = steps.find((step) => step.status === 'failed');
+  assert.deepEqual([failed.error, failed.detail], ['step_failed', { kind: 'TypeError' }]);
+  assert.equal(JSON.stringify(report).includes('ECONNREFUSED'), false);
+});
