@@ -15,8 +15,9 @@ const MAX_TRAINING_SESSION_ROWS = 20;
 
 const app = express();
 
-// The Sprint 4 overview UI is served under /console so it cannot shadow the
-// server-rendered evidence page at / that the smoke test and gates read.
+// Serve the new Assurance Console UI at /console
+// The root GET / route is preserved for the original renderPage() output
+// so existing tests and smoke checks continue to pass.
 const consolePath = require('node:path').join(__dirname, 'public');
 if (require('node:fs').existsSync(consolePath)) {
   app.use('/console', express.static(consolePath));
