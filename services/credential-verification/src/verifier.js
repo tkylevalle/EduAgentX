@@ -5,9 +5,16 @@
  */
 const { verifyJws } = require('./signer');
 
-const TRUSTED_ISSUERS = new Set([
-  process.env.CREDENTIAL_ISSUER || 'did:example:eduagentx-dev-2026'
-]);
+const DEFAULT_ISSUER = 'did:example:eduagentx-dev-2026';
+// Accepted credential types: the original test profile and the type that
+// certification-service issues.
+const COMPETENCY_TYPES = ['CompetencyCredential', 'EduAgentXCompetencyCredential'];
+
+// CREDENTIAL_ISSUER (comma-separated) is read on every call, so a change to
+// it applies without reloading the module.
+function trustedIssuers() {
+  return new Set((process.env.CREDENTIAL_ISSUER || DEFAULT_ISSUER).split(',').map((issuer) => issuer.trim()).filter(Boolean));
+}
 
 /**
  * Verify a credential JWS and return a structured verification report.
@@ -50,8 +57,12 @@ function verifyCredential(jws, publicKeyPem, statusStore = null) {
     report.overall = 'INVALID';
     return report;
   }
-  const required = ['@context', 'type', 'id', 'issuer', 'issuanceDate', 'credentialSubject'];
+  // VC 2.0 names the start of validity validFrom; VC 1.1 named it issuanceDate.
+  const validFrom = credential.validFrom || credential.issuanceDate;
+  const validUntil = credential.validUntil || credential.expirationDate;
+  const required = ['@context', 'type', 'id', 'issuer', 'credentialSubject'];
   const missing = required.filter(f => !credential[f]);
+  if (!validFrom) missing.push('validFrom');
   if (missing.length) {
     report.schema = { status: 'FAIL', reason: `missing fields: ${missing.join(', ')}` };
     report.reasonCodes.push('SCHEMA_INVALID');
@@ -61,10 +72,13 @@ function verifyCredential(jws, publicKeyPem, statusStore = null) {
 
   // ── 3. Time validity ───────────────────────────────────────────
   const now = new Date();
-  const issuance = new Date(credential.issuanceDate);
-  const expiry = credential.expirationDate ? new Date(credential.expirationDate) : null;
+  const issuance = new Date(validFrom);
+  const expiry = validUntil ? new Date(validUntil) : null;
 
-  if (issuance > now) {
+  if (Number.isNaN(issuance.getTime()) || (expiry && Number.isNaN(expiry.getTime()))) {
+    report.time = { status: 'FAIL', reason: 'credential_time_invalid' };
+    report.reasonCodes.push('TIME_INVALID');
+  } else if (issuance > now) {
     report.time = { status: 'FAIL', reason: 'credential_not_yet_valid' };
     report.reasonCodes.push('NOT_YET_VALID');
   } else if (expiry && expiry < now) {
@@ -104,7 +118,7 @@ function verifyCredential(jws, publicKeyPem, statusStore = null) {
 
   // ── 6. Issuer policy ───────────────────────────────────────────
   const issuer = typeof credential.issuer === 'string' ? credential.issuer : credential.issuer?.id;
-  if (!TRUSTED_ISSUERS.has(issuer)) {
+  if (!trustedIssuers().has(issuer)) {
     report.issuerPolicy = { status: 'FAIL', reason: `untrusted_issuer: ${issuer}` };
     report.reasonCodes.push('UNTRUSTED_ISSUER');
   } else {
@@ -113,7 +127,7 @@ function verifyCredential(jws, publicKeyPem, statusStore = null) {
 
   // ── 7. Credential policy ───────────────────────────────────────
   const types = credential.type || [];
-  if (!types.includes('VerifiableCredential') || !types.includes('CompetencyCredential')) {
+  if (!types.includes('VerifiableCredential') || !COMPETENCY_TYPES.some((type) => types.includes(type))) {
     report.credentialPolicy = { status: 'FAIL', reason: 'missing_required_type' };
     report.reasonCodes.push('INVALID_CREDENTIAL_TYPE');
   } else {
@@ -136,4 +150,4 @@ function verifyCredential(jws, publicKeyPem, statusStore = null) {
   return report;
 }
 
-module.exports = { verifyCredential, TRUSTED_ISSUERS };
+module.exports = { verifyCredential, trustedIssuers, COMPETENCY_TYPES };

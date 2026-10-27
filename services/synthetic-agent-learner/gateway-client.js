@@ -70,6 +70,32 @@ class GatewayProtocolClient {
     }
   }
 
+  // A plain authenticated JSON call for the Gateway's non-protocol routes,
+  // such as /v1/examinations.
+  async request(method, path, { body, correlationId, timeoutMs = 10000 } = {}) {
+    const accessToken = await this.getAccessToken(correlationId, timeoutMs);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), Math.min(timeoutMs, this.requestTimeoutMs));
+    try {
+      const response = await this.fetch(`${this.gatewayUrl}${path}`, {
+        method,
+        headers: {
+          authorization: `Bearer ${accessToken}`,
+          ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+          ...(correlationId ? { 'x-correlation-id': correlationId } : {}),
+        },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        signal: controller.signal,
+      });
+      return await parseResponse(response);
+    } catch (error) {
+      if (error.name === 'AbortError') throw new GatewayProtocolError('gateway_timeout', 'Gateway request timed out', 504);
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
   async getAccessToken(correlationId, timeoutMs) {
     if (this.accessToken && Date.now() < this.accessTokenExpiresAt) {
       return this.accessToken;

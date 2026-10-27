@@ -9,6 +9,7 @@ volumes:
   redis-data:
   chromadb-data:
   curriculum-index-cache:
+  credential-status:
 
 services:
   postgres:
@@ -384,6 +385,11 @@ services:
       MARKETPLACE_SERVICE_URL: http://marketplace-service:4012
       MARKETPLACE_INTERNAL_KEY: ${MARKETPLACE_INTERNAL_KEY:?Run node scripts/setup-dev.js}
       SERVICE_NAME: api-gateway
+      CERTIFICATION_SERVICE_URL: http://certification-service:4011
+      CERTIFICATION_INTERNAL_KEY: ${CERTIFICATION_INTERNAL_KEY:?Run node scripts/setup-dev.js}
+      CREDENTIAL_VERIFICATION_URL: http://credential-verification:4030
+      CREDENTIAL_INTERNAL_KEY: ${CREDENTIAL_INTERNAL_KEY:?Run node scripts/setup-dev.js}
+      MONITORING_SERVICE_URL: http://monitoring-service:4040
       JWT_ISSUER: ${JWT_ISSUER}
       JWT_AUDIENCE: ${JWT_AUDIENCE}
       JWT_ACCESS_TOKEN_TTL_SECONDS: ${JWT_ACCESS_TOKEN_TTL_SECONDS}
@@ -391,6 +397,8 @@ services:
       JWT_PUBLIC_KEY_PATH: ${JWT_PUBLIC_KEY_PATH}
       AGENT_CLIENT_ID: ${AGENT_CLIENT_ID}
       AGENT_CLIENT_SECRET: ${AGENT_CLIENT_SECRET}
+      LIVE_AGENT_CLIENT_ID: ${LIVE_AGENT_CLIENT_ID:-live-agent-learner-dev}
+      LIVE_AGENT_CLIENT_SECRET: ${LIVE_AGENT_CLIENT_SECRET:-}
       ADMIN_CLIENT_ID: ${ADMIN_CLIENT_ID}
       ADMIN_CLIENT_SECRET: ${ADMIN_CLIENT_SECRET}
       REVIEWER_1_CLIENT_ID: ${REVIEWER_1_CLIENT_ID:-}
@@ -457,6 +465,12 @@ services:
       EXAMINATION_INTERNAL_KEY: ${EXAMINATION_INTERNAL_KEY:?Run node scripts/setup-dev.js}
       VALIDATION_ACTIVATION_URL: http://validation-activation:4010
       CURRICULUM_INTERNAL_KEY: ${CURRICULUM_INTERNAL_KEY:?Run node scripts/setup-dev.js}
+      # Outbox delivery of issued credentials (publisher.js).
+      REDIS_URL: redis://redis:6379
+      CREDENTIAL_EVENT_STREAM: ${CREDENTIAL_EVENT_STREAM:-certification.credentials}
+      CREDENTIAL_VERIFICATION_URL: http://credential-verification:4030
+      CREDENTIAL_INTERNAL_KEY: ${CREDENTIAL_INTERNAL_KEY:?Run node scripts/setup-dev.js}
+      MONITORING_URL: http://monitoring-service:4040
     volumes:
       - ./keys:/app/keys:ro
     depends_on:
@@ -496,6 +510,12 @@ services:
       SERVICE_NAME: synthetic-agent-learner
       AGENT_CLIENT_ID: ${AGENT_CLIENT_ID}
       AGENT_CLIENT_SECRET: ${AGENT_CLIENT_SECRET}
+      # Optional live learner (Lifecycle Lab "Live model"). Empty key = disabled.
+      LIVE_AGENT_CLIENT_ID: ${LIVE_AGENT_CLIENT_ID:-live-agent-learner-dev}
+      LIVE_AGENT_CLIENT_SECRET: ${LIVE_AGENT_CLIENT_SECRET:-}
+      OPENCODE_API_KEY: ${OPENCODE_API_KEY:-}
+      LIVE_MODEL: ${LIVE_MODEL:-glm-5.3-flash}
+      LIVE_MODEL_URL: ${LIVE_MODEL_URL:-https://opencode.ai/inference/go/openai/v1/chat/completions}
     ports:
       - "127.0.0.1:${SYNTHETIC_AGENT_PORT:-4200}:4200"
     depends_on:
@@ -517,6 +537,40 @@ services:
         reservations:
           cpus: '0.1'
           memory: 64M
+
+  web:
+    build:
+      context: .
+      dockerfile: services/web/Dockerfile
+    container_name: eduagentx-web
+    environment:
+      PORT: 4300
+      API_GATEWAY_URL: http://api-gateway:4000
+      SYNTHETIC_AGENT_URL: http://synthetic-agent-learner:4200
+      VALIDATION_ACTIVATION_URL: http://validation-activation:4010
+      # Server-side only: the browser never receives these.
+      ADMIN_CLIENT_ID: ${ADMIN_CLIENT_ID}
+      ADMIN_CLIENT_SECRET: ${ADMIN_CLIENT_SECRET}
+      REVIEWER_1_CLIENT_ID: ${REVIEWER_1_CLIENT_ID:-}
+      REVIEWER_1_CLIENT_SECRET: ${REVIEWER_1_CLIENT_SECRET:-}
+      REVIEWER_2_CLIENT_ID: ${REVIEWER_2_CLIENT_ID:-}
+      REVIEWER_2_CLIENT_SECRET: ${REVIEWER_2_CLIENT_SECRET:-}
+      CURRICULUM_INTERNAL_KEY: ${CURRICULUM_INTERNAL_KEY:?Run node scripts/setup-dev.js}
+    ports:
+      - "127.0.0.1:${WEB_PORT:-4300}:4300"
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+      synthetic-agent-learner:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:4300/api/package', r => process.exit(r.statusCode < 500 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    networks:
+      - eduagentx-net
 
   assurance-console:
     build:
@@ -628,10 +682,17 @@ services:
     environment:
       PORT: 4030
       SERVICE_NAME: credential-verification
-      CREDENTIAL_ISSUER: did:example:eduagentx-dev-2026
-      CREDENTIAL_PUBLIC_KEY_PATH: /keys/dev-public.pem
+      # Trusts the issuer certification-service signs as, with its public key.
+      CREDENTIAL_ISSUER: ${CERTIFICATION_ISSUER:-https://eduagentx.example/issuers/eduagentx}
+      CREDENTIAL_PUBLIC_KEY_PATH: /keys/certification-ed25519-public.pem
+      CREDENTIAL_INTERNAL_KEY: ${CREDENTIAL_INTERNAL_KEY:?Run node scripts/setup-dev.js}
+      CREDENTIAL_STATUS_PATH: /data/credential-status.json
+      MONITORING_URL: http://monitoring-service:4040
+    volumes:
+      - ./keys:/keys:ro
+      - credential-status:/data
     ports:
-      - "4030:4030"
+      - "127.0.0.1:4030:4030"
     networks:
       - eduagentx-net
     deploy:
@@ -657,7 +718,7 @@ services:
       PORT: 4040
       SERVICE_NAME: monitoring-service
     ports:
-      - "4040:4040"
+      - "127.0.0.1:4040:4040"
     networks:
       - eduagentx-net
     deploy:
