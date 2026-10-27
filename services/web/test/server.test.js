@@ -5,6 +5,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const http = require('node:http');
 const { createServer } = require('../server');
 
 const ATTEMPT_ID = '7d30001b-7452-4f7e-99f4-f43f3b5892f3';
@@ -82,3 +83,33 @@ test('status changes and verification validate input before calling the gateway'
   assert.equal((await post(base, '/api/verify', { jws: '' })).status, 400);
   assert.equal(calls.length, 0, 'nothing reached the gateway');
 });
+
+test('a run can only be started by this app: same origin, local host, JSON body', async (t) => {
+  let runs = 0;
+  const driver = { async run() { runs += 1; return { runId: 'run-1', status: 'passed', steps: [] }; } };
+  const base = await listen(t, { fetchImpl: fakeGateway().fetchImpl, driver });
+  const start = (headers, body = JSON.stringify({ scenario: 'safe-escalation' })) =>
+    fetch(`${base}/api/lifecycle/run`, { method: 'POST', headers, body });
+
+  // A plain form post from another site needs no CORS preflight, so it must be refused here.
+  assert.equal((await start({ 'content-type': 'text/plain' })).status, 415);
+  assert.equal((await start({ 'content-type': 'application/json', origin: 'https://evil.example' })).status, 403);
+  // fetch() ignores a Host header, so the rebinding case goes through node:http.
+  assert.equal(await statusWithHost(base, 'rebound.example:4300'), 403);
+  assert.equal(runs, 0, 'no refused request started a run');
+
+  const own = await start({ 'content-type': 'application/json', origin: base });
+  assert.equal(own.status, 200);
+  await own.text();
+  assert.equal(runs, 1);
+});
+
+function statusWithHost(base, host) {
+  const { port } = new URL(base);
+  return new Promise((resolve, reject) => {
+    const request = http.request({ host: '127.0.0.1', port, path: '/api/lifecycle/run', method: 'POST',
+      headers: { host, 'content-type': 'application/json' } }, (response) => { response.resume(); resolve(response.statusCode); });
+    request.on('error', reject);
+    request.end(JSON.stringify({ scenario: 'safe-escalation' }));
+  });
+}

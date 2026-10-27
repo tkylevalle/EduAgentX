@@ -109,8 +109,11 @@ function createLiveModel({ apiKey, model = DEFAULT_MODEL, url = DEFAULT_URL, fet
           reasoningChars: String(body.choices?.[0]?.message?.reasoning_content || '').length,
           completionTokens: body.usage?.completion_tokens ?? null });
       } catch (error) {
-        lastError = error instanceof LiveModelError ? error
-          : new LiveModelError(error?.name === 'TimeoutError' ? 'live_model_timeout' : 'live_model_unreachable');
+        if (error instanceof LiveModelError) { lastError = error; continue; }
+        // A timed-out call already used the whole budget, so it is not retried:
+        // one item then costs at most timeoutMs, not ATTEMPTS times that.
+        if (error?.name === 'TimeoutError') throw new LiveModelError('live_model_timeout');
+        lastError = new LiveModelError('live_model_unreachable');
       }
     }
     throw lastError || new LiveModelError('live_model_unavailable');

@@ -44,6 +44,11 @@ OPENCODE_API_KEY=your-key
 LIVE_MODEL=glm-5.3-flash   # optional; deepseek-v4.1-flash also works
 ```
 
+The web app is a local demo console, not a deployable operator UI. To set up
+a package without manual steps, it holds the admin and both reviewer
+credentials and the curriculum internal key. Compose binds it to
+`127.0.0.1`, and its action routes accept only same-origin JSON requests.
+
 After you pull new code, run `EduAgentX-Start.bat rebuild` (or `make up`). It
 adds any new local secrets to `.env` and rebuilds the images. Without a key
 the Live model tile is disabled and everything else works.

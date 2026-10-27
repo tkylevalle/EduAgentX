@@ -3,7 +3,7 @@ const express = require('express');
 const fs = require('node:fs');
 const { timingSafeEqual } = require('node:crypto');
 const { verifyCredential } = require('./verifier');
-const { statusStore } = require('./statusStore');
+const { statusStore, StatusTransitionError } = require('./statusStore');
 
 const app = express();
 app.use(express.json({ limit: '64kb' }));
@@ -22,12 +22,12 @@ function matchesSecret(given, expected) {
   return left.length === right.length && timingSafeEqual(left, right);
 }
 
-// Status changes are trusted commands. When CREDENTIAL_INTERNAL_KEY is set
-// (Compose always sets it) only callers holding it may register, suspend,
-// reinstate or revoke. Verification and status reads stay open.
+// Status changes are trusted commands: only callers holding
+// CREDENTIAL_INTERNAL_KEY may register, suspend, reinstate or revoke, and
+// without a configured key they are refused. Verification and reads stay open.
 function requireInternalKey(req, res, next) {
   const expected = process.env.CREDENTIAL_INTERNAL_KEY;
-  if (!expected) return next();
+  if (!expected) return res.status(503).json({ error: 'internal_key_not_configured' });
   if (!matchesSecret(req.header('x-internal-service-key'), expected)) return res.status(403).json({ error: 'forbidden' });
   next();
 }
@@ -67,7 +67,7 @@ app.post('/status/register', requireInternalKey, (req, res) => {
   const { credentialId } = req.body || {};
   if (!credentialId || typeof credentialId !== 'string') return res.status(400).json({ error: 'missing_credentialId' });
   const known = statusStore.isKnown(credentialId);
-  statusStore.register(credentialId);
+  try { statusStore.register(credentialId); } catch (error) { return notPersisted(res, error); }
   res.status(known ? 200 : 201).json({ credentialId, status: statusStore.getStatus(credentialId),
     history: statusStore.getHistory(credentialId) });
 });
@@ -80,10 +80,16 @@ function statusRoute(action, resultingStatus, eventType) {
       statusStore[action](credentialId, reason);
       if (agentId) notifyMonitoring({ type: eventType, agentId, certificationId: credentialId, reason });
       res.json({ credentialId, status: resultingStatus, history: statusStore.getHistory(credentialId) });
-    } catch (err) {
-      res.status(409).json({ error: err.message });
+    } catch (error) {
+      if (error instanceof StatusTransitionError) return res.status(409).json({ error: error.message });
+      return notPersisted(res, error);
     }
   };
+}
+
+function notPersisted(res, error) {
+  console.error(`[credential-verification] status change not persisted: ${error.message}`);
+  return res.status(500).json({ error: 'status_not_persisted' });
 }
 
 // Suspension is reversible; revocation is irreversible.

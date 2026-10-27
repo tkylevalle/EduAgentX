@@ -10,12 +10,11 @@ const DEFAULT_ISSUER = 'did:example:eduagentx-dev-2026';
 // certification-service issues.
 const COMPETENCY_TYPES = ['CompetencyCredential', 'EduAgentXCompetencyCredential'];
 
-// Read at call time so a deployment can name its issuers (comma-separated)
-// without a restart of the module cache.
+// CREDENTIAL_ISSUER (comma-separated) is read on every call, so a change to
+// it applies without reloading the module.
 function trustedIssuers() {
   return new Set((process.env.CREDENTIAL_ISSUER || DEFAULT_ISSUER).split(',').map((issuer) => issuer.trim()).filter(Boolean));
 }
-const TRUSTED_ISSUERS = trustedIssuers();
 
 /**
  * Verify a credential JWS and return a structured verification report.
@@ -151,4 +150,4 @@ function verifyCredential(jws, publicKeyPem, statusStore = null) {
   return report;
 }
 
-module.exports = { verifyCredential, TRUSTED_ISSUERS, trustedIssuers, COMPETENCY_TYPES };
+module.exports = { verifyCredential, trustedIssuers, COMPETENCY_TYPES };

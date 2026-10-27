@@ -1,4 +1,5 @@
 import importlib.util
+import re
 import subprocess
 import unittest
 from pathlib import Path
@@ -52,3 +53,13 @@ class ComponentSetupTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class GeneratedSecretTests(unittest.TestCase):
+    # Any secret the gate does not generate falls back to its public example
+    # value from .env.example, so the gate must cover what setup-dev.js covers.
+    def test_gate_generates_every_secret_that_local_setup_generates(self):
+        setup = Path(__file__).with_name('setup-dev.js').read_text()
+        names = re.search(r'for \(const name of \[([^\]]*)\]\)', setup).group(1)
+        local = set(re.findall(r"'([A-Z0-9_]+)'", names))
+        self.assertEqual(sorted(local - set(runner_module.GENERATED_SECRETS)), [])

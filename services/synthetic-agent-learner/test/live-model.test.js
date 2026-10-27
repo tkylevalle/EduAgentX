@@ -170,3 +170,10 @@ test('without its own agent identity the live learner stays unavailable', async 
     assert.equal((await reply.json()).reason, 'live_agent_not_configured');
   });
 });
+
+test('a timed-out model call is not retried', async () => {
+  const timeout = Object.assign(new Error('timed out'), { name: 'TimeoutError' });
+  const { impl, calls } = fakeFetch([timeout, chat('never reached')]);
+  await assert.rejects(createLiveModel({ apiKey: KEY, fetchImpl: impl }).answerExam(ITEM), { code: 'live_model_timeout' });
+  assert.equal(calls.length, 1);
+});

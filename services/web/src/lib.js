@@ -12,8 +12,8 @@ export async function api(path, { method = 'GET', body } = {}) {
 }
 
 // Reads a newline-delimited JSON stream and calls onMessage for each line.
-export async function stream(path, body, onMessage) {
-  const response = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+export async function stream(path, body, onMessage, { signal } = {}) {
+  const response = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal });
   if (!response.ok || !response.body) {
     const data = await response.json().catch(() => ({}));
     throw Object.assign(new Error(data.error || `Request failed (${response.status})`), { status: response.status });
@@ -32,6 +32,8 @@ export async function stream(path, body, onMessage) {
       if (line) onMessage(JSON.parse(line));
     }
   }
+  const last = (buffer + decoder.decode()).trim();
+  if (last) onMessage(JSON.parse(last));
 }
 
 export const short = (value, head = 8, tail = 4) =>

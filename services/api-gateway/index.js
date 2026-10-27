@@ -97,7 +97,7 @@ function createApp({
   const notifyMonitoring = (event) => {
     if (!monitoringServiceUrl) return;
     fetch(`${monitoringServiceUrl}/events`, { method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ ...event, source: 'api-gateway' }), timeout: 2000 }).catch(() => {});
+      body: JSON.stringify({ ...event, source: 'api-gateway' }), signal: AbortSignal.timeout(2000) }).catch(() => {});
   };
 
   app.get('/health', async (req, res) => {
