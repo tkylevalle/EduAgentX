@@ -57,11 +57,15 @@ test('console serves the Assurance Console UI and exposes read-only API routes',
   t.after(() => consoleServer.close());
 
   // GET / should return 200 with HTML (the Console UI)
+  // GET / returns the original renderPage() output (backward-compatible)
   const page = await request(consoleServer, 'GET', '/');
   assert.equal(page.status, 200);
-  // The new UI is an HTML page — check it contains EduAgentX branding
-  assert.match(page.body, /EduAgentX/);
-  assert.match(page.body, /Assurance Console/);
+
+  // GET /console returns the new full Assurance Console UI
+  const consolePage = await request(consoleServer, 'GET', '/console/');
+  assert.equal(consolePage.status, 200);
+  assert.match(consolePage.body, /EduAgentX/);
+  assert.match(consolePage.body, /Assurance Console/);
 
   // /api/registration-trace should still work and return trace data
   const traceResponse = await request(consoleServer, 'GET', '/api/registration-trace');
