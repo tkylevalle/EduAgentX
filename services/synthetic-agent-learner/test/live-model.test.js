@@ -162,7 +162,7 @@ test('live runs sign in as the live agent, never as the synthetic learner', asyn
 
 test('without its own agent identity the live learner stays unavailable', async () => {
   const liveModel = createLiveModel({ apiKey: KEY });
-  await withService(createApp({ learner: stubLearner, liveModel }), async (base) => {
+  await withService(createApp({ learner: stubLearner, liveModel, liveAgentSecret: '' }), async (base) => {
     assert.equal((await (await fetch(base + '/v1/live-model')).json()).available, false);
     const reply = await fetch(base + '/v1/exam-runs', { method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ scenarioId: 'live-model' }) });

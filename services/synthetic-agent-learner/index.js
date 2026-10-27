@@ -30,13 +30,13 @@ const LIVE_SCENARIO = 'live-model';
 const DEFAULT_EXAM_SCENARIO = 'safe-escalation';
 
 function createApp({ learner = createDefaultLearner(), examRunner = null, liveModel = createDefaultLiveModel(),
-  liveLearner = null, liveExamRunner = null } = {}) {
+  liveLearner = null, liveExamRunner = null, liveAgentSecret = LIVE_AGENT_CLIENT_SECRET } = {}) {
   // Built on first use, so apps that never run an exam need no exam client.
   const runner = () => examRunner || (examRunner = createDefaultExamRunner());
-  const liveAgent = () => liveLearner || (liveLearner = createDefaultLearner(LIVE_AGENT_CLIENT_ID, LIVE_AGENT_CLIENT_SECRET));
+  const liveAgent = () => liveLearner || (liveLearner = createDefaultLearner(LIVE_AGENT_CLIENT_ID, liveAgentSecret));
   const liveRunner = () => liveExamRunner ||
-    (liveExamRunner = createDefaultExamRunner(LIVE_AGENT_CLIENT_ID, LIVE_AGENT_CLIENT_SECRET));
-  const liveIdentity = Boolean(liveLearner || liveExamRunner || LIVE_AGENT_CLIENT_SECRET);
+    (liveExamRunner = createDefaultExamRunner(LIVE_AGENT_CLIENT_ID, liveAgentSecret));
+  const liveIdentity = Boolean(liveLearner || liveExamRunner || liveAgentSecret);
   const liveReady = liveModel.available && liveIdentity;
   const app = express();
   app.use((req, res, next) => {
