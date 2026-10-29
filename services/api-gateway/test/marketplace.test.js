@@ -34,6 +34,7 @@ const REQUEST_ID = '00000000-0000-4000-8000-0000000000aa';
 const CHECK_ID = '00000000-0000-4000-8000-0000000000bb';
 
 const WRITES = [
+  ['POST', `/v1/marketplace/capability-requests/${REQUEST_ID}/matches`, { idempotencyKey: 'k' }, `/internal/capability-requests/${REQUEST_ID}/matches`],
   ['POST', '/v1/marketplace/capability-requests', { idempotencyKey: 'k', request: { title: 't' } }, '/internal/capability-requests'],
   ['POST', `/v1/marketplace/capability-requests/${REQUEST_ID}/versions`, { idempotencyKey: 'k', request: { title: 't' } },
     `/internal/capability-requests/${REQUEST_ID}/versions`],
@@ -43,6 +44,7 @@ const WRITES = [
     `/internal/capability-requests/${REQUEST_ID}/eligibility-checks`],
 ];
 const READS = [
+  ['GET', `/v1/marketplace/match-results/${CHECK_ID}`, undefined, `/internal/match-results/${CHECK_ID}`],
   ['GET', '/v1/marketplace/capability-requests', undefined, '/internal/capability-requests'],
   ['GET', `/v1/marketplace/capability-requests/${REQUEST_ID}`, undefined, `/internal/capability-requests/${REQUEST_ID}`],
   ['GET', `/v1/marketplace/eligibility-checks/${CHECK_ID}`, undefined, `/internal/eligibility-checks/${CHECK_ID}`],
@@ -108,6 +110,7 @@ test('unknown body fields are refused before anything is forwarded', async (t) =
   const { gateway, marketplace } = await startGateway(t);
   const token = await tokenFor(gateway, 'admin');
   const cases = [
+    [`/v1/marketplace/capability-requests/${REQUEST_ID}/matches`, { idempotencyKey: 'k', candidates: [] }, 'unexpected:candidates'],
     ['/v1/marketplace/capability-requests', { idempotencyKey: 'k', request: {}, createdBy: 'someone-else' }, 'unexpected:createdBy'],
     [`/v1/marketplace/capability-requests/${REQUEST_ID}/open`, { version: 1, actor: 'x' }, 'unexpected:actor'],
     [`/v1/marketplace/capability-requests/${REQUEST_ID}/close`, { reason: 'x' }, 'unexpected:reason'],

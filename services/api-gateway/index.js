@@ -627,6 +627,10 @@ function createApp({
     marketplaceRoute('POST', (req) => requestPath(req, '/close'), []));
   app.post('/v1/marketplace/capability-requests/:id/eligibility-checks', requireRole(...MARKETPLACE_WRITERS),
     marketplaceRoute('POST', (req) => requestPath(req, '/eligibility-checks'), ['idempotencyKey']));
+  app.post('/v1/marketplace/capability-requests/:id/matches', requireRole(...MARKETPLACE_WRITERS),
+    marketplaceRoute('POST', (req) => requestPath(req, '/matches'), ['idempotencyKey']));
+  app.get('/v1/marketplace/match-results/:resultId', requireRole(...MARKETPLACE_READERS),
+    marketplaceRoute('GET', (req) => `/internal/match-results/${encodeURIComponent(req.params.resultId)}`));
   app.get('/v1/marketplace/capability-requests', requireRole(...MARKETPLACE_READERS),
     marketplaceRoute('GET', () => '/internal/capability-requests'));
   app.get('/v1/marketplace/capability-requests/:id', requireRole(...MARKETPLACE_READERS),

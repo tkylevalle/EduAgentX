@@ -64,6 +64,14 @@ service APIs, not public Gateway routes. Their contract and trust boundaries are
 documented in [Curriculum freshness and fallback](contracts/curriculum-freshness.md).
 Certification issuance consumes immutable Examination evidence and replays from a durable cursor; see [Certification Service](contracts/certification.md).
 
+Marketplace matching (#31) reuses #30's current trust and request gates before
+applying MATCH-POLICY-1.0.0. Eligible Matches and Not Eligible Near Matches stay
+in separate arrays. The Marketplace schema stores each result atomically with a
+unique actor/idempotency key; database triggers forbid updates and deletion.
+Stored results are historical recommendations, not authorization for later
+actions. See [Marketplace matching](contracts/marketplace-matching.md) for policy
+arithmetic, evidence boundaries and outstanding source integration dependencies.
+
 ## Adding a service (later sprints)
 
 1. Create `services/<name>/` with `package.json` (include a lock file),

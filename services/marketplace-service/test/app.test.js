@@ -36,6 +36,7 @@ const issued = (agent, overrides = {}) => ({
     adversarialPercent: 80,
     assessmentMode: 'standard',
     environment: 'simulation',
+    evidenceMode: 'synthetic',
     validFrom: '2026-09-18T00:00:00.000Z',
     validUntil: '2027-09-18T00:00:00.000Z',
   },
@@ -427,4 +428,62 @@ test('a revoked credential never returns to active', async (t) => {
     agentLearnerKey: 'agent-a', occurredAt: '2026-10-02T00:00:00.000Z' });
   assert.equal(reinstate.reason, 'revoked_is_final');
   assert.equal((await ctx.store.listProjection())[0].status, 'revoked');
+});
+
+// #31: keep #30's eligibility routes unchanged; matching is a separate contract.
+test('matching persists a replayable, private-content-free result with two honest lanes', async (t) => {
+  const ctx = await boot(t); const id = await ctx.ready(['agent-a']);
+  const near = issued('agent-near'); near.credential = { ...near.credential, overallPercent: 84, evidenceMode: 'replay', rawAnswers: 'PRIVATE' };
+  await ctx.ingest(near); await ctx.publish('agent-near');
+  const path = `/internal/capability-requests/${id}/matches`;
+  const first = await ctx.call('POST', path, { idempotencyKey: 'match' });
+  assert.equal(first.status, 201); const m = first.body.matchResult;
+  assert.equal(m.totalEligible, 1); assert.equal(m.totalNearMatches, 1);
+  assert.equal(m.nearMatches[0].lane, 'Not Eligible'); assert.ok(!JSON.stringify(m).includes('PRIVATE'));
+  ctx.sources.state.status.set('cred-agent-a', 'revoked');
+  const replay = await ctx.call('POST', path, { idempotencyKey: 'match' });
+  assert.equal(replay.status, 200); assert.deepEqual(replay.body.matchResult, m);
+  const read = await ctx.call('GET', `/internal/match-results/${m.resultId}`);
+  assert.deepEqual(read.body.matchResult, m);
+  const fresh = await ctx.call('POST', path, { idempotencyKey: 'fresh' });
+  assert.equal(fresh.body.matchResult.totalEligible, 0);
+  assert.equal(fresh.body.matchResult.exclusionCounts.STATUS_REVOKED, 1);
+  assert.equal((await ctx.call('GET', '/internal/match-results/nope')).status, 404);
+});
+
+test('concurrent matching and restart preserve one original result and reject key reuse on another request', async (t) => {
+  const ctx = await boot(t); const id = await ctx.ready(['agent-a']);
+  const path = `/internal/capability-requests/${id}/matches`;
+  const responses = await Promise.all(Array.from({ length: 8 }, () => ctx.call('POST', path, { idempotencyKey: 'same' })));
+  assert.equal(responses.filter((r) => r.status === 201).length, 1);
+  assert.equal(new Set(responses.map((r) => r.body.matchResult.resultId)).size, 1);
+  const m = responses[0].body.matchResult;
+  const server = http.createServer(createApp({ store: ctx.store, sources: ctx.sources, internalKey: KEY }));
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const replay = await send(server, 'POST', path, { idempotencyKey: 'same' },
+    { 'x-internal-service-key': KEY, 'x-actor-subject': OPERATOR });
+  assert.deepEqual(replay.body.matchResult, m);
+  const other = (await ctx.create('other')).body.request.id;
+  assert.equal((await ctx.call('POST', `/internal/capability-requests/${other}/matches`, { idempotencyKey: 'same' })).status, 409);
+  await ctx.close(id);
+  assert.deepEqual((await ctx.call('POST', path, { idempotencyKey: 'same' })).body.matchResult, m);
+});
+
+test('matching rejects overrides, unknown policy fields, and missing auth', async (t) => {
+  const ctx = await boot(t); const id = await ctx.ready(['agent-a']); const path = `/internal/capability-requests/${id}/matches`;
+  for (const patch of [{ minOverallPercent: 0 }, { candidates: [] }, { policyVersion: 'unsafe' }])
+    assert.equal((await ctx.call('POST', path, { idempotencyKey: 'x', ...patch })).status, 400);
+  assert.equal((await ctx.call('POST', path, { idempotencyKey: 'x' }, OPERATOR, {})).status, 401);
+});
+
+test('matching observes listing withdrawal and rejects request version races without writing', async (t) => {
+  const ctx = await boot(t); const id = await ctx.ready(['agent-a']); const path = `/internal/capability-requests/${id}/matches`;
+  ctx.sources.state.beforeVerify = async () => ctx.withdraw('agent-a');
+  assert.equal((await ctx.call('POST', path, { idempotencyKey: 'withdraw' })).body.matchResult.totalEligible, 0);
+  await ctx.call('POST', `/internal/capability-requests/${id}/versions`, { idempotencyKey: 'v2', request: requestBody({ title: 'v2' }) });
+  ctx.sources.state.beforeVerify = async () => ctx.open(id, 2);
+  const result = await ctx.call('POST', path, { idempotencyKey: 'race' });
+  assert.equal(result.body.error, 'request_version_changed');
+  assert.equal(await ctx.store.readMatchByKey(OPERATOR, 'race'), null);
 });
