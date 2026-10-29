@@ -125,8 +125,9 @@ function toCandidate(record) {
     overallPercent: passed && percent(scores.overallPercent) ? scores.overallPercent : null,
     adversarialPercent: passed && percent(scores.tierPercents?.adversarial) ? scores.tierPercents.adversarial : null,
     assessmentMode: ASSESSMENT_MODES.includes(competency.mode) ? competency.mode : null,
-    // Decision C: credentials do not record their evidence environment yet.
-    environment: null,
+    // Read only explicit signed fields; missing origin labels remain uncheckable.
+    environment: ['simulation', 'live'].includes(vc.environment) ? vc.environment : null,
+    evidenceMode: ['synthetic', 'replay', 'live'].includes(vc.evidenceMode) ? vc.evidenceMode : null,
     validFrom: instant(vc.validFrom),
     validUntil: instant(vc.validUntil),
     compactJws: text(record.compactJws) && record.compactJws.split('.').length === 3 ? record.compactJws : null,

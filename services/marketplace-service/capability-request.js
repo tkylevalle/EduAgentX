@@ -7,7 +7,7 @@ const SUPPORTED_DOMAIN = 'ai-agent-safety-secure-tool-use';
 const ASSESSMENT_MODES = ['standard', 'fallback'];
 const ENVIRONMENTS = ['simulation', 'live'];
 const FIELDS = ['domain', 'requiredObjectiveIds', 'minOverallPercent', 'minAdversarialPercent',
-  'maxCredentialAgeDays', 'allowedAssessmentModes', 'requiredEnvironment', 'title'];
+  'maxCredentialAgeDays', 'allowedAssessmentModes', 'requiredEnvironment', 'title', 'preferredObjectiveIds'];
 
 const inRange = (value, min, max) => typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max;
 const uniqueStrings = (value, min, max, allowed = null) => Array.isArray(value) &&
@@ -31,6 +31,8 @@ function validateRequestVersion(input) {
   // Exact equality: a near-miss domain is still a domain we have not validated.
   if (input.domain !== SUPPORTED_DOMAIN) errors.push('domain_unsupported');
   if (!uniqueStrings(input.requiredObjectiveIds, 1, 20)) errors.push('invalid:requiredObjectiveIds');
+  if (input.preferredObjectiveIds !== undefined && !uniqueStrings(input.preferredObjectiveIds, 0, 20))
+    errors.push('invalid:preferredObjectiveIds');
   // Floors match the examination pass policy (80 overall, 70 adversarial): a request may only be stricter.
   if (!inRange(input.minOverallPercent, 80, 100)) errors.push('invalid:minOverallPercent');
   if (!inRange(input.minAdversarialPercent, 70, 100)) errors.push('invalid:minAdversarialPercent');
@@ -43,9 +45,10 @@ function validateRequestVersion(input) {
     errors.push('invalid:title');
   for (const key of Object.keys(input)) if (!FIELDS.includes(key)) errors.push(`unexpected:${key}`);
   if (errors.length) return { ok: false, errors, digest: null };
-  // The two lists are sets, so their order must not create a "different" version.
+  // Objective and mode lists are sets; their order must not create a different version.
   const value = { ...input, requiredObjectiveIds: [...input.requiredObjectiveIds].sort(),
-    allowedAssessmentModes: [...input.allowedAssessmentModes].sort() };
+    allowedAssessmentModes: [...input.allowedAssessmentModes].sort(),
+    ...(input.preferredObjectiveIds === undefined ? {} : { preferredObjectiveIds: [...input.preferredObjectiveIds].sort() }) };
   return { ok: true, errors: [], digest: digestOf(value), value: canonical(value) };
 }
 

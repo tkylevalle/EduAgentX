@@ -30,7 +30,7 @@ const issued = (agent) => ({
   eventId: `evt-issued-${agent}`, eventType: 'credential.issued', credentialId: `cred-${agent}`, agentLearnerKey: agent,
   occurredAt: '2026-10-01T00:00:00.000Z',
   credential: { configurationFingerprint: `sha256:fp-${agent}`, package: { ...PACKAGE }, overallPercent: 90,
-    adversarialPercent: 80, assessmentMode: 'standard', environment: 'simulation',
+    adversarialPercent: 80, assessmentMode: 'standard', environment: 'simulation', evidenceMode: 'synthetic',
     validFrom: '2026-10-01T00:00:00.000Z', validUntil: '2027-10-01T00:00:00.000Z' },
 });
 
@@ -127,6 +127,34 @@ test('the real pg store supports the whole Marketplace flow and keeps evidence i
     assert.deepEqual(replay.body.eligible, check.body.eligible);
     const read = await send(server, 'GET', `/internal/eligibility-checks/${check.body.check.checkId}`);
     assert.deepEqual(read.body.excluded, check.body.excluded);
+  });
+
+  await t.test('matching is durable, concurrent, immutable and transactional in PostgreSQL', async () => {
+    const id = (await send(server, 'POST', '/internal/capability-requests',
+      { idempotencyKey: `match-create-${RUN}`, request: requestBody() })).body.request.id;
+    await send(server, 'POST', `/internal/capability-requests/${id}/open`, { version: 1 });
+    const route = `/internal/capability-requests/${id}/matches`;
+    const responses = await Promise.all(Array.from({ length: 6 }, () => send(server, 'POST', route,
+      { idempotencyKey: `match-${RUN}` })));
+    assert.equal(responses.filter((r) => r.status === 201).length, 1);
+    const result = responses[0].body.matchResult;
+    assert.ok(result.eligibleMatches.some((r) => r.agentLearnerKey === agents[1]));
+    assert.equal(new Set(responses.map((r) => r.body.matchResult.resultId)).size, 1);
+    // A fresh connection/store simulates a service restart: durable state, no process cache.
+    const pool2 = new Pool({ connectionString: DATABASE_URL });
+    try {
+      assert.deepEqual(await createPgStore(pool2).readMatchByKey(OPERATOR, `match-${RUN}`), result);
+    } finally { await pool2.end(); }
+    for (const sql of [
+      'UPDATE marketplace_service.match_results SET result = result WHERE result_id = $1',
+      'DELETE FROM marketplace_service.match_results WHERE result_id = $1',
+    ]) await assert.rejects(pool.query(sql, [result.resultId]), /immutable marketplace evidence/);
+    await assert.rejects(store.transaction(`rollback-${RUN}`, async (tx) => {
+      await tx.insertMatch({ ...result, resultId: randomUUID(), idempotencyKey: `rollback-${RUN}` });
+      throw new Error('simulated crash before commit');
+    }), /simulated crash/);
+    assert.equal(await store.readMatchByKey(OPERATOR, `rollback-${RUN}`), null);
+    assert.deepEqual((await send(server, 'GET', `/internal/match-results/${result.resultId}`)).body.matchResult, result);
   });
 
   await t.test('evidence tables refuse UPDATE and DELETE; only the projection can change', async () => {

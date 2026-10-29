@@ -36,6 +36,8 @@ Sprint 5 Marketplace routes (marketplace-service has no host port; the Gateway i
 | POST | `/v1/marketplace/capability-requests/:id/versions` | admin, demo_operator; adds the next version; older versions never change |
 | POST | `/v1/marketplace/capability-requests/:id/open` and `/close` | admin, demo_operator; opens one version; close is final |
 | POST | `/v1/marketplace/capability-requests/:id/eligibility-checks` | admin, demo_operator; stores eligible and excluded candidates with reason codes. Not a ranking |
+| POST | `/v1/marketplace/capability-requests/:id/matches` | admin, demo_operator; idempotent MATCH-POLICY-1.0.0 ranking with a separate Not Eligible lane |
+| GET | `/v1/marketplace/match-results/:resultId` | admin, demo_operator, viewer, evaluator, governance_operator; immutable historical result |
 | GET | `/v1/marketplace/capability-requests`, `/v1/marketplace/capability-requests/:id` | admin, demo_operator, viewer, evaluator, governance_operator |
 | GET | `/v1/marketplace/eligibility-checks/:checkId`, `/v1/marketplace/listings/:agentLearnerKey` | Same readers; stored point-in-time evidence |
 
@@ -53,4 +55,4 @@ Registration envelope idempotency keys bind the authenticated identity and norma
 
 The Assurance Console on local port 4173 is an unauthenticated local demonstration UI with server-side read-only admin access. It is bound to loopback and must not be reverse-proxied or exposed externally. Grafana and the synthetic test adapter are also local-only tools.
 
-The Certification Service issues decisions and credentials internally from complete passing Examination evidence; it has no public Gateway command route. See [the Certification Service contract](certification.md). Public credential retrieval/verification, Marketplace ranking and Near Matches (#31), Skill Gap and full Monitoring APIs belong to later work. No `/auth/login`, `/agents` or `/certify` endpoint is implemented by this Gateway contract; the Marketplace routes are the ones listed above.
+The Certification Service issues decisions and credentials internally from complete passing Examination evidence; it has no public Gateway command route. See [the Certification Service contract](certification.md). Marketplace ranking and Near Matches (#31) use [the matching contract](marketplace-matching.md). Public credential retrieval/verification, Skill Gap and full Monitoring APIs belong to separate work. No `/auth/login`, `/agents` or `/certify` endpoint is implemented by this Gateway contract; the Marketplace routes are the ones listed above.

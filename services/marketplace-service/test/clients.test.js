@@ -246,7 +246,7 @@ test('toCandidate maps a credential exactly as certification-service issues it',
   assert.deepEqual(toCandidate(issued), {
     credentialId: issued.credentialId, agentLearnerKey: 'agent/a b', configurationFingerprint: 'sha256:fp-a',
     package: { id: 'ai-safety-fundamentals', version: '1.0.0', digest: 'sha256-package-1' },
-    overallPercent: 88.5, adversarialPercent: 76.25, assessmentMode: 'standard', environment: null,
+    overallPercent: 88.5, adversarialPercent: 76.25, assessmentMode: 'standard', environment: null, evidenceMode: null,
     validFrom: '2026-09-18T00:00:00.000Z', validUntil: '2027-09-18T00:00:00.000Z', compactJws: issued.compactJws,
   });
 });
@@ -276,4 +276,23 @@ test('toCandidate maps every missing or unexpected field to null and never guess
     (vc) => { vc.credentialSubject.id = `${vc.issuer}/agents/%E0%A4%A`; },
   ]) assert.equal(edit(change), null);
   for (const bad of [null, {}, { credentialId: 'x' }, { credentialId: 'x', credential: [] }]) assert.equal(toCandidate(bad), null);
+});
+
+test('origin labels are mapped only from explicit credential fields, never inferred from assessment mode', () => {
+  const issued = realIssued();
+  for (const environment of ['simulation', 'live']) for (const evidenceMode of ['synthetic', 'replay', 'live']) {
+    const input = structuredClone(issued);
+    Object.assign(input.credential, { environment, evidenceMode });
+    const mapped = toCandidate(input);
+    assert.equal(mapped.environment, environment);
+    assert.equal(mapped.evidenceMode, evidenceMode);
+  }
+  for (const bad of [undefined, null, '', 'unknown', 'LIVE', true, {}]) {
+    const input = structuredClone(issued);
+    Object.assign(input.credential, { environment: bad, evidenceMode: bad });
+    assert.equal(toCandidate(input).environment, null);
+    assert.equal(toCandidate(input).evidenceMode, null);
+  }
+  // This mapper does not verify a signature. Eligibility must still verify the JWS
+  // and the authoritative lifecycle before any mapped credential can be ranked.
 });

@@ -3,7 +3,7 @@
 // marketplace-service (Sprint 5, issue #30)
 //
 // Structured, simulated Capability Requests and hard Marketplace Eligibility.
-// Decides WHO IS ELIGIBLE only: no scores, ranking or Near Matches (#31).
+// #31 adds immutable, deterministic ranking and separate Not Eligible Near Matches.
 // Reached only through the Gateway, which passes the internal key and the
 // authenticated subject. Every external answer comes from an injected source.
 
@@ -14,6 +14,7 @@ const { Pool } = require('pg');
 const telemetry = require('../../packages/telemetry');
 const { validateRequestVersion, deriveRequestState } = require('./capability-request');
 const { checkEligibility } = require('./eligibility');
+const { POLICY_VERSION, matchCandidates } = require('./matching');
 const { createPgStore, withRetry, isUniqueViolation } = require('./store');
 const { askSource, createRegistrySource, createPackageSource, createVerificationSource,
   createLifecycleSource } = require('./clients');
@@ -261,6 +262,61 @@ function createApp({
     });
   }));
 
+
+  // Matching rechecks the same authorities as #30. Stored eligibility snapshots
+  // are historical evidence, not permission to skip current trust checks.
+  app.post('/internal/capability-requests/:id/matches', handle(async (req) => {
+    const id = requestId(req);
+    const { idempotencyKey } = readBody(req, ['idempotencyKey']);
+    const replayOf = (matchResult) => {
+      if (matchResult.requestId !== id || matchResult.policyVersion !== POLICY_VERSION)
+        throw new HttpError(409, 'idempotency_conflict');
+      return { status: 200, body: { outcome: 'replay', matchResult } };
+    };
+    const prior = await store.readMatchByKey(req.actor, idempotencyKey);
+    if (prior) return replayOf(prior);
+    const found = await store.readRequest(id);
+    if (!found) throw new HttpError(404, 'request_not_found');
+    const state = deriveRequestState(found.events);
+    if (state.status !== 'open') throw new HttpError(409, 'request_not_open');
+    const version = found.versions.find((v) => v.version === state.openVersion);
+    if (!version) throw new HttpError(409, 'request_version_changed');
+    // A corrupted/unsupported stored request must never widen matching.
+    const valid = validateRequestVersion(version.content);
+    const records = valid.ok ? await store.listProjection() : [];
+    const answers = await Promise.all(records.map((r) => gatherAnswers(r, req.correlationId)));
+    return withRetry(store, `request:${id}`, async (tx) => {
+      const again = await tx.findMatchByKey(req.actor, idempotencyKey);
+      if (again) return replayOf(again);
+      const current = deriveRequestState(await tx.getEvents(id));
+      if (current.status !== 'open') throw new HttpError(409, 'request_not_open');
+      if (current.openVersion !== version.version) throw new HttpError(409, 'request_version_changed');
+      const now = clock();
+      const listing = new Map();
+      for (const key of new Set(records.map((r) => r.agentLearnerKey)))
+        listing.set(key, (await tx.getListingEvents(key)).at(-1)?.eventType === 'published');
+      const inputs = answers.map((a) => ({ record: a.record,
+        authoritative: { discoverable: listing.get(a.record.agentLearnerKey), lifecycleOrigin: a.lifecycle.value,
+          verification: a.verification.value,
+          registry: a.fingerprint.value === null ? null : { currentFingerprint: a.fingerprint.value }, package: a.pkg.value },
+        sources: { verification: a.verification.outcome, registry: a.fingerprint.outcome, package: a.pkg.outcome,
+          lifecycleOrigin: a.lifecycle.outcome, listing: 'marketplace' },
+      }));
+      const ranked = matchCandidates(version.content, inputs, now);
+      const matchResult = { ...ranked, resultId: newId(), requestId: id, requestVersion: version.version,
+        requestDigest: version.digest, actor: req.actor, generatedAt: now, correlationId: req.correlationId,
+        idempotencyKey, marketplace: marketplaceLabel(version.content),
+        notice: 'Immutable point-in-time, non-binding recommendation. Recheck current trust before any later action.' };
+      await tx.insertMatch(matchResult);
+      return { status: 201, body: { outcome: 'created', matchResult } };
+    });
+  }));
+
+  app.get('/internal/match-results/:resultId', handle(async (req) => {
+    const matchResult = UUID.test(req.params.resultId) ? await store.readMatch(req.params.resultId) : null;
+    if (!matchResult) throw new HttpError(404, 'match_not_found');
+    return { status: 200, body: { outcome: 'found', matchResult } };
+  }));
 
   app.get('/internal/eligibility-checks/:checkId', handle(async (req) => {
     const found = UUID.test(req.params.checkId) ? await store.readCheck(req.params.checkId) : null;
