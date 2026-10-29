@@ -1,6 +1,6 @@
 # Marketplace Service contract
 
-Issue #30 adds `marketplace-service` (port 4012, internal only). It holds structured, simulated Capability Requests in the reference domain and decides which Agent Learners are **eligible** for them. It does not score, rank, explain or produce Near Matches (#31), and it does not produce Skill Gap recommendations (#32).
+Issue #30 adds `marketplace-service` (port 4012, internal only). It holds structured, simulated Capability Requests in the reference domain and decides which Agent Learners are **eligible** for them. Issue #31 adds deterministic ranking, explanations and separate Near Matches; see [the matching contract](marketplace-matching.md). Skill Gap recommendations (#32) remain separate.
 
 The API Gateway is the only entry point. marketplace-service has no host port. Its internal routes need `x-internal-service-key` (`MARKETPLACE_INTERNAL_KEY`) and `x-actor-subject`, which the Gateway sets from the token subject.
 
@@ -15,6 +15,8 @@ The API Gateway is the only entry point. marketplace-service has no host port. I
 | POST | `/v1/marketplace/capability-requests/:id/open` | admin, demo_operator | `{ version }` | 200 `opened` or `unchanged` |
 | POST | `/v1/marketplace/capability-requests/:id/close` | admin, demo_operator | `{}` | 200 `closed` or `unchanged` |
 | POST | `/v1/marketplace/capability-requests/:id/eligibility-checks` | admin, demo_operator | `{ idempotencyKey }` | 201 `created`, 200 `replay` |
+| POST | `/v1/marketplace/capability-requests/:id/matches` | admin, demo_operator | `{ idempotencyKey }` | 201 `created`, 200 `replay` |
+| GET | `/v1/marketplace/match-results/:resultId` | admin, demo_operator, viewer, evaluator, governance_operator | — | 200 `found` |
 | GET | `/v1/marketplace/capability-requests` | admin, demo_operator, viewer, evaluator, governance_operator | — | 200, newest 100 |
 | GET | `/v1/marketplace/capability-requests/:id` | same readers | — | 200 `found` |
 | GET | `/v1/marketplace/eligibility-checks/:checkId` | same readers | — | 200 `found` |
@@ -50,6 +52,7 @@ The `request` object accepts exactly these fields. Anything else is `unexpected:
 |---|---|---|
 | `domain` | Must equal `ai-agent-safety-secure-tool-use` | `domain_unsupported` |
 | `requiredObjectiveIds` | 1–20 unique non-empty strings (≤128 chars, no surrounding spaces) | `invalid:requiredObjectiveIds` |
+| `preferredObjectiveIds` | Optional; 0–20 unique objective IDs with the same string bounds | `invalid:preferredObjectiveIds` |
 | `minOverallPercent` | Number 80–100 | `invalid:minOverallPercent` |
 | `minAdversarialPercent` | Number 70–100 | `invalid:minAdversarialPercent` |
 | `maxCredentialAgeDays` | Integer 1–365 | `invalid:maxCredentialAgeDays` |
@@ -59,7 +62,7 @@ The `request` object accepts exactly these fields. Anything else is `unexpected:
 
 The score floors match the examination pass policy (80 overall, 70 adversarial), so a request can only be stricter. A missing field is reported the same way as an invalid one.
 
-Each version stores the canonical content and a `digest`: `sha256:` over JSON with sorted keys. The two list fields are treated as sets and sorted first, so field order and list order never create a different digest. A version is never changed. A change is a new version (next number), and closing is final.
+Each version stores the canonical content and a `digest`: `sha256:` over JSON with sorted keys. Objective and assessment-mode lists are treated as sets and sorted first, so field order and list order never create a different digest. Omitted preferences stay omitted to preserve existing request digests. A version is never changed. A change is a new version (next number), and closing is final.
 
 **State** is derived from append-only events, never stored: `closed` if any close event exists; otherwise `open` on the latest `opened` version; otherwise `draft`. The response also carries `marketplace`: `simulation` or `live`, from the open (or latest) version's `requiredEnvironment`.
 
@@ -167,6 +170,8 @@ Rules:
 ## Internal routes (marketplace-service)
 
 `POST /internal/capability-requests`, `POST /internal/capability-requests/:id/versions`, `/:id/open`, `/:id/close`, `/:id/eligibility-checks`, `GET /internal/capability-requests[/:id]`, `GET /internal/eligibility-checks/:checkId`, `POST /internal/listings/publish|withdraw`, `GET /internal/listings/:agentLearnerKey`, `GET /health`.
+
+Issue #31 also adds `POST /internal/capability-requests/:id/matches` and `GET /internal/match-results/:resultId` with the same service authentication. Their stored-result and replay semantics are in [the matching contract](marketplace-matching.md).
 
 ## Error codes
 

@@ -111,6 +111,25 @@ CREATE TABLE IF NOT EXISTS marketplace_service.eligibility_check_results (
   CHECK (eligible = (jsonb_array_length(reasons) = 0))
 );
 
+-- #31: one immutable, complete snapshot per authenticated command key.
+CREATE TABLE IF NOT EXISTS marketplace_service.match_results (
+  result_id uuid PRIMARY KEY,
+  request_id uuid NOT NULL,
+  version integer NOT NULL,
+  actor text NOT NULL,
+  idempotency_key text NOT NULL,
+  policy_version text NOT NULL CHECK (policy_version = 'MATCH-POLICY-1.0.0'),
+  result jsonb NOT NULL CHECK (jsonb_typeof(result) = 'object'),
+  UNIQUE (actor, idempotency_key),
+  FOREIGN KEY (request_id, version) REFERENCES marketplace_service.capability_request_versions(request_id, version),
+  CHECK (result->>'resultId' IS NOT NULL AND result->>'resultId' = result_id::text),
+  CHECK (result->>'requestId' IS NOT NULL AND result->>'requestId' = request_id::text),
+  CHECK ((result->>'requestVersion')::integer IS NOT NULL AND (result->>'requestVersion')::integer = version),
+  CHECK (result->>'policyVersion' IS NOT NULL AND result->>'policyVersion' = policy_version),
+  CHECK (result->>'actor' IS NOT NULL AND result->>'actor' = actor),
+  CHECK (result->>'idempotencyKey' IS NOT NULL AND result->>'idempotencyKey' = idempotency_key)
+);
+
 CREATE OR REPLACE FUNCTION marketplace_service.forbid_evidence_change() RETURNS trigger
 LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'immutable marketplace evidence'; END $$;
 
@@ -119,7 +138,7 @@ DECLARE name text;
 BEGIN
   FOREACH name IN ARRAY ARRAY['capability_requests', 'capability_request_versions', 'capability_request_events',
     'listing_events', 'projection_inbox', 'stream_delivery_attempts', 'stream_quarantine',
-    'eligibility_checks', 'eligibility_check_results'] LOOP
+    'eligibility_checks', 'eligibility_check_results', 'match_results'] LOOP
     EXECUTE format('DROP TRIGGER IF EXISTS %I ON marketplace_service.%I', name || '_immutable', name);
     EXECUTE format('CREATE TRIGGER %I BEFORE UPDATE OR DELETE ON marketplace_service.%I
       FOR EACH ROW EXECUTE FUNCTION marketplace_service.forbid_evidence_change()', name || '_immutable', name);
