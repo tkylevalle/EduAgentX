@@ -105,6 +105,15 @@ function pgQueries(db) {
         [c.checkId, r.agentLearnerKey, r.credentialId, r.eligible, JSON.stringify(r.reasons), JSON.stringify(r.sources)]);
       }
     },
+    findMatchByKey: (actor, key) => one(`SELECT result FROM ${S}.match_results
+      WHERE actor = $1 AND idempotency_key = $2`, [actor, key], (r) => r.result),
+    getMatch: (id) => one(`SELECT result FROM ${S}.match_results WHERE result_id = $1`, [id], (r) => r.result),
+    async insertMatch(r) {
+      await db.query(`INSERT INTO ${S}.match_results
+        (result_id, request_id, version, actor, idempotency_key, policy_version, result)
+        VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)`,
+      [r.resultId, r.requestId, r.requestVersion, r.actor, r.idempotencyKey, r.policyVersion, JSON.stringify(r)]);
+    },
     listProjection: () => many(`SELECT record FROM ${S}.credential_projection ORDER BY agent_learner_key, credential_id`,
       [], (r) => r.record),
     getProjection: (credentialId) => one(`SELECT record FROM ${S}.credential_projection WHERE credential_id = $1`,
@@ -155,6 +164,8 @@ function createPgStore(pool) {
     },
     readListing: (agentLearnerKey) => reads.getListingEvents(agentLearnerKey),
     readCheck: (checkId) => reads.getCheck(checkId),
+    readMatch: (id) => reads.getMatch(id),
+    readMatchByKey: (actor, key) => reads.findMatchByKey(actor, key),
     readCheckByKey: (actor, key) => reads.findCheckByKey(actor, key),
     listProjection: () => reads.listProjection(),
     // Stream delivery bookkeeping: one row per attempt, so the budget survives restarts.
@@ -177,7 +188,7 @@ function createPgStore(pool) {
 // the same unique constraints so the retry and conflict paths can be exercised.
 
 function createMemoryStore() {
-  let state = { requests: [], versions: [], events: [], listings: [], checks: [], results: [],
+  let state = { requests: [], versions: [], events: [], listings: [], checks: [], results: [], matches: [],
     projection: new Map(), inbox: new Map(), streamAttempts: new Map(), streamQuarantine: new Map() };
   let queue = Promise.resolve();
   const uniqueViolation = () => Object.assign(new Error('duplicate key'), { code: '23505' });
@@ -241,6 +252,14 @@ function createMemoryStore() {
         s.checks.push(copy(c));
         s.results.push(...results.map((r) => copy({ ...r, checkId: c.checkId })));
       },
+      async findMatchByKey(actor, key) { return copy(s.matches.find((r) => r.actor === actor && r.idempotencyKey === key)); },
+      async getMatch(id) { return copy(s.matches.find((r) => r.resultId === id)); },
+      async insertMatch(r) {
+        guardWrite();
+        if (s.matches.some((m) => m.resultId === r.resultId || (m.actor === r.actor && m.idempotencyKey === r.idempotencyKey)))
+          throw uniqueViolation();
+        s.matches.push(copy(r));
+      },
       async listProjection() {
         return copy([...s.projection.values()].sort((a, b) =>
           a.agentLearnerKey.localeCompare(b.agentLearnerKey) || a.credentialId.localeCompare(b.credentialId)));
@@ -283,6 +302,8 @@ function createMemoryStore() {
     },
     readListing: (agentLearnerKey) => queriesFor(state).getListingEvents(agentLearnerKey),
     readCheck: (checkId) => queriesFor(state).getCheck(checkId),
+    readMatch: (id) => queriesFor(state).getMatch(id),
+    readMatchByKey: (actor, key) => queriesFor(state).findMatchByKey(actor, key),
     readCheckByKey: (actor, key) => queriesFor(state).findCheckByKey(actor, key),
     listProjection: () => queriesFor(state).listProjection(),
     async recordStreamAttempt(streamId) {
