@@ -40,11 +40,16 @@ async function remediationTrace(store, attempt, lifecycleView) {
   return {
     correlationId: event?.correlationId ?? attempt.correlationId,
     failure: { ...lifecycleView(attempt), agentLearnerKey: attempt.agentLearnerKey, package: attempt.package,
-      admissionCorrelationId: attempt.correlationId, failureReasons: attempt.assessment?.failureReasons ?? null },
+      admissionCorrelationId: attempt.correlationId, failureReasons: attempt.assessment?.failureReasons ?? null,
+      template: versionReference(attempt.form?.template), rubric: versionReference(attempt.form?.rubric) },
     gap: event?.gap ?? null,
     remediation: event ? { event, delivery } : null,
     reexaminations,
   };
+}
+
+function versionReference(ref) {
+  return ref ? { id: ref.id, version: ref.version, digest: ref.digest } : null;
 }
 
 function registerRemediationRoutes(app, { store, load, reconcile, lifecycleView, sendError }) {

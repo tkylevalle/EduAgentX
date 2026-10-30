@@ -1,0 +1,120 @@
+{
+  "schemaVersion": "issue-32-verification/1.0.0",
+  "startedAt": "2026-10-30T19:01:34.775Z",
+  "finishedAt": "2026-10-30T19:02:11.532Z",
+  "sourceRevision": "b3dabc9ec1d2d92242b63ae4b52d6176bb0c0e7c",
+  "sourceFingerprint": "sha256:06d2669271cb39035dfd8f9e83e7793c5d26c866fd6fdf0f56f0a5acf5d755e5",
+  "node": "v24.19.0",
+  "platform": "win32/x64",
+  "checks": [
+    {
+      "name": "skill-gap-service",
+      "status": "PASS",
+      "exitCode": 0,
+      "tests": 14,
+      "passed": 14,
+      "failed": 0,
+      "skipped": 0,
+      "log": "skill-gap-service.tap"
+    },
+    {
+      "name": "api-gateway",
+      "status": "PASS",
+      "exitCode": 0,
+      "tests": 53,
+      "passed": 53,
+      "failed": 0,
+      "skipped": 0,
+      "log": "api-gateway.tap"
+    },
+    {
+      "name": "training-service",
+      "status": "PASS",
+      "exitCode": 0,
+      "tests": 76,
+      "passed": 76,
+      "failed": 0,
+      "skipped": 0,
+      "log": "training-service.tap"
+    },
+    {
+      "name": "examination-engine",
+      "status": "PASS",
+      "exitCode": 0,
+      "tests": 138,
+      "passed": 138,
+      "failed": 0,
+      "skipped": 0,
+      "log": "examination-engine.tap"
+    },
+    {
+      "name": "marketplace-service",
+      "status": "PASS",
+      "exitCode": 0,
+      "tests": 190,
+      "passed": 190,
+      "failed": 0,
+      "skipped": 0,
+      "log": "marketplace-service.tap"
+    },
+    {
+      "name": "grading-service",
+      "status": "PASS",
+      "exitCode": 0,
+      "tests": 32,
+      "passed": 32,
+      "failed": 0,
+      "skipped": 0,
+      "log": "grading-service.tap"
+    },
+    {
+      "name": "postgres",
+      "status": "PASS",
+      "exitCode": 0,
+      "tests": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "log": "postgres.tap"
+    }
+  ],
+  "status": "PASS",
+  "scope": "Affected-service tests and optional isolated PostgreSQL check; injected authorities in public contract tests.",
+  "cumulativeSprintGate": "NOT_RUN",
+  "realCertificationToMarketplaceDemonstration": "NOT_VERIFIED",
+  "additionalChecks": [
+    {
+      "name": "sprint1-runner-python",
+      "status": "PASS",
+      "tests": 9
+    },
+    {
+      "name": "compose-configuration",
+      "status": "PASS",
+      "exitCode": 0
+    },
+    {
+      "name": "javascript-syntax-and-whitespace",
+      "status": "PASS"
+    },
+    {
+      "name": "service-image-build-start-restart",
+      "status": "PASS",
+      "image": "sha256:53d11f5c8fdb881a3a15a2899b933321b0044da3e0411f3015b9261e4957e9d2",
+      "healthStatusOnStart": 200,
+      "healthStatusAfterRestart": 200,
+      "postgresRole": "skill_gap_owner",
+      "database": "isolated disposable smoke database"
+    },
+    {
+      "name": "database-role-init-script",
+      "status": "PASS",
+      "script": "db/init/008_skill_gap_role.sh"
+    }
+  ],
+  "localRawEvidence": "artifacts/issue-32/*.tap (ignored; regenerate with scripts/verify-issue-32.js)",
+  "remainingAcceptance": [
+    "Real Certification lifecycle-origin contract for Marketplace remains unavailable at the verified base.",
+    "Full stack/cumulative Sprint gates and independent human reviews not performed."
+  ]
+}
