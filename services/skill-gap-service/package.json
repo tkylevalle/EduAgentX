@@ -1,0 +1,7 @@
+{
+  "name": "eduagentx-skill-gap-service",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": { "test": "node --test test/*.test.js", "start": "node index.js" },
+  "dependencies": { "express": "^4.19.2", "pg": "^8.11.5" }
+}

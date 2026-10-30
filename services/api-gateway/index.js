@@ -64,6 +64,8 @@ function createApp({
   // No default URL: without both values every Marketplace route answers 503.
   marketplaceServiceUrl = process.env.MARKETPLACE_SERVICE_URL,
   marketplaceInternalKey = process.env.MARKETPLACE_INTERNAL_KEY,
+  skillGapServiceUrl = process.env.SKILL_GAP_SERVICE_URL,
+  skillGapInternalKey = process.env.SKILL_GAP_INTERNAL_KEY,
   certificationServiceUrl = process.env.CERTIFICATION_SERVICE_URL,
   certificationInternalKey = process.env.CERTIFICATION_INTERNAL_KEY,
   credentialVerificationUrl = process.env.CREDENTIAL_VERIFICATION_URL,
@@ -562,6 +564,19 @@ function createApp({
     await proxyJson(req, res, `${trainingServiceUrl}/internal/remediations`,
       { method: 'POST', body, headers: trainingHeaders(req) });
   });
+
+  // Issue #32: recommendations and explicit Training handoff share existing admin authority.
+  for (const [method, suffix] of [['post', ''], ['get', '/:id'], ['post', '/:id/training-handoff']]) {
+    app[method](`/v1/admin/skill-gap/recommendations${suffix}`, requireRole('admin'), async (req, res) => {
+      if (!skillGapServiceUrl || !skillGapInternalKey)
+        return res.status(503).json({ apiVersion: 'v1', error: 'skill_gap_unavailable', correlationId: req.correlationId });
+      const tail = req.params.id ? `/${encodeURIComponent(req.params.id)}${suffix.endsWith('/training-handoff') ? '/training-handoff' : ''}` : '';
+      await proxyJson(req, res, `${skillGapServiceUrl}/internal/recommendations${tail}`, {
+        method: method.toUpperCase(), ...(method === 'post' ? { body: req.body } : {}),
+        headers: { 'x-internal-service-key': skillGapInternalKey, 'x-actor-subject': req.auth.subject, 'x-actor-role': req.auth.role },
+      });
+    });
+  }
 
   // Issue #30: Marketplace. Like Training, marketplace-service trusts the two
   // headers, so the actor is always the token subject, never a body field.
