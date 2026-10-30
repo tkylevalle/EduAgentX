@@ -25,6 +25,7 @@ services:
       EXAMINATION_DB_PASSWORD: ${EXAMINATION_DB_PASSWORD:?Run node scripts/setup-dev.js}
       CERTIFICATION_DB_PASSWORD: ${CERTIFICATION_DB_PASSWORD:?Run node scripts/setup-dev.js}
       MARKETPLACE_DB_PASSWORD: ${MARKETPLACE_DB_PASSWORD:?Run node scripts/setup-dev.js}
+      SKILL_GAP_DB_PASSWORD: ${SKILL_GAP_DB_PASSWORD:?Run node scripts/setup-dev.js}
     ports:
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
@@ -100,6 +101,50 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    networks:
+      - eduagentx-net
+
+  skill-gap-db-init:
+    image: postgres:16-alpine
+    environment:
+      PGHOST: postgres
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_DB: ${POSTGRES_DB}
+      SKILL_GAP_DB_PASSWORD: ${SKILL_GAP_DB_PASSWORD:?Run node scripts/setup-dev.js}
+    volumes:
+      - ./db/init/008_skill_gap_role.sh:/tmp/008_skill_gap_role.sh:ro
+    command: ["sh", "/tmp/008_skill_gap_role.sh"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - eduagentx-net
+
+  skill-gap-service:
+    build:
+      context: .
+      dockerfile: services/skill-gap-service/Dockerfile
+    environment:
+      PORT: 4013
+      DATABASE_URL: postgres://skill_gap_owner:${SKILL_GAP_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      SKILL_GAP_INTERNAL_KEY: ${SKILL_GAP_INTERNAL_KEY:?Run node scripts/setup-dev.js}
+      EXAMINATION_ENGINE_URL: http://examination-engine:4005
+      EXAMINATION_INTERNAL_KEY: ${EXAMINATION_INTERNAL_KEY:?Run node scripts/setup-dev.js}
+      MARKETPLACE_SERVICE_URL: http://marketplace-service:4012
+      MARKETPLACE_INTERNAL_KEY: ${MARKETPLACE_INTERNAL_KEY:?Run node scripts/setup-dev.js}
+      VALIDATION_ACTIVATION_URL: http://validation-activation:4010
+      CURRICULUM_INTERNAL_KEY: ${CURRICULUM_INTERNAL_KEY:?Run node scripts/setup-dev.js}
+      TRAINING_SERVICE_URL: http://training-service:4004
+      TRAINING_INTERNAL_KEY: ${TRAINING_INTERNAL_KEY:?Run node scripts/setup-dev.js}
+    depends_on:
+      skill-gap-db-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:4013/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
     networks:
       - eduagentx-net
 
@@ -384,6 +429,8 @@ services:
       EXAMINATION_INTERNAL_KEY: ${EXAMINATION_INTERNAL_KEY:?Run node scripts/setup-dev.js}
       MARKETPLACE_SERVICE_URL: http://marketplace-service:4012
       MARKETPLACE_INTERNAL_KEY: ${MARKETPLACE_INTERNAL_KEY:?Run node scripts/setup-dev.js}
+      SKILL_GAP_SERVICE_URL: http://skill-gap-service:4013
+      SKILL_GAP_INTERNAL_KEY: ${SKILL_GAP_INTERNAL_KEY:?Run node scripts/setup-dev.js}
       SERVICE_NAME: api-gateway
       CERTIFICATION_SERVICE_URL: http://certification-service:4011
       CERTIFICATION_INTERNAL_KEY: ${CERTIFICATION_INTERNAL_KEY:?Run node scripts/setup-dev.js}
