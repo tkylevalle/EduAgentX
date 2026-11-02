@@ -24,6 +24,7 @@ const {
 const { authHealth, issueToken, requireRole } = require('./auth');
 const { createRateLimit } = require('./rate-limit');
 const { registerAssuranceRoutes } = require('./assurance-routes');
+const { registerReconciliationRoutes } = require('./reconciliation-routes');
 
 const PORT = process.env.PORT || 4000;
 const SERVICE_NAME = process.env.SERVICE_NAME || 'api-gateway';
@@ -707,6 +708,8 @@ function createApp({
 
   registerAssuranceRoutes(app, { requireRole, proxyJson, certificationServiceUrl, certificationInternalKey,
     credentialVerificationUrl, credentialInternalKey, monitoringServiceUrl });
+  registerReconciliationRoutes(app, { requireRole, proxyJson, examinationEngineUrl, examinationInternalKey,
+    certificationServiceUrl, certificationInternalKey, marketplaceServiceUrl, marketplaceInternalKey });
 
   app.use((error, req, res, next) => {
     if (res.headersSent) return next(error);

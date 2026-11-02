@@ -33,6 +33,8 @@ test('PostgreSQL persists one immutable decision and credential across concurren
     assert.equal(first.credential.credentialId, competing.credential.credentialId);
     const restarted = createPgStore(pool);
     const saved = await restarted.findByAttempt(attemptId);
+    assert.deepEqual(await restarted.reconcileCredentials(attemptId), { count: 1, credentialIds: [saved.credential.credentialId] });
+    assert.deepEqual(await restarted.reconcileCredentials(randomUUID()), { count: 0, credentialIds: [] });
     assert.equal(saved.credential.compactJws, first.credential.compactJws);
     assert.deepEqual(await restarted.counts(), { decisions: 1, credentials: 1 });
     await assert.rejects(pool.query('UPDATE certification_engine.decisions SET package_version=$1 WHERE examination_id=$2',

@@ -138,6 +138,10 @@ test('the real pg store supports the whole Marketplace flow and keeps evidence i
       { idempotencyKey: `match-${RUN}` })));
     assert.equal(responses.filter((r) => r.status === 201).length, 1);
     const result = responses[0].body.matchResult;
+    const reconciliation = await store.reconcileMatches(OPERATOR, `match-${RUN}`);
+    assert.equal(reconciliation.count, 1);
+    assert.deepEqual(reconciliation.resultIds, [result.resultId]);
+    assert.ok(reconciliation.appearances.every(a => Object.keys(a).sort().join(',') === 'agentLearnerKey,lane,resultId'));
     assert.ok(result.eligibleMatches.some((r) => r.agentLearnerKey === agents[1]));
     assert.equal(new Set(responses.map((r) => r.body.matchResult.resultId)).size, 1);
     // A fresh connection/store simulates a service restart: durable state, no process cache.
