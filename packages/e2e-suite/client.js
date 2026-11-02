@@ -4,10 +4,15 @@ const { command } = require('./identity');
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 // Shared by every identity, including the authentication calls made by the
 // existing GatewayProtocolClient. One source IP stays below 600/minute.
-function createPacer({ intervalMs = 150, now = Date.now, wait = sleep } = {}) {
-  let tail = Promise.resolve(), next = 0;
+function createPacer({ intervalMs = 150, burstSize = 1, now = Date.now, wait = sleep } = {}) {
+  if (!Number.isInteger(burstSize) || burstSize < 1 || burstSize > 8 || !Number.isFinite(intervalMs) || intervalMs < 150)
+    throw new Error('bounded_request_budget_required');
+  let tail = Promise.resolve(), next = 0, used = 0;
   return async function pace() {
-    const turn = tail.then(async () => { await wait(Math.max(0, next - now())); next = now() + intervalMs; });
+    const turn = tail.then(async () => {
+      await wait(Math.max(0, next - now()));
+      if (++used === burstSize) { next = now() + intervalMs * burstSize; used = 0; }
+    });
     tail = turn.catch(() => {});
     await turn;
   };

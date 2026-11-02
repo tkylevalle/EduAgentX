@@ -99,7 +99,8 @@ function assessGolden(spec, result, { expectedEligible, expectedNear, expectedEx
   return { status: 'CONFORMANT', reason: null };
 }
 
-async function observeMarketplace({ scenario, agent, admin, pkg, actor, cohort = [], now = Date.now }) {
+async function observeMarketplace({ scenario, agent, admin, pkg, actor, cohort = [], now = Date.now, replayConcurrency = 1 }) {
+  if (!Number.isInteger(replayConcurrency) || replayConcurrency < 1 || replayConcurrency > 8) throw new Error('bounded_replay_required');
   const c = command(scenario.id, 'market-match'), root = '/v1/marketplace';
   const publish = await agent.interact(scenario, 'publish', 'marketplace.listing.publish');
   if (![200, 201].includes(publish.status)) return { status: 'BLOCKED', reason: 'listing_unavailable' };
@@ -119,15 +120,19 @@ async function observeMarketplace({ scenario, agent, admin, pkg, actor, cohort =
     if (![200, 201].includes(matched.status)) return { status: 'BLOCKED', reason: 'matching_unavailable', requestId };
     const result = matched.body.matchResult;
     const replay = await admin.call('POST', `${root}/capability-requests/${requestId}/matches`, { idempotencyKey: c.idempotencyKey }, c.correlationId);
+    const retries = await Promise.all(Array.from({ length: replayConcurrency }, () =>
+      admin.call('POST', `${root}/capability-requests/${requestId}/matches`, { idempotencyKey: c.idempotencyKey }, c.correlationId)));
     const inventory = await admin.call('GET', `/v1/admin/reconciliation/matches?${new URLSearchParams({ actor, idempotencyKey: c.idempotencyKey })}`, undefined, c.correlationId);
     const self = [...result.eligibleMatches, ...result.nearMatches, ...result.exclusions].some(a => a.agentLearnerKey === scenario.learnerId);
     // Pilot runs serially after all lifecycles. Only this learner publishes;
     // every earlier pilot listing is withdrawn in finally below. The expected
     // membership is declared from the successful lifecycle cohort, not derived
     // from the matching function or its output.
-    const assessment = assessGolden(golden.cases[0], result, { replay: replay.body.matchResult,
+    let assessment = assessGolden(golden.cases[0], result, { replay: replay.body.matchResult,
       ...(self ? { expectedEligible: [scenario.learnerId], expectedNear: [],
         expectedExclusions: cohort.filter(k => k !== scenario.learnerId) } : {}) });
+    if (retries.some(r => r.status !== 200 || digest(r.body.matchResult) !== digest(result)))
+      assessment = { status: 'MISMATCH', reason: 'concurrent_match_replay' };
     // Missing projection is a blocker only after observable safety/replay checks.
     // It must never conceal an invalid inclusion elsewhere in the same result.
     return { ...assessment, ...(!self && assessment.status !== 'MISMATCH' ? { status: 'BLOCKED', reason: 'credential_projection_not_observed' } : {}),

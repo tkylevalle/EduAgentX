@@ -84,6 +84,20 @@ class IsolationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             runner.requested_phases('formal', 'canary')
 
+    def test_phase2_faults_are_separate_from_formal_and_cannot_select_developer_stops(self):
+        self.assertEqual(runner.requested_phases('phase2'), ['default-duration', 'stress', 'faults'])
+        self.assertEqual(runner.response_deadline('phase2', 1), 1)
+        with self.assertRaises(ValueError):
+            runner.requested_phases('phase2', 'canary')
+
+    def test_narrow_phase2_selection_cannot_launch_formal_or_other_services(self):
+        self.assertEqual(runner.requested_phases('phase2', phase2_case='faults'), ['faults'])
+        for mode in ['developer', 'formal']:
+            with self.assertRaises(ValueError):
+                runner.requested_phases(mode, phase2_case='faults')
+        with self.assertRaises(ValueError):
+            runner.requested_phases('phase2', phase2_case='formal')
+
 
 if __name__ == '__main__':
     unittest.main()

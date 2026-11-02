@@ -1,7 +1,9 @@
 # Issue 33 Phase 1: deterministic public lifecycle evaluation
 
 Primary: Salman Akram. Base: `1a90ae5e8f14f93cd17f6ca3b53cce27d99bd8e0`.
-Branch: `salman/issue-33-e2e-suite`. This work is not committed or pushed.
+Branch: `salman/issue-33-e2e-suite`. Phase 1 was committed and pushed as
+`02e7dd7cc2ac9726d0c8f79d63d133d0cb929926`. Phase 2 changes remain uncommitted;
+see [the Phase 2 handoff](handoff-issue-33-phase2.md).
 
 ## Scope and evidence boundary
 
