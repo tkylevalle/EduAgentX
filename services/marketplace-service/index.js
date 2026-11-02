@@ -76,6 +76,14 @@ function createApp({
     next();
   });
 
+  app.get('/internal/reconciliation/matches', handle(async (req) => {
+    if (req.header('x-actor-role') !== 'admin') throw new HttpError(403, 'forbidden');
+    const { actor, idempotencyKey } = req.query;
+    if (Object.keys(req.query).length !== 2 || ![actor, idempotencyKey].every(v => typeof v === 'string' && IDENTIFIER.test(v)))
+      throw new HttpError(400, 'invalid_request');
+    return { status: 200, body: await store.reconcileMatches(actor, idempotencyKey) };
+  }));
+
   // --- Capability Requests
 
   app.post('/internal/capability-requests', handle(async (req) => {
