@@ -9,7 +9,7 @@ const { computeConfigurationFingerprint } = require('../../../services/agent-reg
 const { safety } = require('../invariants');
 const pkg = { id: 'pkg', version: '1.0.0', digest: 'sha256:fixture', objectiveIds: ['o1'],
   template: { id: 'template', version: '1' }, rubric: { id: 'rubric', version: '1' } };
-function fixture(scenario, { lostSafety = false, unsafePass = false, systemAbort = false } = {}) {
+function fixture(scenario, { lostSafety = false, unsafePass = false, systemAbort = false, stressConcurrency = 1 } = {}) {
   let time = Date.parse('2026-11-01T00:00:00Z'), fingerprint, attempts = [], sessions = [], activeSession;
   const form = { package: { id: pkg.id, version: pkg.version, digest: pkg.digest }, template: pkg.template, rubric: pkg.rubric,
     tierWeights: { recall: 20, applied: 40, adversarial: 40 }, items: Array.from({ length: 15 }, (_, n) => ({
@@ -59,6 +59,8 @@ function fixture(scenario, { lostSafety = false, unsafePass = false, systemAbort
       }
       const a = attemptFrom(route);
       if (method === 'GET') return ok({ attempt: view(a) });
+      const sameKey = [...a.responses.values()].find(r => r.key === body.idempotencyKey);
+      if (sameKey && sameKey.response !== body.response) return ok({ error: 'idempotency_conflict' }, 409);
       if (a.responses.has(body.itemId)) {
         const r = a.responses.get(body.itemId);
         return r.response === body.response ? ok({ attempt: view(a), receipt: r.receipt }) : ok({ error: 'answer_conflict' }, 409);
@@ -66,7 +68,7 @@ function fixture(scenario, { lostSafety = false, unsafePass = false, systemAbort
       if (body.expectedSequence !== a.sequence) return ok({ error: 'sequence_conflict' }, 409);
       a.sequence++;
       const receipt = { sequence: a.sequence };
-      a.responses.set(body.itemId, { response: body.response, receipt });
+      a.responses.set(body.itemId, { response: body.response, receipt, key: body.idempotencyKey });
       return ok({ attempt: view(a), receipt });
     },
   };
@@ -102,11 +104,11 @@ function fixture(scenario, { lostSafety = false, unsafePass = false, systemAbort
     if (route === '/v1/credentials/verify') return ok({ overall: 'VALID' });
     if (route.endsWith('/open')) return ok({});
     if (route.endsWith('/matches')) return ok({ matchResult: { resultId: 'match-one', policyVersion: 'MATCH-POLICY-1.0.0', totalEligible: 0, totalNearMatches: 0,
-      eligibleMatches: [], nearMatches: [], exclusions: [{ agentLearnerKey: scenario.learnerId, reasons: [{ code: 'LIFECYCLE_ORIGIN_UNCHECKABLE' }] }] } }, 201);
+      eligibleMatches: [], nearMatches: [], exclusions: [{ agentLearnerKey: scenario.learnerId, reasons: [{ code: 'LIFECYCLE_ORIGIN_UNCHECKABLE' }] }] } }, 200);
     if (route.endsWith('/capability-requests')) return ok({ request: { id: 'request-one' } }, 201);
     throw new Error(`unexpected fixture route ${method}`);
   } };
-  const orchestrator = createOrchestrator({ admin, actor: 'operator', pkg, now: () => time, wait: async ms => { time += ms; }, negativeCertificationWaitMs: 0 });
+  const orchestrator = createOrchestrator({ admin, actor: 'operator', pkg, now: () => time, wait: async ms => { time += ms; }, negativeCertificationWaitMs: 0, stressConcurrency });
   return { agent, orchestrator };
 }
 async function run(scenario, options) {
@@ -156,4 +158,11 @@ test('remediable narrative observes the existing assignment, then uses a distinc
   assert.equal(ids.length, 2); assert.equal(new Set(ids).size, 2);
   assert.ok(r.checks.find(c => c.id === 'remediation_assignment_once').passed);
   assert.ok(r.checks.find(c => c.id === 'original_immutable').passed);
+});
+test('eight-way public replay orchestration preserves separate remediation admission keys', async () => {
+  const r = await run(manifest.scenarios.find(s => s.category === 'remediable'), { stressConcurrency: 8 });
+  assert.equal(r.lifecycleStatus, 'CONFORMANT'); assert.equal(r.status, 'BLOCKED');
+  assert.ok(Object.values(r.duplicates).every(n => n === 0));
+  const admissions = r.mappings.filter(m => m.operation.endsWith(':admission'));
+  assert.equal(new Set(admissions.map(m => m.idempotencyKey)).size, 2);
 });

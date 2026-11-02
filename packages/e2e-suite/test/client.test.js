@@ -26,6 +26,15 @@ test('one shared pacer serializes concurrent callers without exceeding its confi
   await Promise.all(Array.from({ length: 10 }, () => pace()));
   assert.equal(time, 1350);
 });
+test('bounded stress bursts allow overlapping HTTP calls without increasing the average budget', async () => {
+  let time = 0;
+  const pace = createPacer({ burstSize: 8, now: () => time, wait: async ms => { time += ms; } });
+  await Promise.all(Array.from({ length: 8 }, () => pace()));
+  assert.equal(time, 0);
+  await pace(); assert.equal(time, 1200);
+  for (const n of [0, 9, 1.2]) assert.throws(() => createPacer({ burstSize: n }));
+  assert.throws(() => createPacer({ intervalMs: 1 }));
+});
 test('HTTP retries are bounded and keep the original semantic body/key', async () => {
   const client = new PublicClient({ gatewayUrl: 'http://unused.invalid', clientId: 'test', clientSecret: 'test', wait: async () => {} });
   const bodies = []; client.client.request = async (_m, _r, { body }) => { bodies.push(body); return { status: 503, body: {} }; };

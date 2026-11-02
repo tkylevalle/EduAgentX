@@ -72,7 +72,16 @@ def configured_operators(resolved):
             'REVIEWER_1_CLIENT_ID', 'REVIEWER_1_CLIENT_SECRET', 'REVIEWER_2_CLIENT_ID', 'REVIEWER_2_CLIENT_SECRET']}
 
 
-def requested_phases(mode, stop_after=None):
+def requested_phases(mode, stop_after=None, phase2_case=None):
+    if phase2_case is not None and mode != 'phase2':
+        raise ValueError('phase2_case_requires_phase2_mode')
+    if mode == 'phase2':
+        if stop_after is not None:
+            raise ValueError('phase2_cannot_use_developer_stop')
+        phases = ['default-duration', 'stress', 'faults']
+        if phase2_case is not None and phase2_case not in phases:
+            raise ValueError('invalid_phase2_case')
+        return [phase2_case] if phase2_case is not None else phases
     if mode == 'formal':
         if stop_after is not None:
             raise ValueError('formal_mode_cannot_use_developer_stop')
@@ -86,15 +95,15 @@ def requested_phases(mode, stop_after=None):
 def response_deadline(mode, developer_minutes):
     if mode == 'formal':
         return 60
-    if mode != 'developer' or type(developer_minutes) is not int or not 1 <= developer_minutes <= 60:
+    if mode not in ('developer', 'phase2') or type(developer_minutes) is not int or not 1 <= developer_minutes <= 60:
         raise ValueError('invalid_developer_deadline')
     return developer_minutes
 
 
 class Pilot:
-    def __init__(self, mode='developer', port=0, developer_deadline_minutes=1, stop_after=None):
+    def __init__(self, mode='developer', port=0, developer_deadline_minutes=1, stop_after=None, phase2_case=None):
         self.mode = mode
-        self.requested = requested_phases(mode, stop_after)
+        self.requested = requested_phases(mode, stop_after, phase2_case)
         self.deadline_minutes = response_deadline(mode, developer_deadline_minutes)
         stamp = datetime.now(timezone.utc).strftime('%Y%m%dt%H%M%Sz').lower()
         self.project = f'eduagentx-issue33-{stamp}-{os.getpid()}'
@@ -156,6 +165,12 @@ class Pilot:
         directory = self.output / mode
         if directory.exists():
             directory = self.output / f'blocked-{code}'
+        if self.mode == 'phase2':
+            directory.mkdir(parents=True)
+            (directory / 'report.json').write_text(json.dumps({'schemaVersion': 'issue-33-phase2/1.0.0',
+                'kind': mode, 'status': 'BLOCKED', 'reason': code, 'formal1000': 'NOT_RUN',
+                'formalGolden100': 'NOT_RUN'}, indent=2) + '\n')
+            return
         self.env['E2E_OUTPUT_DIR'] = str(directory)
         self.command(['node', 'packages/e2e-suite/run.js', '--mode', mode, '--blocked', code], check=False)
 
@@ -187,6 +202,8 @@ for(const [kind,name,options] of [['rsa','dev-jwt',{modulusLength:2048}],['ed255
  fs.writeFileSync(p.join(d,name+'-public.pem'),pair.publicKey.export({type:'spki',format:'pem'}),{mode:0o644});
 }''', str(keys)])
             try:
+                source_command = ['node', '-e', "process.stdout.write(require('./packages/e2e-suite/run').sourceIdentity().fingerprint)"]
+                source_lock = self.command(source_command).stdout
                 resolved = json.loads(self.command(['docker', 'compose', '--env-file', str(ROOT / '.env.example'),
                                                      'config', '--format', 'json']).stdout)
                 # Operator identities must match the resolved private Gateway,
@@ -194,28 +211,38 @@ for(const [kind,name,options] of [['rsa','dev-jwt',{modulusLength:2048}],['ed255
                 self.env.update(configured_operators(resolved))
                 requested = self.requested
                 for index, mode in enumerate(requested):
+                    if self.command(source_command).stdout != source_lock:
+                        raise RuntimeError('source_changed_between_stages')
                     failed_mode = mode
                     project = f'{self.project}-{mode}'
-                    config = private_config(resolved, project, self.port, keys, clients, self.project, self.deadline_minutes)
+                    minutes = 60 if mode == 'default-duration' else self.deadline_minutes
+                    self.env['E2E_DEADLINE_MINUTES'] = str(minutes)
+                    config = private_config(resolved, project, self.port, keys, clients, self.project, minutes)
                     config_path = temporary / f'{mode}.json'
                     encoded = json.dumps(config)
                     config_path.write_text(encoded)
                     config_path.chmod(0o600)
                     self.env['E2E_CONFIG_HASH'] = 'sha256:' + hashlib.sha256(encoded.encode()).hexdigest()
                     self.env['E2E_PROJECT'] = project
+                    self.env['E2E_COMPOSE_FILE'] = str(config_path)
+                    self.env['E2E_FAULT_CONTROL'] = 'isolated-grader-only' if mode == 'faults' else 'disabled'
                     dc = ['docker', 'compose', '-p', project, '-f', str(config_path)]
                     active = dc
                     print(f'Starting isolated {mode}: {project}', flush=True)
                     self.command(dc + ['up', '-d', '--build' if index == 0 else '--no-build', '--wait', '--wait-timeout', '180'])
+                    if self.command(source_command).stdout != source_lock:
+                        raise RuntimeError('source_changed_during_build')
                     images = self.command(dc + ['images', '--format', 'json']).stdout
                     self.env['E2E_IMAGE_HASH'] = 'sha256:' + hashlib.sha256(images.encode()).hexdigest()
                     self.env['E2E_OUTPUT_DIR'] = str(self.output / mode)
-                    result = self.command(['node', 'packages/e2e-suite/run.js', '--mode', mode], timeout=21600, check=False)
+                    program = ['node', 'packages/e2e-suite/phase2.js', '--case', mode] if self.mode == 'phase2' else [
+                        'node', 'packages/e2e-suite/run.js', '--mode', mode]
+                    result = self.command(program, timeout=21600, check=False)
                     report = json.loads((self.output / mode / 'report.json').read_text())
-                    ready = core_ready(report)
-                    phases.append({'mode': mode, 'technicalChecks': report['technicalChecks'], 'coreReady': ready,
-                                   'executed': report['executed'], 'lifecycleConformant': report['lifecycleConformant'],
-                                   'runErrors': report.get('runErrors', []), 'failuresByReason': report['failuresByReason'],
+                    ready = report['status'] == 'PASS' if self.mode == 'phase2' else core_ready(report)
+                    phases.append({'mode': mode, 'technicalChecks': report.get('technicalChecks', report.get('status')), 'coreReady': ready,
+                                   'executed': report.get('executed', len(report.get('results', []))), 'lifecycleConformant': report.get('lifecycleConformant'),
+                                   'runErrors': report.get('runErrors', []), 'failuresByReason': report.get('failuresByReason', {}),
                                    'exitCode': result.returncode})
                     print(json.dumps(phases[-1]), flush=True)
                     self.command(dc + ['down', '--volumes', '--remove-orphans'])
@@ -233,6 +260,8 @@ for(const [kind,name,options] of [['rsa','dev-jwt',{modulusLength:2048}],['ed255
         self.finish(phases)
         if any(p.get('technicalChecks') == 'FAIL' for p in phases):
             return 1
+        if self.mode == 'phase2' and len(phases) == len(self.requested) and all(p.get('coreReady') for p in phases):
+            return 0  # Focused Phase 2 checks only; formal acceptance is NOT_RUN.
         return 2  # Phase 1 cannot declare the unexecuted full golden/load gate passed.
 
     def finish(self, phases):
@@ -244,8 +273,10 @@ for(const [kind,name,options] of [['rsa','dev-jwt',{modulusLength:2048}],['ed255
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--mode', choices=['developer', 'formal'], default='developer')
+    parser.add_argument('--mode', choices=['developer', 'formal', 'phase2'], default='developer')
     parser.add_argument('--formal-approved', action='store_true')
+    parser.add_argument('--phase2-case', choices=['default-duration', 'stress', 'faults'],
+                        help='run only one focused Phase 2 case, never formal scenarios')
     parser.add_argument('--stop-after', choices=['canary', 'categories', 'developer'],
                         help='developer-only bounded validation; does not alter frozen scenarios')
     parser.add_argument('--port', type=int, default=0)
@@ -254,13 +285,15 @@ def main():
     args = parser.parse_args()
     if args.mode == 'formal' and not args.formal_approved:
         parser.error('formal execution requires separate pilot review and --formal-approved')
-    if args.mode == 'formal' and args.stop_after is not None:
+    if args.phase2_case is not None and args.mode != 'phase2':
+        parser.error('--phase2-case requires --mode phase2')
+    if args.mode != 'developer' and args.stop_after is not None:
         parser.error('--stop-after is only available in developer mode')
     if args.port and not 1024 <= args.port <= 65535:
         parser.error('port must be 1024..65535')
     if not 1 <= args.developer_deadline_minutes <= 60:
         parser.error('developer deadline must be 1..60 minutes')
-    return Pilot(args.mode, args.port, args.developer_deadline_minutes, args.stop_after).run()
+    return Pilot(args.mode, args.port, args.developer_deadline_minutes, args.stop_after, args.phase2_case).run()
 
 
 if __name__ == '__main__':

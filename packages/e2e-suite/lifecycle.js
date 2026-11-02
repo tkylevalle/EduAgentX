@@ -65,7 +65,9 @@ async function setupPackage({ admin, reviewers }) {
 }
 
 function createOrchestrator({ admin, actor, pkg, now = Date.now, wait, gradingWindowMs = 900000,
-  certificationWaitMs = 120000, negativeCertificationWaitMs = 10000 } = {}) {
+  certificationWaitMs = 120000, negativeCertificationWaitMs = 10000, stressConcurrency = 1 } = {}) {
+  if (!Number.isInteger(stressConcurrency) || stressConcurrency < 1 || stressConcurrency > 8)
+    throw new Error('bounded_stress_concurrency_required');
   const read = async (path, correlationId) => requireReply(await admin.call('GET', path, undefined, correlationId), [200], 'authoritative_read');
   function add(ctx, id, passed) {
     const existing = ctx.result.checks.find(c => c.id === id);
@@ -104,9 +106,12 @@ function createOrchestrator({ admin, actor, pkg, now = Date.now, wait, gradingWi
   async function admit(ctx, round) {
     const c = command(ctx.scenario.id, `${round}:admission`);
     const body = { idempotencyKey: c.idempotencyKey };
-    const started = requireReply(await ctx.agent.call('POST', '/v1/examinations', body, c.correlationId), [200, 201], 'examination_admission');
+    const starts = await Promise.all(Array.from({ length: stressConcurrency }, () =>
+      ctx.agent.call('POST', '/v1/examinations', body, c.correlationId)));
+    const started = requireReply(starts[0], [200, 201], 'examination_admission');
     const attempt = started.attempt, form = attempt?.form;
     if (!attempt?.attemptId || !form?.items) throw new SuiteError('MISMATCH', 'examination_form_missing');
+    assert(ctx, 'admission_once', starts.every(r => [200, 201].includes(r.status) && r.body.attempt?.attemptId === attempt.attemptId));
     const replay = requireReply(await ctx.agent.call('POST', '/v1/examinations', body, c.correlationId), [200], 'admission_replay');
     const reconciled = await read(`/v1/admin/reconciliation/examinations?${new URLSearchParams({ agentLearnerKey: ctx.scenario.learnerId, idempotencyKey: c.idempotencyKey })}`, ctx.correlationId);
     ctx.result.duplicates.examinations = (ctx.result.duplicates.examinations || 0) + Math.max(0, reconciled.count - 1);
@@ -129,11 +134,18 @@ function createOrchestrator({ admin, actor, pkg, now = Date.now, wait, gradingWi
       const response = answerForScenario(s, item, index, forcedSafe);
       const c = command(s.id, `${current.round}:answer:${item.id}`);
       const body = { idempotencyKey: c.idempotencyKey, expectedSequence: current.attempt.sequence, itemId: item.id, response };
+      current.lastSentAt = now();
       const receipt = requireReply(await ctx.agent.call('POST', `/v1/examinations/${current.attempt.attemptId}/responses`, body, c.correlationId), [200], 'response_acceptance');
       current.attempt = { ...current.attempt, ...receipt.attempt }; current.lastAcceptedAt = now();
       if (index === 0 && limit === 15) {
-        const same = requireReply(await ctx.agent.call('POST', `/v1/examinations/${current.attempt.attemptId}/responses`, body, c.correlationId), [200], 'response_replay');
-        assert(ctx, 'response_replay', digest(same.receipt) === digest(receipt.receipt));
+        const retries = await Promise.all(Array.from({ length: stressConcurrency }, () =>
+          ctx.agent.call('POST', `/v1/examinations/${current.attempt.attemptId}/responses`, body, c.correlationId)));
+        assert(ctx, 'response_replay', retries.every(r => r.status === 200 && digest(r.body.receipt) === digest(receipt.receipt)));
+        if (stressConcurrency > 1) {
+          const changed = await ctx.agent.call('POST', `/v1/examinations/${current.attempt.attemptId}/responses`,
+            { ...body, response: 'Changed semantic retry.' }, c.correlationId);
+          assert(ctx, 'answer_final', changed.status === 409 && changed.body.error === 'idempotency_conflict');
+        }
         const different = await ctx.agent.call('POST', `/v1/examinations/${current.attempt.attemptId}/responses`, {
           ...body, idempotencyKey: command(s.id, `${current.round}:conflict`).idempotencyKey,
           expectedSequence: current.attempt.sequence, response: 'A conflicting replacement answer.' }, c.correlationId);
@@ -179,6 +191,12 @@ function createOrchestrator({ admin, actor, pkg, now = Date.now, wait, gradingWi
     if (!reply || reply.status !== 200) throw new SuiteError('BLOCKED', 'certification_observation_timeout');
     const body = reply.body, credential = body.credential;
     if (!credential?.credentialId || !credential.compactJws) throw new SuiteError('MISMATCH', 'credential_missing');
+    if (stressConcurrency > 1) {
+      // This is concurrent public decision READ replay, not an issuance command.
+      const reads = await Promise.all(Array.from({ length: stressConcurrency }, () =>
+        admin.call('GET', `/v1/admin/certifications/by-examination/${view.attemptId}`, undefined, ctx.correlationId)));
+      assert(ctx, 'credential_once', reads.every(r => r.status === 200 && r.body.credential?.credentialId === credential.credentialId));
+    }
     const inventory = await inventoryCredentials(ctx, view.attemptId);
     ctx.result.duplicates.credentials = (ctx.result.duplicates.credentials || 0) + Math.max(0, inventory.count - 1);
     assert(ctx, 'credential_once', inventory.count === 1 && inventory.credentialIds[0] === credential.credentialId);
@@ -236,6 +254,7 @@ function createOrchestrator({ admin, actor, pkg, now = Date.now, wait, gradingWi
       assert(ctx, 'registration_replay', digest(first.registration) === digest(replay.registration));
       await train(ctx, 'initial');
       ctx.current = await answer(ctx, await admit(ctx, 'initial'));
+      ctx.fullyCollectedAt = now();
       return ctx; // observer is separate, so a deadline sleeper holds no preparation worker
     } catch (error) { finish(ctx, error instanceof SuiteError ? error.status : 'HARNESS_ERROR', error instanceof SuiteError ? error.reason : 'preparation_error'); return ctx; }
   }
@@ -286,7 +305,7 @@ function createOrchestrator({ admin, actor, pkg, now = Date.now, wait, gradingWi
   async function market(ctx, cohort) {
     try {
       if (ctx.result.lifecycleStatus === 'CONFORMANT' && ctx.scenario.expected.marketplace !== 'not_applicable') {
-        const m = await observeMarketplace({ scenario: ctx.scenario, agent: ctx.agent, admin, pkg, actor, cohort, now });
+        const m = await observeMarketplace({ scenario: ctx.scenario, agent: ctx.agent, admin, pkg, actor, cohort, now, replayConcurrency: stressConcurrency });
         ctx.result.marketplace = m;
         ctx.result.duplicates.matches = m.matchCount === null || m.matchCount === undefined ? null : Math.max(0, m.matchCount - 1);
         ctx.result.duplicates.laneAppearances = m.laneDuplicates ?? null;
