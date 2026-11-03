@@ -1,365 +1,212 @@
-# Marketplace trust integration review report
+# Issue #83 integration handoff — reference policy for review
 
-Date: 2026-11-03. Full integration status: **BLOCKED BY CONTRACT DECISION**.
-Pre-commit scope audit: **A — SAFE TO COMMIT/PUSH CURRENT ORIGIN REPAIR**.
-The lifecycle-origin repair is implemented and verified. Trusted signed
-environment/evidenceMode and a positive Eligible Match are not implemented;
-promoting the current caller-declared labels would violate the requested trust
-boundary. [Issue #83 — Sprint 5: Certification-to-Marketplace trust provenance
-integration](https://github.com/tkylevalle/EduAgentX/issues/83) is the tracking
-authority. It remains **OPEN** for the unresolved provenance contract and blocks
-Issue #33's formal Marketplace acceptance. This branch delivers only the safe
-lifecycle-origin portion and does not complete #83.
+Tracking: [#83](https://github.com/tkylevalle/EduAgentX/issues/83), blocking #33.
+This implements the user's conservative reference policy for team review; it
+makes no claim of team consensus. Neither issue is closed by this handoff.
 
-## A–D. Isolation, branch, base and issue search
+## Checkpoint and isolation
 
 - Worktree: `/home/ubuntu/ChatGPT/EduAgentX-marketplace-fix/repo`.
 - Branch: `salman/fix-marketplace-trust-integration`.
-- Main/base used for this repair:
-  `1a90ae5e8f14f93cd17f6ca3b53cce27d99bd8e0`.
-- The original Issue #33 worktree was verified clean on
-  `salman/issue-33-e2e-suite` at
-  `9b41068c3864c60f8671b0f2b88090ec158077f2` before setup. It was not edited,
-  reset, cleaned, switched, merged or rebased. No commands were run there after
-  the new worktree was established. Its final worktree registration still names
-  the same branch and commit. No Issue #33 harness code was copied.
-- Only the explicitly authorized disposable parent `.git` was removed. The
-  parent `.agents`, `.codex` and `.aws` contents were not inspected or touched.
-- Related work includes
-  [#30, Capability Requests and Marketplace Eligibility](https://github.com/tkylevalle/EduAgentX/issues/30),
-  [#31, Ranking, Near Matches, and explanations](https://github.com/tkylevalle/EduAgentX/issues/31),
-  and [#23, Certification Decisions and issuance](https://github.com/tkylevalle/EduAgentX/issues/23).
-  The dedicated tracking authority is now
-  [#83](https://github.com/tkylevalle/EduAgentX/issues/83), which covers both origin
-  authority and authoritative signed provenance and explicitly blocks #33.
+- Base/main: `1a90ae5e8f14f93cd17f6ca3b53cce27d99bd8e0` (unchanged at final fetch).
+- Origin checkpoint: `0420e8d31fb6ea1ea5eea38a176cce93ad252d70`.
+- This follow-up adds execution provenance without amending the origin checkpoint.
+- No #33 source/harness was copied, merged, reset, rebased or executed. Its
+  separate worktree and the parent project's protected metadata were untouched.
 
-## E–G. Root causes and implemented architecture
+## Final architecture
 
-Origin: `createLifecycleSource()` was an unconditional `source_not_available`
-adapter. Marketplace had no authenticated issuer read binding the projected
-credential to the immutable Certification Decision and Examination.
+Gateway authenticates the existing agent JWT and resolves explicit server-owned
+`EXECUTION_PRINCIPALS` enrollment. Each principal has a fixed mode and permitted
+repository source profiles. Generic agent, evaluator, admin and Demo Operator
+roles confer no provenance authority. Gateway constructs internal context;
+external context headers/body fields cannot override it.
 
-Provenance: Training validates enum/environment pairs supplied by the learner,
-but has no authoritative run attestation or immutable mode binding. Its
-completion copies the final request's label. Examination pins that completion in
-`form.training.evidence` but omits it from the Certification projection.
-Certification therefore neither validates, persists nor signs these labels.
-Simply restoring that projection would still sign an unvalidated caller claim.
+Training pins versioned provenance at admission to its session UUID (run ID),
+learner, Registry configuration/version, package, executor, policy and source
+manifest. Every accepted response has source-validated run/item/response evidence
+committed with progress. Conflicts return 409 without advancing or aborting the
+run. Completion derives from pinned provenance and complete receipt coverage.
+Server enrollment also supplies planned provenance for domain-initiated
+remediation; assigning work grants no permission to attest responses.
 
-The implemented repair adds a narrow Certification origin endpoint and exact
-credential store lookup. New decisions allocate their UUID before signing and
-include it as `evidence.certificationDecisionId`. Existing transaction locks,
-uniqueness constraints and replay behavior remain intact. The response binds
-credential UUID, decision UUID, examination UUID, learner, fingerprint and SHA-256
-of the exact compact JWS. Marketplace checks those facts and reconstructs its
-entire candidate from the JWS to catch unsigned event-field substitutions.
+Examination binds the exact Training completion and validates its own response
+evidence. Its immutable form, response events and answer-free Certification
+projection bind source and coverage digests. Standard/fallback is independent of
+synthetic/replay/live. Fallback inherits a legitimate cause's run or checks an
+exact Training completion; missing provenance never becomes synthetic.
 
-Marketplace startup and Compose now wire the real origin client. The existing
-publisher, verifier and Redis projection were already present and are exercised
-unchanged. No ranking, eligibility policy, score threshold or verifier rule changed.
+Certification checks the supported profile, package, subject/fingerprint, complete
+coverage and configured issuer environment before persistence. New credentials
+sign top-level environment/evidenceMode and their complete answer-free binding.
+The existing examination/decision/credential uniqueness, transaction and replay
+path remain unchanged. The verifier checks the static profile and cross-field
+bindings. Marketplace maps only its explicit signed provenance and independently
+rechecks issued origin plus every existing gate. Ranking is unchanged.
 
-## H. Exact production files changed
+See [the exact contract](../contracts/execution-provenance.md) and
+[origin/integration decision](../contracts/marketplace-trust-integration.md).
 
-| File | Classification | Why required for origin repair |
-| --- | --- | --- |
-| `docker-compose.yml` | production/runtime | Gives Marketplace the issuer URL and Certification the distinct existing Marketplace key for the narrow read. Corrects the adjacent outbox comment. |
-| `services/certification-service/evidence.js` | production/runtime | Signs the store-assigned decision UUID in new credentials, allowing the client to verify the returned decision binding. Does not sign provenance. |
-| `services/certification-service/index.js` | production/runtime | Adds the exact-selector authenticated GET; rejects source evidence for another examination; passes the immutable decision UUID to signing in both issuance paths. |
-| `services/certification-service/store.js` | production/runtime | Reads one immutable credential/decision pair and returns allowlisted bindings plus its exact-JWS digest. Allocates the memory-store decision UUID before signing, matching the PostgreSQL transaction. |
-| `services/marketplace-service/clients.js` | production/runtime | Implements the bounded authenticated lookup, strict response/JWS/digest/binding checks, projection comparison, origin-only redirect refusal, and distinct 404 versus malformed-null handling. |
-| `services/marketplace-service/index.js` | production/runtime | Replaces the unavailable stub in runtime startup with the configured real origin client. |
+## Supported paths and limitations
 
-No schema migration, dependency or lockfile changes.
+- **Synthetic:** explicitly enrolled deterministic profile/scenario snapshot;
+  exact responses/context/digest checked. Existing failure responses remain
+  deterministic, and timeout cannot fabricate a complete response set.
+- **Replay:** separate enrolled agent principal; 40 repository-controlled capture
+  entries (10 Training, 15 standard Examination, 15 fallback). Each records the
+  actual deterministic reference framework, original synthetic capture mode,
+  template/request hash, timestamp, fixture version and sanitized response/hash.
+  Runtime uses the exact captured entry. These are not claimed as prior live
+  provider responses. New/unrecorded contexts fail closed and require a reviewed
+  versioned capture. Runtime uploads are not supported.
+- **Live:** authoritative enrollment is disabled. The optional existing live
+  adapter lacks durable lifecycle invocation/budget accounting. Ordinary legacy
+  participation does not gain trusted labels; no paid model call was made.
+- **Issuer isolation:** the reference Compose issuer explicitly permits
+  simulation provenance. A live-only or unconfigured issuer refuses simulation
+  provenance. Separate test/live issuer/key deployments must be provisioned by
+  the operator; request content cannot select an issuer or key. No new PKI was
+  introduced.
+- **Legacy:** old rows and signatures remain unchanged. Descriptive labels do
+  not gain authority. New authoritative profiles cannot silently downgrade when
+  required data is missing. Finish legacy open sessions before enrolling their
+  identity; existing sessions cannot upgrade in place.
 
-## I. Exact test files changed or added
+## Additive migration
 
-| File | Classification | Purpose |
-| --- | --- | --- |
-| `services/certification-service/test/issuance.test.js` | test | Authorization, exact selector, minimal response, failed/aborted/mismatched evidence, signing binding, immutable replay and storage failure. |
-| `services/certification-service/integration/postgres.test.js` | test | Origin digest/decision persistence, fresh connections, exactly-once concurrency and immutable replay. |
-| `services/marketplace-service/test/clients.test.js` | test | Corrects the stale title: an unconfigured client remains uncheckable, while configured origin is now implemented. |
-| `services/marketplace-service/test/origin-client.test.js` | test | Binding/malformed/timeout/redirect/spoof/tamper/legacy checks; confirms the preexisting Registry redirect behavior stays unchanged. |
-| `services/marketplace-service/integration/lifecycle-origin.test.js` | test | Opt-in real lifecycle, exclusion for missing provenance, actual issuer outage and restart/replay proof. |
+Only `services/training-service/schema.sql` adds persistence:
 
-| File | Classification | Purpose |
-| --- | --- | --- |
-| `docs/contracts/certification.md` | contract/documentation | Endpoint selector, response, authorization, signed decision binding and unresolved provenance boundary. |
-| `docs/contracts/marketplace.md` | contract/documentation | Real authority client, exact-artifact checks, legacy behavior and actual event feed. |
-| `docs/contracts/marketplace-matching.md` | contract/documentation | Origin integration and continuing provenance trust exclusions; no policy changes. |
-| `docs/contracts/marketplace-trust-integration.md` | contract/documentation | Design decision, authoritative-source ambiguity, fallback/signing decisions and reproducible focused test instructions. |
-| `docs/sprint-5/handoff-marketplace-trust-integration.md` | contract/documentation | Implementation/evidence record, scope audit and Issue #83 tracking boundary. |
+1. Nullable `training_service.sessions.provenance jsonb`.
+2. Nullable `training_service.session_events.execution_evidence jsonb`.
+3. Unique partial `execution_receipt_once` index on receiptId for non-null rows.
 
-Exact intended scope: **16 files: 6 production/runtime, 5 test, 5
-contract/documentation**. No file is classified temporary/unnecessary. The
-pasted estimate of 19 files did not match Git's actual changed/untracked set;
-the initial audit found these same 16 files. Ignored runtime artifacts are not
-part of the intended commit.
+No defaults or backfill. Existing append-only protections remain. Examination
+uses existing form/event/receipt JSON; Certification uses existing immutable
+evidence/credential JSON. Versioned compatible readers retain legacy profiles.
 
-## J. Lifecycle-origin authorization
+## Verification
 
-`GET /internal/credential-origins/:credentialId` accepts exactly one lowercase
-UUID and no query parameters. It requires `MARKETPLACE_INTERNAL_KEY`,
-`x-actor-subject: marketplace-service` and `x-actor-role: marketplace`.
-The key must be configured and distinct from `CERTIFICATION_INTERNAL_KEY`.
-It grants no issuer command, credential listing, other read, or enumeration
-rights. This uses the repository's existing internal-key/header mechanism.
+Counts below overlap; they must not be added as unique scenarios.
 
-Unknown IDs return 404; invalid selectors 400; unauthorized requests 403;
-storage uncertainty 503. The production client has a two-second abort deadline,
-does not follow redirects and does not retry. Unknown/mismatched origin is
-false; uncertainty/malformed authority is uncheckable. Both are trust exclusions.
-
-## K–L. Provenance rules and legacy behavior
-
-Known meanings: synthetic/simulation, replay/simulation, live/live. These enum
-meanings do not validate a run. No defaults, provider inference, label backfill,
-or caller-provenance signing were added. Values were not persisted or signed
-because their source authority remains undefined.
-
-The real Gateway audit probe accepted a `live` Training start (201) followed by
-`synthetic` continue (200) from the same learner, retaining both event modes.
-No live model invocation or credential issuance occurred in the probe. This
-demonstrates the unresolved source trust boundary independently of the missing
-projection plumbing.
-
-Old credentials are unchanged. Missing provenance stays uncheckable; missing the
-new signed decision ID also stays origin-uncheckable. Fallback assessment is
-still distinct from synthetic/replay/live provenance, with no invented mapping.
-Normal non-Marketplace Certification remains compatible and still issues valid
-credentials under the existing evidence contract.
-
-## M–N. Real composed and negative results
-
-An isolated Compose project built from this worktree ran the real Gateway,
-Registry, curriculum/activation, Training, Examination, grader, Certification,
-verification, outbox, Redis consumer and Marketplace. Candidates were not
-inserted in databases or supplied through Marketplace authority fixtures.
-
-- Real newly issued credential: verification `VALID`; origin true; correct
-  signed decision/examination/subject/fingerprint bindings. The only eligibility
-  exclusion was `ENVIRONMENT_UNCHECKABLE`. Matching additionally reported
-  `EVIDENCE_MODE_UNCHECKABLE`; neither lane contained the candidate.
-- Real signed-value tampering: verifier signature failure and origin digest
-  mismatch. Unsigned simulation/synthetic projection labels also failed origin.
-- Unknown/unauthorized/broad issuer reads were refused.
-- Stopping only the isolated issuer added `LIFECYCLE_ORIGIN_UNCHECKABLE` and kept
-  the actual projected candidate out of eligibility and both matching lanes.
-- Restart preserved the exact origin digest and signed credential; replay was
-  identical and the Gateway still listed exactly one credential.
-- Focused tests cover credential/decision/examination/subject/fingerprint/digest
-  mismatch, failed and system-aborted examinations, malformed issuer responses,
-  bounded timeout, connection refusal, wrong/missing key, invalid configuration,
-  redirection refusal, legacy absence, projection spoofing and immutable replay.
-
-A fully Eligible positive real Marketplace path was **not achieved**. It remains
-blocked by the provenance contract; the tested positive is issuer origin only.
-
-## O. Test counts and retained evidence
-
-All final completed checks passed. Counts below overlap and must not be summed
-as unique cases.
-
-| Run | Passed | Failed | Skipped |
+| Verification | Passed | Failed | Skipped |
 | --- | ---: | ---: | ---: |
-| Final `node scripts/run-unit-tests.js` | 729 | 0 | 0 |
-| Final focused Certification + Credential Verification | 46 | 0 | 0 |
-| Certification/Examination/Marketplace PostgreSQL suites | 18 | 0 | 0 |
-| Existing Sprint 5 `node scripts/verify-issue-32.js`, including separate PostgreSQL check | 517 | 0 | 0 |
-| Real composed issuance/origin/provenance-exclusion stage | 6 | 0 | 2 inactive stages |
-| Real issuer outage stage | 1 | 0 | 0 |
-| Real issuer restart/replay stage | 1 | 0 | 0 |
+| Required full unit/contract/security runner | 787 | 0 | 0 |
+| Existing Sprint 5 technical verifier, including its PostgreSQL check | 528 | 0 | 0 |
+| Relevant Training/Examination/Certification/Marketplace/Skill Gap PostgreSQL suites | 22 | 0 | 0 |
+| Real synthetic/replay Eligible and ordinary legacy replay-label exclusion | 4 | 0 | 0 |
+| Real issuer outage | 1 | 0 | 0 |
+| Real Training/Examination/Certification restart and immutable replay | 1 | 0 | 0 |
+| Final focused Marketplace mapper | 13 | 0 | 0 |
+| Final focused Training admission/replay checks | 36 | 0 | 0 |
 
-The two inactive stages in the first Compose run were subsequently selected and
-executed separately. The six passes in that run include its enclosing test and
-five subtests. This is not eight formal E2E scenarios.
+Full-run component counts: Gateway 55; external protocol 7; reference adapter 34;
+Training 80; Examination 143; Certification 38; verifier 39; Marketplace 203;
+shared execution package 15. All other existing components also passed.
 
-Full runner component counts:
+The real rehearsal used fresh isolated Compose volumes and random loopback
+ports. Both synthetic and replay completed Registration -> Training ->
+Examination -> Certification -> verification -> real publication/Redis projection
+-> issuer-origin lookup -> listing/request -> Eligible matching. No injected
+Marketplace authority or database insert created candidates. A real legacy
+credential passed signature and origin but entered neither lane. Stopping the
+issuer excluded valid-provenance candidates; restarting three lifecycle services
+preserved Training receipts, exact completions, Examination summaries, JWS bytes,
+origin, one credential per decision and Eligible results. Only this invocation's
+project containers, volumes, network and local image tags were removed.
 
-| Component | Passed / total |
-| --- | ---: |
-| demo-lifecycle | 9/9 |
-| external-agent-protocol | 7/7 |
-| telemetry | 3/3 |
-| agent-registry | 9/9 |
-| api-gateway | 53/53 |
-| assurance-console | 22/22 |
-| certification-service | 22/22 |
-| credential-verification | 24/24 |
-| curriculum-engine | 18/18 |
-| curriculum-index | 12/12 |
-| evidence-bundle | 14/14 |
-| examination-engine | 138/138 |
-| grading-service | 32/32 |
-| marketplace-service | 203/203 |
-| monitoring-service | 14/14 |
-| skill-gap-service | 14/14 |
-| synthetic-agent-learner | 33/33 |
-| training-service | 76/76 |
-| validation-activation | 22/22 |
-| web | 4/4 |
+The first loaded-build unit attempt hit one pre-existing 200 ms HTTP timeout;
+the full suite passed without changing that timeout. Restart testing required
+refreshing Docker's random host ports. Neither was hidden by relaxing a check.
+`git diff --check` passed.
 
-Sprint 5 verifier: Skill Gap 14, Gateway 53, Training 76, Examination 138,
-Marketplace 203, grading 32, isolated Skill Gap PostgreSQL 1 = 517.
-Compose configuration validation, image builds/startup and `git diff --check`
-also passed. Node version: v24.19.0.
+Not run: the formal 1,000-scenario suite, formal 100-case golden suite and paid
+live inference. The older origin-only opt-in Compose file remains for unenrolled
+fresh deployments; its origin/outage/replay/legacy invariants are exercised by
+the expanded real rehearsal rather than a second separate legacy stack.
 
-Earlier diagnostic runs: the initial full runner passed 727/727 before two
-additional issuer configuration/storage tests were added; initial focus passed
-33/33. Sandbox loopback restrictions required authorized unsandboxed test runs.
-The first Sprint 5 verifier run passed 516/517: the new success-path test's 80ms
-deadline was too short under load. Its test deadline is now one second; the
-hanging-authority test retains 80ms and production remains two seconds. Final
-Sprint 5 verification passed 517/517. The first restart check failed 0/1 against
-a stale random host port; refreshing the container's port mapping produced the
-final pass. No production trust gate was changed to address these test failures.
+Ignored evidence: `artifacts/marketplace-trust/provenance-*.tap`,
+`provenance-unit-final.log`, `provenance-sprint5.log`, final audit JSON/Markdown,
+plus `artifacts/sprint1/unit-tests.json` and `artifacts/issue-32/report.json`.
+Runtime environment/key material stays ignored and is never staged.
 
-Logs and JSON are retained only in ignored `artifacts/marketplace-trust/`,
-`artifacts/sprint1/unit-tests.json` and `artifacts/issue-32/`. Test keys and `.env`
-remain ignored. The uniquely named Compose project
-`eduagentx-marketplace-trust-82df53f44663` was removed with its containers,
-volumes, network and project-built images; post-cleanup queries found no
-remaining containers, volumes or network for that project. Cleanup targeted only
-that named project with Compose; no unrelated project was targeted.
+## Security audit
 
-## P. Not run / incomplete
+Passed: explicit enrollment only; no role-based self-grant; public context
+spoofing ignored/refused; exact source and response binding; no cross-run/item
+receipt reuse; no caller-selected issuer/key; no prompts/answers/secrets in
+provenance summaries; immutable admission/coverage; missing/conflicting/unknown
+trust fails closed; no legacy upgrade; independent origin, signature, schema,
+status, fingerprint, discoverability and package checks; trust failure enters
+neither lane; unchanged exactly-once Certification and original signed replay.
 
-- Formal 1,000-scenario suite and formal 100-case golden suite: not run, as
-  instructed. No Issue #33 code was used.
-- Positive signed synthetic/replay/live provenance, mixed-mode authority,
-  fallback mapping and provenance persistence/retry tests: not implemented,
-  pending the contract decision. Existing fallback/examination tests passed;
-  they do not prove authoritative learner-mode provenance.
-- Fully positive Eligible Match and cumulative Sprint 4/5 exit gates: not
-  claimed. `scripts/sprint4-gate.js` uses placeholder/manual demonstration
-  inputs, external monitoring/bundle endpoints and `console.assert`; it is not
-  the applicable authoritative-origin technical verifier. The existing Sprint
-  5 technical verifier and real focused Compose stages were run instead.
-- No optional live model calls, paid provider runs or unrelated service fixes.
+Reference executors and their credential custody remain trusted platform
+components. This is not hardware attestation or proof of an arbitrary external
+adapter's honesty. The repository capture is simulation evidence, not live
+inference. Team review should focus on enrollment custody and the reference
+capture policy. These documented boundaries do not require weakening #33.
 
-## Q. Security audit
+## Exact production/support files
 
-| Audit item | Result |
-| --- | --- |
-| Read-only exact-selector endpoint; no broad enumeration | Pass |
-| Internal key/subject/role checks; issuer command key separated | Pass |
-| Response excludes raw assessments, answers, prompts, rationale | Pass |
-| No JWT, client secret or signing-key exposure | Pass |
-| Bounded client timeout; no redirects or automatic retries | Pass |
-| Unknown/mismatch/malformed/unavailable authority fails closed | Pass |
-| Unsigned candidate claims cannot borrow a signed artifact's origin | Pass |
-| Legacy missing provenance is not upgraded | Pass |
-| New decision binding is signed before atomic persistence | Pass |
-| Signature verification catches edited values | Pass |
-| One decision/credential, immutable replay/restart retained | Pass |
-| Existing non-Marketplace Certification behavior | Pass |
-| Trusted environment/evidenceMode signing | Not implemented; blocked, no unsafe approximation |
-| Ranking, Near Match separation and other trust gates unchanged | Pass |
+- `.env.example`
+- `docker-compose.yml`
+- `packages/execution-provenance/capture-reference.js`
+- `packages/execution-provenance/credential.schema.json`
+- `packages/execution-provenance/index.js`
+- `packages/execution-provenance/package-lock.json`
+- `packages/execution-provenance/package.json`
+- `packages/execution-provenance/reference.js`
+- `packages/execution-provenance/replay.json`
+- `services/api-gateway/auth.js`
+- `services/api-gateway/index.js`
+- `services/certification-service/evidence.js`
+- `services/certification-service/index.js`
+- `services/credential-verification/Dockerfile`
+- `services/credential-verification/src/verifier.js`
+- `services/examination-engine/fallback-form.js`
+- `services/examination-engine/generation.js`
+- `services/examination-engine/index.js`
+- `services/examination-engine/lifecycle.js`
+- `services/examination-engine/sources.js`
+- `services/examination-engine/store.js`
+- `services/marketplace-service/clients.js`
+- `services/synthetic-agent-learner/exam-runner.js`
+- `services/synthetic-agent-learner/index.js`
+- `services/synthetic-agent-learner/learner.js`
+- `services/training-service/index.js`
+- `services/training-service/schema.sql`
+- `services/training-service/session.js`
+- `services/training-service/store.js`
 
-## R. Pre-commit audit snapshot: `git diff --stat`
+## Exact test/support files
 
-```text
- docker-compose.yml                                 |   5 +-
- docs/contracts/certification.md                    |  42 +++++++
- docs/contracts/marketplace-matching.md             |  20 ++--
- docs/contracts/marketplace.md                      |  19 +++-
- services/certification-service/evidence.js         |   6 +-
- services/certification-service/index.js            |  25 ++++-
- .../integration/postgres.test.js                   |  21 +++-
- services/certification-service/store.js            |  33 +++++-
- .../certification-service/test/issuance.test.js    | 122 ++++++++++++++++++++-
- services/marketplace-service/clients.js            |  61 +++++++++--
- services/marketplace-service/index.js              |   3 +-
- services/marketplace-service/test/clients.test.js  |   2 +-
- 12 files changed, 322 insertions(+), 37 deletions(-)
-```
+- `packages/execution-provenance/test/fixtures.js`
+- `packages/execution-provenance/test/provenance.test.js`
+- `services/api-gateway/test/training.test.js`
+- `services/certification-service/integration/postgres.test.js`
+- `services/certification-service/test/issuance.test.js`
+- `services/credential-verification/test/provenance.test.js`
+- `services/examination-engine/integration/postgres.test.js`
+- `services/examination-engine/test/provenance.test.js`
+- `services/marketplace-service/integration/execution-provenance.test.js`
+- `services/marketplace-service/test/clients.test.js`
+- `services/synthetic-agent-learner/test/service-black-box.test.js`
+- `services/training-service/integration/provenance-postgres.test.js`
+- `services/training-service/test/provenance.test.js`
 
-Git's stat excludes the four untracked new files listed below. Nothing was
-staged to manufacture a combined stat.
+## Exact documentation files
 
-## S. Pre-commit audit snapshot: `git status --short --branch`
+- `docs/contracts/certification.md`
+- `docs/contracts/execution-provenance.md`
+- `docs/contracts/external-agent-learner-protocol.md`
+- `docs/contracts/marketplace-matching.md`
+- `docs/contracts/marketplace-trust-integration.md`
+- `docs/contracts/marketplace.md`
+- `docs/sprint-5/handoff-marketplace-trust-integration.md`
 
-```text
-## salman/fix-marketplace-trust-integration...origin/main
- M docker-compose.yml
- M docs/contracts/certification.md
- M docs/contracts/marketplace-matching.md
- M docs/contracts/marketplace.md
- M services/certification-service/evidence.js
- M services/certification-service/index.js
- M services/certification-service/integration/postgres.test.js
- M services/certification-service/store.js
- M services/certification-service/test/issuance.test.js
- M services/marketplace-service/clients.js
- M services/marketplace-service/index.js
- M services/marketplace-service/test/clients.test.js
-?? docs/contracts/marketplace-trust-integration.md
-?? docs/sprint-5/handoff-marketplace-trust-integration.md
-?? services/marketplace-service/integration/lifecycle-origin.test.js
-?? services/marketplace-service/test/origin-client.test.js
-```
+## Review recommendation
 
-At this audit snapshot, `git diff --cached` was empty and HEAD and origin/main
-were both the base SHA. These historical snapshots retain the reviewed scope;
-they do not describe the working-tree state after the authorized commit/push.
-
-## T. Exact unresolved contract decision
-
-Training/Examination, Gateway authentication and Certification/Marketplace owners
-must define the authoritative run/evidence record that proves seeded synthetic,
-versioned replay or fresh live inference, binds it to learner/fingerprint, and
-is pinned across Training and Examination. They must specify conflicting/mixed
-mode handling, fallback's separate learner-evidence classification, and the
-test/live issuer and signing-key policy. The protocol's enum map is already
-clear; the trusted source and lifecycle binding are not.
-
-The full analysis and implementation boundary are in
-[the integration decision](../contracts/marketplace-trust-integration.md).
-
-## U. Tracking authority: Issue #83
-
-[#83 — Sprint 5: Certification-to-Marketplace trust provenance
-integration](https://github.com/tkylevalle/EduAgentX/issues/83) was verified
-**OPEN**. Its scope includes the exact-credential origin authority implemented
-on this branch and the still-unresolved authoritative environment/evidenceMode
-contract, persistence and signing. It explicitly blocks #33's formal Marketplace
-acceptance. The issue owns the remaining acceptance criteria; its full body is
-not duplicated here. This origin-only commit must not close #83.
-
-## V. Integration status and pre-commit audit
-
-Full integration remains **BLOCKED BY CONTRACT DECISION**. The current
-origin-only change set was rated **A — SAFE TO COMMIT/PUSH CURRENT ORIGIN REPAIR**
-by the pre-commit scope audit. The user subsequently authorized one origin-only
-commit and a normal branch push, with no PR, merge, issue edit or issue closure.
-
-The pre-commit fetch succeeded after an initial transient DNS failure. GitHub's
-live main branch and fetched `origin/main` were both at the recorded base SHA;
-HEAD was unchanged, 0 ahead / 0 behind, with nothing staged at that audit.
-The subsequent dedicated Issue #83 supersedes the proposed-issue text and is
-the tracking authority for the remaining provenance work.
-
-Audit cleanup: no files were removed. One unrelated behavioral expansion was
-removed: shared HTTP redirect refusal had also affected preexisting authority
-clients. It is now scoped to origin lookup only; the new test checks both origin
-refusal and unchanged Registry redirect behavior. Generated/exploratory runtime
-helpers and logs remain ignored, outside the intended commit.
-
-The security checklist in Q was rechecked against the final diff. No learner
-labels become authoritative, no environment/evidenceMode is signed or defaulted,
-no existing signed credential is rewritten, and origin success does not bypass
-eligibility. Eligibility, matching, verification, Training, Examination, publisher
-and immutable schema implementations have no changes from the base.
-
-Post-cleanup checks: affected focused tests **249/249** passed (Certification 22,
-verification 24, Marketplace 203), then the full runner passed **729/729** again.
-The earlier **46/46** Certification/verification result is also covered in the
-fresh 249-test run. Retained PostgreSQL **18/18**, Sprint 5 verifier **517/517**,
-real lifecycle **6 passed**, issuer outage **1 passed**, and restart/replay
-**1 passed** remain applicable evidence for unchanged ledger, endpoint, origin
-contract and direct-service integration behavior. They were not rerun during this
-audit. The earlier real Compose images predate the already unit-tested null/false
-reply distinction; neither that handling nor this audit's redirect scoping
-changes the successful direct-service, outage or persistence paths they proved.
-No new Compose project, paid call, formal golden suite or 1,000-scenario run was
-started. `git diff --check` passes; keys, `.env` and runtime artifacts remain
-ignored and untracked by Git.
+READY TO COMMIT AND OPEN PR under the adopted reference scope. The implemented
+and tested origin/provenance path addresses #83's acceptance criteria; leave #83
+open for team review and do not merge automatically. #33's formal run remains
+paused until the integration is reviewed and the harness is deliberately updated
+through its own workstream.

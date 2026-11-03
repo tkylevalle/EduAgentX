@@ -7,6 +7,7 @@
 // Training delivers curriculum and bounded practice only. It never grades,
 // and it has no route to an Agent Learner's model weights.
 
+const execution = require('../../packages/execution-provenance');
 const {
   LEGACY_POLICY, completionStatus, deliveryPlan, planSummary, practiceShortfall, sessionPlan, targetPlan,
 } = require('./plan');
@@ -45,7 +46,7 @@ const policyOf = (session) => session.completionPolicy || LEGACY_POLICY;
 function deriveSessionState(events) {
   const state = {
     status: 'not_started', lastSeq: 0, completedItemIds: [], pendingItem: null, blockReason: null,
-    resumeCount: 0, replies: new Map(), lastEventAt: null,
+    resumeCount: 0, executionReceipts: [], replies: new Map(), lastEventAt: null,
   };
   for (const event of [...events].sort((a, b) => a.seq - b.seq)) {
     state.lastSeq = event.seq;
@@ -63,6 +64,7 @@ function deriveSessionState(events) {
       };
     }
     if (event.eventType === 'item_completed') {
+      if (event.executionEvidence) state.executionReceipts.push(event.executionEvidence);
       state.completedItemIds.push(event.deliveryItemId);
       state.pendingItem = null;
     }
@@ -104,6 +106,10 @@ function decideStart(pkg, registration, existing, input) {
 // version never takes over. An assigned remediation starts here; an open
 // session records a resume, so every reconnection is countable evidence.
 function decideExistingStart(pkg, registration, { session, state }, input) {
+  if (!provenanceMatches(session, input)) return conflict('provenance_conflict');
+  // findStart can locate a historical completed admission. Replay its saved
+  // identity-only receipt without trying to append a second terminal event.
+  if (state.status === 'completed') return replayOf(state, input) || conflict('session_completed');
   const reason = idleReason(state, input) || blockReason(pkg, session, registration);
   if (reason) return block(session, state, input, reason);
   const replay = replayOf(state, input);
@@ -164,6 +170,9 @@ function newSession(pkg, registration, input, { kind, remediation, plan }) {
     remediation,
     completionPolicy: input.policy,
     deliveryPlan: planSummary(plan),
+    ...(input.trustedExecution ? { provenance: execution.bindRun(input.trustedExecution, { sessionId: input.sessionId,
+      agentLearnerKey: input.agentLearnerKey, configurationFingerprint: registration.configurationFingerprint,
+      configurationVersion: registration.configurationVersion, package: { id: pkg.id, version: pkg.version, digest: pkg.digest } }) } : {}),
   };
 }
 
@@ -202,6 +211,8 @@ function decideSubmit(pkg, state, input) {
   // earlier item cannot record a second completion.
   if (input.deliveryItemId !== state.pendingItem.deliveryItemId) return conflict('out_of_sequence');
   if (input.responseLength > policyOf(session).maxResponseChars) return rejected('response_too_long');
+  if (session.provenance) execution.validateReceipt(session.provenance, input.trustedExecution, input.evidence,
+    input.executionEvidence, 'training', state.pendingItem.response.item, input.submittedResponse);
 
   const plan = sessionPlan(pkg.payload, session);
   const completed = [...state.completedItemIds, state.pendingItem.deliveryItemId];
@@ -214,21 +225,21 @@ function decideSubmit(pkg, state, input) {
     modelWeightsModified: false,
   };
   const events = [event(session, state.lastSeq + 1, 'item_completed', input, {
-    ...itemFields(state.pendingItem), responseDigest: input.responseDigest, ...replyFields(input, response),
+    ...itemFields(state.pendingItem), ...(session.provenance ? { executionEvidence: input.executionEvidence } : {}), responseDigest: input.responseDigest, ...replyFields(input, response),
   })];
   if (!status.complete) return ok(events, response);
   events.push(event(session, state.lastSeq + 2, 'session_completed', input));
-  return { ...ok(events, response), completion: completionEnvelope(session, plan, status, input) };
+  return { ...ok(events, response), completion: completionEnvelope(session, plan, status, input, state) };
 }
 
 // The one integration event a completed session emits. Its id is derived from
 // the session, and the store keeps one row per session, so a retry or a
 // second writer can never emit a second completion.
-function completionEnvelope(session, plan, status, input) {
+function completionEnvelope(session, plan, status, input, state) {
   return {
     eventId: `${COMPLETION_EVENT_TYPE}:${session.sessionId}`,
     eventType: COMPLETION_EVENT_TYPE,
-    schemaVersion: COMPLETION_SCHEMA_VERSION,
+    schemaVersion: session.provenance ? '1.1.0' : COMPLETION_SCHEMA_VERSION,
     occurredAt: input.now,
     correlationId: input.correlationId,
     agentLearnerKey: session.agentLearnerKey,
@@ -244,14 +255,21 @@ function completionEnvelope(session, plan, status, input) {
       practiceCompleted: status.practiceCompleted, modules: status.modules.map((m) => m.moduleId),
       objectiveIds: [...new Set(plan.flatMap((item) => item.objectiveIds))],
     },
-    evidence: { ...input.evidence },
+    ...(session.provenance ? { provenance: session.provenance, executionCoverage: execution.coverage(session.provenance, 'training',
+      plan.map((i) => i.deliveryItemId), [...state.executionReceipts, input.executionEvidence]) } : {}),
+    evidence: session.provenance ? { mode: session.provenance.evidenceMode, environment: session.provenance.environment } : { ...input.evidence },
   };
 }
 
 // Shared checks for continue and submit. The package and registration are
 // checked before any replay, so a stored response is never re-sent from a
 // package that is no longer eligible.
+function provenanceMatches(session, input) {
+  return session.provenance ? execution.matchesAuthority(session.provenance, input.trustedExecution, input.evidence) : !input.trustedExecution;
+}
+
 function guardRequest(pkg, state, input) {
+  if (!provenanceMatches(input.session, input)) return conflict('provenance_conflict');
   if (state.status === 'not_started' || state.status === 'assigned') return rejected('session_not_started');
   // A completed session keeps its result; a later package change does not block it.
   if (state.status === 'completed') return replayOf(state, input);
@@ -337,8 +355,8 @@ function event(session, seq, eventType, input, fields = {}) {
     objectiveIds: [],
     deliveryItemId: null,
     itemKind: null,
-    evidenceMode: input.evidence.mode,
-    evidenceEnvironment: input.evidence.environment,
+    evidenceMode: session.provenance?.evidenceMode || input.evidence.mode,
+    evidenceEnvironment: session.provenance?.environment || input.evidence.environment,
     occurredAt: input.now,
     correlationId: input.correlationId,
     actor: input.actor,
@@ -366,6 +384,7 @@ function startResponse(session) {
   const policy = policyOf(session);
   return {
     sessionId: session.sessionId,
+    ...(session.provenance ? { provenance: session.provenance } : {}),
     status: 'open',
     kind: session.kind || 'standard',
     package: { id: session.packageId, version: session.packageVersion, digest: session.packageDigest },

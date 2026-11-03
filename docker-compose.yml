@@ -297,6 +297,7 @@ services:
     environment:
       PORT: 4004
       DATABASE_URL: postgres://training_owner:${TRAINING_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      EXECUTION_PRINCIPALS: ${EXECUTION_PRINCIPALS:-[]}
       TRAINING_INTERNAL_KEY: ${TRAINING_INTERNAL_KEY:?Run node scripts/setup-dev.js}
       CURRICULUM_INTERNAL_KEY: ${CURRICULUM_INTERNAL_KEY:?Run node scripts/setup-dev.js}
       VALIDATION_ACTIVATION_URL: http://validation-activation:4010
@@ -443,6 +444,9 @@ services:
       JWT_ACCESS_TOKEN_TTL_SECONDS: ${JWT_ACCESS_TOKEN_TTL_SECONDS}
       JWT_PRIVATE_KEY_PATH: ${JWT_PRIVATE_KEY_PATH}
       JWT_PUBLIC_KEY_PATH: ${JWT_PUBLIC_KEY_PATH}
+      EXECUTION_PRINCIPALS: ${EXECUTION_PRINCIPALS:-[]}
+      REPLAY_AGENT_CLIENT_ID: ${REPLAY_AGENT_CLIENT_ID:-}
+      REPLAY_AGENT_CLIENT_SECRET: ${REPLAY_AGENT_CLIENT_SECRET:-}
       AGENT_CLIENT_ID: ${AGENT_CLIENT_ID}
       AGENT_CLIENT_SECRET: ${AGENT_CLIENT_SECRET}
       LIVE_AGENT_CLIENT_ID: ${LIVE_AGENT_CLIENT_ID:-live-agent-learner-dev}
@@ -504,6 +508,7 @@ services:
       PORT: 4011
       DATABASE_URL: postgres://certification_owner:${CERTIFICATION_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
       CERTIFICATION_INTERNAL_KEY: ${CERTIFICATION_INTERNAL_KEY:?Run node scripts/setup-dev.js}
+      CERTIFICATION_ENVIRONMENT: ${CERTIFICATION_ENVIRONMENT:-simulation}
       CERTIFICATION_KEY_ID: ${CERTIFICATION_KEY_ID:-https://eduagentx.example/issuers/eduagentx#dev-ed25519-1}
       # Read-only origin lookup; distinct from the issuer's command/read key.
       MARKETPLACE_INTERNAL_KEY: ${MARKETPLACE_INTERNAL_KEY:?Run node scripts/setup-dev.js}
@@ -558,6 +563,9 @@ services:
       PORT: 4200
       API_GATEWAY_URL: http://api-gateway:4000
       SERVICE_NAME: synthetic-agent-learner
+      EXECUTION_PRINCIPALS: ${EXECUTION_PRINCIPALS:-[]}
+      REPLAY_AGENT_CLIENT_ID: ${REPLAY_AGENT_CLIENT_ID:-}
+      REPLAY_AGENT_CLIENT_SECRET: ${REPLAY_AGENT_CLIENT_SECRET:-}
       AGENT_CLIENT_ID: ${AGENT_CLIENT_ID}
       AGENT_CLIENT_SECRET: ${AGENT_CLIENT_SECRET}
       # Optional live learner (Lifecycle Lab "Live model"). Empty key = disabled.
@@ -727,7 +735,8 @@ services:
 
   credential-verification:
     build:
-      context: ./services/credential-verification
+      context: .
+      dockerfile: services/credential-verification/Dockerfile
     container_name: eduagentx-credential-verification
     environment:
       PORT: 4030

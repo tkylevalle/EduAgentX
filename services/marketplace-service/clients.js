@@ -1,5 +1,7 @@
 'use strict';
 
+const execution = require('../../packages/execution-provenance');
+
 // Real authoritative sources over HTTP. Marketplace never reads another
 // service's tables. One mapping function per source: any missing or unexpected
 // field maps to null, so the matching gate becomes UNCHECKABLE. Never guess.
@@ -129,8 +131,8 @@ function toCandidate(record) {
     adversarialPercent: passed && percent(scores.tierPercents?.adversarial) ? scores.tierPercents.adversarial : null,
     assessmentMode: ASSESSMENT_MODES.includes(competency.mode) ? competency.mode : null,
     // Read only explicit signed fields; missing origin labels remain uncheckable.
-    environment: ['simulation', 'live'].includes(vc.environment) ? vc.environment : null,
-    evidenceMode: ['synthetic', 'replay', 'live'].includes(vc.evidenceMode) ? vc.evidenceMode : null,
+    environment: vc.credentialSchema?.id === execution.SCHEMA && execution.credentialProvenance(vc) ? vc.environment : null,
+    evidenceMode: vc.credentialSchema?.id === execution.SCHEMA && execution.credentialProvenance(vc) ? vc.evidenceMode : null,
     validFrom: instant(vc.validFrom),
     validUntil: instant(vc.validUntil),
     compactJws: text(record.compactJws) && record.compactJws.split('.').length === 3 ? record.compactJws : null,

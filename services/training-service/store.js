@@ -39,7 +39,7 @@ async function decideAndAppend(store, lockKey, decide) {
 
 const SESSION_COLUMNS = `session_id, agent_learner_key, configuration_fingerprint, configuration_version,
   package_id, package_version, package_digest, started_at, correlation_id, kind, remediation, completion_policy,
-  delivery_plan`;
+  delivery_plan, provenance`;
 const iso = (value) => (value instanceof Date ? value.toISOString() : value);
 const json = (value) => (value === null || value === undefined ? null : JSON.stringify(value));
 
@@ -58,11 +58,13 @@ function toSession(row) {
     remediation: row.remediation,
     completionPolicy: row.completion_policy,
     deliveryPlan: row.delivery_plan,
+    ...(row.provenance ? { provenance: row.provenance } : {}),
   };
 }
 
 function toEvent(row) {
   return {
+    ...(row.execution_evidence ? { executionEvidence: row.execution_evidence } : {}),
     sessionId: row.session_id,
     seq: row.seq,
     eventType: row.event_type,
@@ -89,6 +91,12 @@ function toEvent(row) {
 
 function pgQueries(db) {
   return {
+    async findStart(actor, key) {
+      const { rows } = await db.query(`SELECT s.* FROM training_service.sessions s
+        JOIN training_service.session_events e USING(session_id) WHERE s.agent_learner_key=$1
+        AND e.event_type='session_started' AND e.idempotency_key=$2 ORDER BY s.started_at LIMIT 1`, [actor, key]);
+      return rows[0] ? toSession(rows[0]) : null;
+    },
     async findOpenSession(agentLearnerKey) {
       // Open = started with no completion or block event yet.
       const result = await db.query(
@@ -119,10 +127,10 @@ function pgQueries(db) {
     async insertSession(s) {
       await db.query(
         `INSERT INTO training_service.sessions (${SESSION_COLUMNS})
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12::jsonb, $13::jsonb)`,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12::jsonb, $13::jsonb, $14::jsonb)`,
         [s.sessionId, s.agentLearnerKey, s.configurationFingerprint, s.configurationVersion,
           s.packageId, s.packageVersion, s.packageDigest, s.startedAt, s.correlationId, s.kind,
-          json(s.remediation), json(s.completionPolicy), json(s.deliveryPlan)]);
+          json(s.remediation), json(s.completionPolicy), json(s.deliveryPlan), json(s.provenance)]);
     },
     async insertEvents(events) {
       for (const e of events) {
@@ -130,12 +138,12 @@ function pgQueries(db) {
           `INSERT INTO training_service.session_events (session_id, seq, event_type, package_id, package_version,
              module_id, module_sequence, objective_ids, delivery_item_id, evidence_mode, evidence_environment,
              occurred_at, correlation_id, actor, idempotency_key, request_fingerprint, response_digest,
-             stored_response, block_reason, item_kind)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18::jsonb, $19, $20)`,
+             stored_response, block_reason, item_kind, execution_evidence)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18::jsonb, $19, $20, $21::jsonb)`,
           [e.sessionId, e.seq, e.eventType, e.packageId, e.packageVersion, e.moduleId, e.moduleSequence,
             e.objectiveIds, e.deliveryItemId, e.evidenceMode, e.evidenceEnvironment, e.occurredAt, e.correlationId,
             e.actor, e.idempotencyKey, e.requestFingerprint, e.responseDigest, json(e.storedResponse), e.blockReason,
-            e.itemKind ?? null]);
+            e.itemKind ?? null, json(e.executionEvidence)]);
       }
     },
     async insertCompletion(envelope) {
@@ -208,14 +216,14 @@ function createPgStore(pool) {
         'SELECT envelope FROM training_service.completion_events ORDER BY occurred_at DESC, event_id LIMIT $1', [limit]);
       return result.rows.map((row) => row.envelope);
     },
-    async findCompletion({ agentLearnerKey, packageId, packageVersion, packageDigest }) {
+    async findCompletion({ agentLearnerKey, packageId, packageVersion, packageDigest, sessionId }) {
       const result = await pool.query(
         `SELECT c.envelope FROM training_service.completion_events c
          JOIN training_service.sessions s ON s.session_id = c.session_id
          WHERE s.agent_learner_key = $1 AND s.package_id = $2 AND s.package_version = $3
-           AND s.package_digest = $4
+           AND s.package_digest = $4 AND ($5::uuid IS NULL OR s.session_id = $5::uuid)
          ORDER BY c.occurred_at DESC, c.event_id DESC LIMIT 1`,
-        [agentLearnerKey, packageId, packageVersion, packageDigest]);
+        [agentLearnerKey, packageId, packageVersion, packageDigest, sessionId || null]);
       return result.rows[0]?.envelope || null;
     },
     // Started sessions with no terminal event and no event since `cutoff`, oldest first.
@@ -332,6 +340,10 @@ function createMemoryStore() {
         const staged = { sessions: [], events: [], completions: [] };
         const allEvents = () => [...events, ...staged.events];
         const tx = {
+          async findStart(actor, key) {
+            const e = allEvents().find((e) => e.actor === actor && e.eventType === 'session_started' && e.idempotencyKey === key);
+            return structuredClone(e ? sessions.get(e.sessionId) : null);
+          },
           async findOpenSession(agentLearnerKey) {
             const candidates = [...sessions.values(), ...staged.sessions]
               .filter((s) => s.agentLearnerKey === agentLearnerKey)
@@ -395,10 +407,10 @@ function createMemoryStore() {
     },
     async metricsInput() { return store.listSessions(); },
     async listCompletionEvents() { return structuredClone([...completions.values()].reverse()); },
-    async findCompletion({ agentLearnerKey, packageId, packageVersion, packageDigest }) {
+    async findCompletion({ agentLearnerKey, packageId, packageVersion, packageDigest, sessionId }) {
       const match = [...completions.values()].reverse().find((event) =>
         event.agentLearnerKey === agentLearnerKey && event.package?.id === packageId &&
-        event.package?.version === packageVersion && event.package?.digest === packageDigest);
+        event.package?.version === packageVersion && event.package?.digest === packageDigest && (!sessionId || event.sessionId === sessionId));
       return match ? structuredClone(match) : null;
     },
     async listIdleOpenSessions(cutoff, limit = 100) {

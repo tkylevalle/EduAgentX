@@ -58,10 +58,17 @@ assessment items, answers, prompts, rationale, keys or tokens are returned.
 Origin proves historical issuance only; signature, schema, status, fingerprint
 freshness and all other Marketplace gates still run independently.
 
-Trusted environment/evidence-mode propagation is **not implemented** by this
-origin repair. See [the integration decision](marketplace-trust-integration.md)
-for the unresolved source-authority and fallback contracts. Caller labels are
-not upgraded into signed issuer claims.
+New authoritative credentials use the versioned [execution provenance reference
+policy](execution-provenance.md), validate complete Training/Examination coverage,
+and sign top-level `environment` and `evidenceMode` before the existing transaction.
+The complete answer-free binding is retained under `evidence.provenance`.
+`certification-evidence/1.1.0` cannot silently downgrade when required provenance
+is missing. Legacy evidence and signed bytes are never upgraded.
+
+`CERTIFICATION_ENVIRONMENT` must explicitly match authoritative issuance.
+The reference Compose issuer is simulation-only. Use separately provisioned
+issuer/key deployments for live credentials; callers cannot select either.
+Live provenance enrollment is disabled in this reference policy.
 
 ## Examination Engine evidence source
 

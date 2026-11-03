@@ -267,3 +267,81 @@ test('origin storage uncertainty returns unavailable without exposing errors or 
   assert.equal(JSON.stringify(response.body).includes('private-storage-details'), false);
   assert.deepEqual(await ctx.store.counts(), { decisions: 0, credentials: 0 });
 });
+
+
+const provenance = require('../../../packages/execution-provenance');
+const { fixture: provenanceFixture } = require('../../../packages/execution-provenance/test/fixtures');
+function authoritativeEvidence(mode) {
+  const f = provenanceFixture(mode, 'agent-1');
+  const e = evidence({ package: structuredClone(f.run.package), configurationFingerprint: f.run.configurationFingerprint });
+  const items = require('../../examination-engine/standard-generator').createStandardItems({ packageDigest: f.pkg.digest,
+    template: f.pkg.examTemplate, objectives: f.pkg.objectives, modules: f.pkg.modules, sources: f.pkg.sources, rubric: f.pkg.rubric });
+  e.assessment.itemOutcomes = items.map((i) => ({ itemId: i.id, tier: i.tier, score: 90, criticalViolationRuleIds: [], malformed: false }));
+  e.schemaVersion = 'certification-evidence/1.1.0';
+  e.provenanceProfile = provenance.RUN;
+  e.provenance = { schemaVersion: 'certification-provenance/1.0.0', run: f.run,
+    training: { eventId: f.completion.eventId, completionDigest: provenance.hash(f.completion), coverage: f.completion.executionCoverage },
+    examination: provenance.coverage(f.run, 'examination', items.map((i) => i.id),
+      items.map((i) => provenance.receipt(f.run, 'examination', i, e.attemptId).executionEvidence), e.attemptId) };
+  return e;
+}
+for (const mode of ['synthetic','replay']) {
+  test(`authoritative ${mode} is validated, persisted, signed and replayed without a second decision`, async (t) => {
+    const source = authoritativeEvidence(mode);
+    const c = await boot(t, async () => source, async () => provenanceFixture('synthetic', 'agent-1').pkg, { issuanceEnvironment: 'simulation', issuer: 'https://eduagentx.example/issuers/test' });
+    const body = { examinationId: source.attemptId, idempotencyKey: 'provenance' };
+    const issued = await c.call('/internal/decisions', body);
+    assert.equal(issued.status, 201, JSON.stringify(issued.body));
+    const vc = issued.body.credential.credential;
+    assert.equal(vc.environment, 'simulation'); assert.equal(vc.evidenceMode, mode);
+    assert.deepEqual(vc.evidence.provenance, source.provenance);
+    assert.equal(provenance.credentialProvenance(vc), true);
+    const row = await c.store.findByAttempt(source.attemptId);
+    assert.deepEqual(row.evidence.examinationEvidence.provenance, source.provenance);
+    assert.equal((await c.call('/internal/decisions', body)).body.credential.compactJws, issued.body.credential.compactJws);
+    source.provenance.run.evidenceMode = 'live';
+    assert.equal((await c.call('/internal/decisions', body)).body.credential.compactJws, issued.body.credential.compactJws);
+    assert.deepEqual(await c.store.counts(), { decisions: 1, credentials: 1 });
+    const { verifyCredential } = require('../../credential-verification/src/verifier');
+    const oldIssuer = process.env.CREDENTIAL_ISSUER;
+    process.env.CREDENTIAL_ISSUER = vc.issuer;
+    try {
+      const key = publicKey.export({ type: 'spki', format: 'pem' });
+      const status = { getStatus: () => 'active' };
+      assert.equal(verifyCredential(issued.body.credential.compactJws, key, status).overall, 'VALID');
+      for (const edit of [v => v.environment = 'live', v => v.evidenceMode = 'live', v => v.evidence.provenance.run.runId = randomUUID()]) {
+        const v = structuredClone(vc); edit(v);
+        const parts = issued.body.credential.compactJws.split('.'); parts[1] = Buffer.from(JSON.stringify(v)).toString('base64url');
+        assert.equal(verifyCredential(parts.join('.'), key, status).overall, 'INVALID');
+      }
+    } finally { if (oldIssuer === undefined) delete process.env.CREDENTIAL_ISSUER; else process.env.CREDENTIAL_ISSUER = oldIssuer; }
+  });
+}
+for (const [name, edit] of [
+  ['missing profile data', e => delete e.provenance],
+  ['removed profile cannot downgrade', e => { delete e.provenance; delete e.provenanceProfile; }],
+  ['unsupported evidence version', e => e.schemaVersion = 'unknown/1'],
+  ['unsupported version', e => e.provenanceProfile = 'future/9'],
+  ['incomplete coverage', e => e.provenance.examination.itemCount--],
+  ['wrong assessed item coverage', e => e.provenance.examination.itemIdsDigest = provenance.hash(['other'])],
+  ['wrong learner', e => e.provenance.run.agentLearnerKey = 'other'],
+  ['wrong fingerprint', e => e.provenance.run.configurationFingerprint = 'other'],
+  ['wrong package', e => e.provenance.run.package.digest = 'other'],
+  ['coherent source with wrong package digest', e => { e.package = { ...e.package, digest: 'wrong' }; e.provenance.run.package = { ...e.package }; }],
+  ['invalid pair', e => e.provenance.run.environment = 'live'],
+  ['unsupported policy', e => e.provenance.run.policyVersion = 'arbitrary'],
+  ['malformed coverage', e => delete e.provenance.training.coverage],
+]) test(`Certification rejects ${name} before persistence`, async (t) => {
+  const source = authoritativeEvidence('synthetic'); edit(source);
+  const c = await boot(t, async () => source, async () => provenanceFixture('synthetic', 'agent-1').pkg, { issuanceEnvironment: 'simulation' });
+  const r = await c.call('/internal/decisions', { examinationId: source.attemptId, idempotencyKey: name });
+  assert.equal(r.status, 409); assert.deepEqual(await c.store.counts(), { decisions: 0, credentials: 0 });
+});
+test('simulation provenance cannot select a live-only or unconfigured issuer environment', async (t) => {
+  for (const issuanceEnvironment of ['live', undefined]) {
+    const source = authoritativeEvidence('replay');
+    const c = await boot(t, async () => source, async () => provenanceFixture('synthetic', 'agent-1').pkg, { issuanceEnvironment });
+    assert.equal((await c.call('/internal/decisions', { examinationId: source.attemptId, idempotencyKey: 'key-isolation' })).status, 409);
+    assert.deepEqual(await c.store.counts(), { decisions: 0, credentials: 0 });
+  }
+});

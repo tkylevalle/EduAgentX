@@ -20,6 +20,7 @@ const matchesSecret = (a, b) => {
 function createApp({ store, examinationEvidence, internalKey = process.env.CERTIFICATION_INTERNAL_KEY,
   originReadKey = process.env.MARKETPLACE_INTERNAL_KEY,
   packageTrust = async () => true,
+  issuanceEnvironment = process.env.CERTIFICATION_ENVIRONMENT,
   privateKey = null, keyId = process.env.CERTIFICATION_KEY_ID,
   issuer = process.env.CERTIFICATION_ISSUER, credentialBase = process.env.CREDENTIAL_BASE_URL,
   clock = () => new Date().toISOString() } = {}) {
@@ -64,15 +65,15 @@ function createApp({ store, examinationEvidence, internalKey = process.env.CERTI
     if (replay) return replay;
     const latencyStartedAt = process.hrtime.bigint();
     const source = await examinationEvidence(examinationId, correlationId);
-    const pending = validatedEvidence(source);
+    const pending = validatedEvidence(source, null, issuanceEnvironment);
     if (pending.examinationId !== examinationId) throw fail('examination_evidence_mismatch');
     const trustedPackage = await packageTrust(pending.packageId, pending.packageVersion, correlationId);
     if (!trustedPackage) throw fail('package_quarantined');
-    const evidence = validatedEvidence(source, trustedPackage);
+    const evidence = validatedEvidence(source, trustedPackage, issuanceEnvironment);
     return store.issue({ evidence, commandKey: idempotencyKey,
       commandDigest: digest({ examinationId, idempotencyKey }),
       latencyStartedAt,
-      createCredential: (decisionId) => issueCredential(evidence, { privateKey, keyId, issuer, credentialBase, decisionId, now: clock }) });
+      createCredential: (decisionId) => issueCredential(evidence, { privateKey, keyId, issuer, credentialBase, decisionId, environment: issuanceEnvironment, now: clock }) });
   };
   app.post('/internal/decisions', async (req, res) => {
     try {

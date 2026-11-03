@@ -156,9 +156,10 @@ fingerprint and exact signed artifact. The client also checks that projected
 claims equal the signed payload. Signature/status and all matching gates remain
 independent.
 
-Trusted environment/evidenceMode issuance still requires an authoritative run
-contract; Training's caller-declared labels are insufficient. See [the integration
-decision](marketplace-trust-integration.md). Missing labels exclude affected real
-candidates from both lanes. The focused real Compose test proves issued origin
-and this exclusion; it does not prove a successful Eligible Match. Injected
-authority tests remain matching-policy evidence only.
+Authoritative environment/evidenceMode now comes from the versioned
+[execution provenance reference policy](execution-provenance.md). The projection
+maps these labels only for a complete supported signed provenance profile.
+Legacy/descriptive labels remain uncheckable. The verifier checks the full pair
+matrix and bindings; origin remains independent. Real composed synthetic and
+replay candidates can become Eligible when every existing gate passes. Missing
+or uncertain trust still excludes both lanes. No ranking policy changed.

@@ -3,6 +3,7 @@
  * W3C VC 2.0 verification engine.
  * Reports each check separately. Fails closed on tamper, unknown key/issuer, bad algorithm.
  */
+const { credentialProvenance } = require('../../../packages/execution-provenance');
 const { verifyJws } = require('./signer');
 
 const DEFAULT_ISSUER = 'did:example:eduagentx-dev-2026';
@@ -63,6 +64,7 @@ function verifyCredential(jws, publicKeyPem, statusStore = null) {
   const required = ['@context', 'type', 'id', 'issuer', 'credentialSubject'];
   const missing = required.filter(f => !credential[f]);
   if (!validFrom) missing.push('validFrom');
+  if (!credentialProvenance(credential)) missing.push('supported execution provenance');
   if (missing.length) {
     report.schema = { status: 'FAIL', reason: `missing fields: ${missing.join(', ')}` };
     report.reasonCodes.push('SCHEMA_INVALID');
