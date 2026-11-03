@@ -222,7 +222,7 @@ test('verification: 422 still carries a report; 404 gives no signature; 500, bad
 
 // --- lifecycle origin
 
-test('lifecycle origin is always uncheckable until certification-service offers a route (blocker 1)', async () => {
+test('lifecycle origin remains uncheckable without configured issuer access', async () => {
   assert.deepEqual(await asked(() => createLifecycleSource().isLifecycleOrigin(candidate)),
     { value: null, outcome: 'source_not_available' });
 });

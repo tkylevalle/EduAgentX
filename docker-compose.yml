@@ -343,7 +343,8 @@ services:
       VALIDATION_ACTIVATION_URL: http://validation-activation:4010
       AGENT_REGISTRY_URL: http://agent-registry:4001
       CREDENTIAL_VERIFICATION_URL: http://credential-verification:4030
-      # Credential events; nothing publishes to this stream yet (blocker 1).
+      CERTIFICATION_SERVICE_URL: http://certification-service:4011
+      # Credentials are published by Certification's durable outbox.
       REDIS_URL: redis://redis:6379
       CREDENTIAL_EVENT_STREAM: ${CREDENTIAL_EVENT_STREAM:-certification.credentials}
     depends_on:
@@ -504,6 +505,8 @@ services:
       DATABASE_URL: postgres://certification_owner:${CERTIFICATION_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
       CERTIFICATION_INTERNAL_KEY: ${CERTIFICATION_INTERNAL_KEY:?Run node scripts/setup-dev.js}
       CERTIFICATION_KEY_ID: ${CERTIFICATION_KEY_ID:-https://eduagentx.example/issuers/eduagentx#dev-ed25519-1}
+      # Read-only origin lookup; distinct from the issuer's command/read key.
+      MARKETPLACE_INTERNAL_KEY: ${MARKETPLACE_INTERNAL_KEY:?Run node scripts/setup-dev.js}
       CERTIFICATION_PRIVATE_KEY_PATH: ${CERTIFICATION_PRIVATE_KEY_PATH:-/app/keys/certification-ed25519-private.pem}
       CERTIFICATION_ISSUER: ${CERTIFICATION_ISSUER:-https://eduagentx.example/issuers/eduagentx}
       CREDENTIAL_BASE_URL: ${CREDENTIAL_BASE_URL:-https://eduagentx.example/credentials}

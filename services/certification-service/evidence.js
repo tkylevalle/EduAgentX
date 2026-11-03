@@ -85,7 +85,8 @@ function validatedEvidence(attempt, trustedPackage = null) {
 }
 
 function issueCredential(evidence, { privateKey, keyId, issuer = 'https://eduagentx.example/issuers/eduagentx',
-  credentialBase = 'https://eduagentx.example/credentials', now = () => new Date().toISOString(), validityDays = 365 }) {
+  credentialBase = 'https://eduagentx.example/credentials', decisionId,
+  now = () => new Date().toISOString(), validityDays = 365 }) {
   if (!privateKey || !text(keyId)) throw fail('signing_not_configured', 503);
   const credentialId = randomUUID();
   const issuedAt = now();
@@ -101,7 +102,8 @@ function issueCredential(evidence, { privateKey, keyId, issuer = 'https://eduage
       competency: { packageId: evidence.packageId, packageVersion: evidence.packageVersion,
         result: 'pass', mode: evidence.mode, scores: evidence.scores, safetyResult: evidence.safetyResult } },
     credentialSchema: { id: 'https://eduagentx.example/schemas/competency/v1.json', type: 'JsonSchema' },
-    evidence: { type: 'EduAgentXAssessmentEvidence', ...evidence.examinationEvidence },
+    evidence: { type: 'EduAgentXAssessmentEvidence', ...evidence.examinationEvidence,
+      ...(decisionId ? { certificationDecisionId: decisionId } : {}) },
     termsOfUse: { type: 'EduAgentXProjectCredentialPolicy',
       id: 'https://eduagentx.example/policies/credential/v1', scope: 'EduAgentX capstone project; no external accreditation implied' },
   };
