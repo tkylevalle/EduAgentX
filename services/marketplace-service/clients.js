@@ -7,10 +7,13 @@
 // which askSource turns into null for that one candidate.
 
 const telemetry = require('../../packages/telemetry');
+const { createHash } = require('node:crypto');
+const { isDeepStrictEqual } = require('node:util');
 const { SUPPORTED_DOMAIN, ASSESSMENT_MODES } = require('./capability-request');
 
 const SERVICE_NAME = 'marketplace-service';
 const DEFAULT_TIMEOUT_MS = 2000;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 class SourceError extends Error {
   constructor(source, code) {
@@ -138,11 +141,11 @@ function toCandidate(record) {
 
 // Returns the parsed body for an accepted status, null on 404, and throws otherwise.
 async function requestJson(source, url, { method = 'GET', body, headers = {}, accept = [200], correlationId,
-  timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
+  timeoutMs = DEFAULT_TIMEOUT_MS, notFoundValue = null, redirect = 'follow' } = {}) {
   let response;
   try {
     response = await fetch(url, {
-      method,
+      method, redirect,
       headers: { ...headers, ...(body === undefined ? {} : { 'content-type': 'application/json' }),
         ...(correlationId ? { 'x-correlation-id': correlationId } : {}) },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
@@ -151,7 +154,7 @@ async function requestJson(source, url, { method = 'GET', body, headers = {}, ac
   } catch (error) {
     throw new SourceError(source, error?.name === 'TimeoutError' ? 'timeout' : 'source_unavailable');
   }
-  if (response.status === 404) return null;
+  if (response.status === 404) return notFoundValue;
   if (!accept.includes(response.status)) throw new SourceError(source, 'source_unavailable');
   try { return await response.json(); } catch { throw new SourceError(source, 'contract_violation'); }
 }
@@ -212,16 +215,56 @@ function createVerificationSource({ baseUrl, timeoutMs } = {}) {
   };
 }
 
-// TODO(blocker 1, owner Timurmalik): certification-service has no route Marketplace
-// may call to confirm a credential came from a real Certification Decision, so
-// lifecycle origin is always uncheckable and every candidate is excluded for now.
-function createLifecycleSource() {
+// The issuer's immutable ledger, not possession of a signed credential alone,
+// establishes origin. Compare the whole gate projection with the JWS payload as
+// well: an event's unsigned copy must never substitute different claims beside
+// an otherwise valid JWS. Signature/schema/status remain independent gates.
+function toLifecycleOrigin(body, candidate) {
+  const origin = body?.origin;
+  const fields = ['schemaVersion', 'outcome', 'credentialId', 'decisionId', 'examinationId',
+    'subjectId', 'configurationFingerprint', 'credentialDigest'];
+  if (body?.apiVersion !== 'v1' || !object(origin) || Object.keys(origin).length !== fields.length ||
+      !fields.every((field) => Object.hasOwn(origin, field)) ||
+      origin.schemaVersion !== 'certification-origin/1.0.0' || origin.outcome !== 'certified' ||
+      ![origin.credentialId, origin.decisionId, origin.examinationId].every((id) => typeof id === 'string' && UUID.test(id)) ||
+      !text(origin.subjectId) || !text(origin.configurationFingerprint) ||
+      typeof origin.credentialDigest !== 'string' || !/^sha256:[0-9a-f]{64}$/.test(origin.credentialDigest)) return null;
+  let vc;
+  try { vc = JSON.parse(Buffer.from(candidate.compactJws.split('.')[1], 'base64url').toString('utf8')); }
+  catch { return null; }
+  const signed = toCandidate({ credentialId: candidate.credentialId, credential: vc, compactJws: candidate.compactJws });
+  const decisionId = vc?.evidence?.certificationDecisionId;
+  const examinationId = vc?.evidence?.examinationId;
+  // Old signed artifacts are never silently given a decision binding.
+  if (!signed || typeof decisionId !== 'string' || !UUID.test(decisionId) ||
+      typeof examinationId !== 'string' || !UUID.test(examinationId)) return null;
+  const credentialDigest = `sha256:${createHash('sha256').update(candidate.compactJws).digest('hex')}`;
+  return isDeepStrictEqual(candidate, signed) && origin.credentialId === candidate.credentialId &&
+    origin.decisionId === decisionId && origin.examinationId === examinationId &&
+    origin.subjectId === signed.agentLearnerKey && origin.configurationFingerprint === signed.configurationFingerprint &&
+    origin.credentialDigest === credentialDigest;
+}
+
+function createLifecycleSource({ baseUrl, internalKey, timeoutMs } = {}) {
+  const notFound = Symbol('origin_not_found');
   return {
-    async isLifecycleOrigin() { throw new SourceError('certification-service', 'source_not_available'); },
+    async isLifecycleOrigin(candidate, options = {}) {
+      if (!baseUrl || !internalKey) throw new SourceError('certification-service', 'source_not_available');
+      if (!UUID.test(candidate?.credentialId || '') || !text(candidate?.compactJws))
+        throw new SourceError('certification-service', 'contract_violation');
+      const body = await requestJson('certification-service',
+        `${baseUrl}/internal/credential-origins/${encodeURIComponent(candidate.credentialId)}`, {
+          ...options, timeoutMs, notFoundValue: notFound, redirect: 'error',
+          headers: { 'x-internal-service-key': internalKey, 'x-actor-subject': SERVICE_NAME, 'x-actor-role': 'marketplace' } });
+      if (body === notFound) return false;
+      const answer = toLifecycleOrigin(body, candidate);
+      if (answer === null) throw new SourceError('certification-service', 'contract_violation');
+      return answer;
+    },
   };
 }
 
 module.exports = {
-  SourceError, askSource, toCurrentFingerprint, toPackageAnswer, toSignatureAndSchema, toStatus, toCandidate,
+  SourceError, askSource, toCurrentFingerprint, toPackageAnswer, toSignatureAndSchema, toStatus, toCandidate, toLifecycleOrigin,
   createRegistrySource, createPackageSource, createVerificationSource, createLifecycleSource,
 };

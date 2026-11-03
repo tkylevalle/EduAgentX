@@ -3,12 +3,15 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
-const { generateKeyPairSync, verify } = require('node:crypto');
+const { generateKeyPairSync, verify, randomUUID, createHash } = require('node:crypto');
 const { createApp } = require('../index');
 const { createMemoryStore } = require('../store');
 
 const KEY = 'certification-test-secret';
+const ORIGIN_KEY = 'marketplace-origin-test-secret';
 const HEADERS = { 'x-internal-service-key': KEY, 'x-actor-subject': 'examination-engine', 'x-actor-role': 'examination-engine' };
+const ORIGIN_HEADERS = { 'x-internal-service-key': ORIGIN_KEY,
+  'x-actor-subject': 'marketplace-service', 'x-actor-role': 'marketplace' };
 const { privateKey, publicKey } = generateKeyPairSync('ed25519');
 
 function evidence(overrides = {}) {
@@ -31,11 +34,11 @@ function evidence(overrides = {}) {
 
 async function boot(t, getEvidence = async () => evidence(), packageTrust = async () => ({
   examTemplate: { overallPassPercent: 80, adversarialPassPercent: 70, failOnCriticalViolation: true },
-})) {
+}), appOptions = {}) {
   const store = createMemoryStore();
   const server = http.createServer(createApp({ store, examinationEvidence: getEvidence, packageTrust,
-    internalKey: KEY, privateKey, keyId: 'https://eduagentx.example/issuers/eduagentx#test',
-    clock: () => '2026-10-17T06:01:00.000Z' }));
+    internalKey: KEY, originReadKey: ORIGIN_KEY, privateKey, keyId: 'https://eduagentx.example/issuers/eduagentx#test',
+    clock: () => '2026-10-17T06:01:00.000Z', ...appOptions }));
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   t.after(() => new Promise((resolve) => server.close(resolve)));
   return { store, call: (path, body, headers = HEADERS) => request(server, path, body, headers),
@@ -152,4 +155,115 @@ test('internal issuer boundary rejects non-engine callers', async (t) => {
   const response = await ctx.call('/internal/decisions', { examinationId: evidence().attemptId, idempotencyKey: 'x' },
     { ...HEADERS, 'x-actor-role': 'agent' });
   assert.equal(response.status, 403);
+});
+
+test('origin read binds the immutable issued decision, examination, subject, fingerprint and exact signed bytes', async (t) => {
+  const ctx = await boot(t);
+  const issued = await ctx.call('/internal/decisions', { examinationId: evidence().attemptId, idempotencyKey: 'origin' });
+  const { credentialId, credential, compactJws } = issued.body.credential;
+  const saved = await ctx.store.findByAttempt(evidence().attemptId);
+  assert.equal(credential.evidence.certificationDecisionId, saved.decisionId);
+  const [, payload] = compactJws.split('.');
+  assert.equal(JSON.parse(Buffer.from(payload, 'base64url')).evidence.certificationDecisionId, saved.decisionId);
+  const read = await ctx.get(`/internal/credential-origins/${credentialId}`, ORIGIN_HEADERS);
+  assert.equal(read.status, 200);
+  assert.deepEqual(read.body, { apiVersion: 'v1', origin: {
+    schemaVersion: 'certification-origin/1.0.0', outcome: 'certified', credentialId,
+    decisionId: saved.decisionId, examinationId: evidence().attemptId,
+    subjectId: evidence().agentLearnerKey, configurationFingerprint: evidence().configurationFingerprint,
+    credentialDigest: `sha256:${createHash('sha256').update(compactJws).digest('hex')}`,
+  } });
+  // No credential dump, scores, answers, prompts, rationale or secret material.
+  assert.equal(JSON.stringify(read.body).includes(compactJws), false);
+  assert.deepEqual(await ctx.store.counts(), { decisions: 1, credentials: 1 });
+});
+
+test('origin lookup refuses missing/wrong keys, unauthorized roles and subjects, and the general issuer key', async (t) => {
+  const ctx = await boot(t);
+  const path = `/internal/credential-origins/${randomUUID()}`;
+  for (const headers of [{}, { ...ORIGIN_HEADERS, 'x-internal-service-key': '' },
+    { ...ORIGIN_HEADERS, 'x-internal-service-key': 'wrong' },
+    { ...ORIGIN_HEADERS, 'x-internal-service-key': KEY },
+    { ...ORIGIN_HEADERS, 'x-actor-role': 'gateway' }, { ...ORIGIN_HEADERS, 'x-actor-role': 'agent' },
+    { ...ORIGIN_HEADERS, 'x-actor-subject': '' }, { ...ORIGIN_HEADERS, 'x-actor-subject': 'another-service' }]) {
+    assert.equal((await ctx.get(path, headers)).status, 403);
+  }
+});
+
+test('Marketplace origin key cannot enumerate credentials or read other issuer routes or issue decisions', async (t) => {
+  const ctx = await boot(t);
+  for (const path of ['/internal/credentials', '/internal/credential-origins',
+    '/internal/kpi/issuance', `/internal/decisions/by-examination/${evidence().attemptId}`])
+    assert.equal((await ctx.get(path, ORIGIN_HEADERS)).status, 403);
+  assert.equal((await ctx.call('/internal/decisions', {
+    examinationId: evidence().attemptId, idempotencyKey: 'forbidden-origin-write',
+  }, ORIGIN_HEADERS)).status, 403);
+  assert.equal((await ctx.call(`/internal/credential-origins/${randomUUID()}`, {}, ORIGIN_HEADERS)).status, 403);
+  assert.deepEqual(await ctx.store.counts(), { decisions: 0, credentials: 0 });
+});
+
+test('origin read is exact-selector only: unknown ID is absent and broad/malformed selectors are refused', async (t) => {
+  const ctx = await boot(t);
+  assert.equal((await ctx.get(`/internal/credential-origins/${randomUUID()}`, ORIGIN_HEADERS)).status, 404);
+  for (const selector of ['all', '*', 'not-a-uuid', `${randomUUID()}?limit=100`, `${randomUUID()}?subject=agent-1`])
+    assert.equal((await ctx.get(`/internal/credential-origins/${selector}`, ORIGIN_HEADERS)).status, 400);
+});
+
+for (const status of ['agent_failed', 'system_aborted']) {
+  test(`${status} examination cannot establish issued origin`, async (t) => {
+    const ctx = await boot(t, async () => evidence({ status }));
+    assert.equal((await ctx.call('/internal/decisions', {
+      examinationId: evidence().attemptId, idempotencyKey: status,
+    })).status, 409);
+    assert.equal((await ctx.get(`/internal/credential-origins/${randomUUID()}`, ORIGIN_HEADERS)).status, 404);
+    assert.deepEqual(await ctx.store.counts(), { decisions: 0, credentials: 0 });
+  });
+}
+
+test('evidence returned for a different examination cannot be issued under the requested selector', async (t) => {
+  const ctx = await boot(t, async () => evidence({ attemptId: randomUUID() }));
+  const refused = await ctx.call('/internal/decisions', { examinationId: evidence().attemptId, idempotencyKey: 'mismatch' });
+  assert.equal(refused.status, 409);
+  assert.equal(refused.body.error, 'examination_evidence_mismatch');
+  assert.deepEqual(await ctx.store.counts(), { decisions: 0, credentials: 0 });
+});
+
+test('conflicting source replay preserves the original signed decision and origin without rereading evidence', async (t) => {
+  let reads = 0;
+  const ctx = await boot(t, async () => { reads++; return evidence({ agentLearnerKey: reads === 1 ? 'agent-1' : 'spoofed' }); });
+  const command = { examinationId: evidence().attemptId, idempotencyKey: 'immutable-origin' };
+  const first = await ctx.call('/internal/decisions', command);
+  const path = `/internal/credential-origins/${first.body.credential.credentialId}`;
+  const origin = await ctx.get(path, ORIGIN_HEADERS);
+  const replay = await ctx.call('/internal/decisions', command);
+  assert.equal(reads, 1);
+  assert.deepEqual(replay.body.credential, first.body.credential);
+  assert.deepEqual((await ctx.get(path, ORIGIN_HEADERS)).body, origin.body);
+});
+
+test('caller provenance cannot be supplied on the issuance command', async (t) => {
+  const ctx = await boot(t);
+  const refused = await ctx.call('/internal/decisions', {
+    examinationId: evidence().attemptId, idempotencyKey: 'spoofed-provenance', environment: 'live', evidenceMode: 'live',
+  });
+  assert.equal(refused.status, 400);
+  assert.deepEqual(await ctx.store.counts(), { decisions: 0, credentials: 0 });
+});
+
+test('missing or reused issuer key configuration refuses origin reads', async (t) => {
+  for (const originReadKey of [null, KEY]) {
+    const ctx = await boot(t, undefined, undefined, { originReadKey });
+    assert.equal((await ctx.get(`/internal/credential-origins/${randomUUID()}`,
+      { ...ORIGIN_HEADERS, 'x-internal-service-key': originReadKey || ORIGIN_KEY })).status, 403);
+  }
+});
+
+test('origin storage uncertainty returns unavailable without exposing errors or writing a decision', async (t) => {
+  const ctx = await boot(t);
+  ctx.store.findOriginByCredential = async () => { throw new Error('private-storage-details'); };
+  const response = await ctx.get(`/internal/credential-origins/${randomUUID()}`, ORIGIN_HEADERS);
+  assert.equal(response.status, 503);
+  assert.equal(response.body.error, 'certification_unavailable');
+  assert.equal(JSON.stringify(response.body).includes('private-storage-details'), false);
+  assert.deepEqual(await ctx.store.counts(), { decisions: 0, credentials: 0 });
 });
