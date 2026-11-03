@@ -1,6 +1,7 @@
 const express = require('express');
 
 const telemetry = require('../../packages/telemetry');
+const execution = require('../../packages/execution-provenance');
 const { canonicalEvidence } = require('../../packages/external-agent-protocol');
 const { GatewayProtocolClient } = require('./gateway-client');
 const { createExamRunner } = require('./exam-runner');
@@ -118,6 +119,36 @@ function createApp({ learner = createDefaultLearner(), examRunner = null, liveMo
         ...(live ? { live: liveSummary(liveModel, usage) } : {}),
         evidence: canonicalEvidence(live ? 'live' : 'synthetic') });
     } catch (error) { return next(error); }
+  });
+
+  // Controlled generation only: no caller responses, receipts, manifests or credentials.
+  app.post('/v1/execution-runs', async (req, res, next) => {
+    try {
+      const body = req.body || {};
+      if (Object.keys(body).some((k) => !['evidenceMode','profileId','scenarioId','action','trainingSessionId'].includes(k)) ||
+        !['synthetic','replay'].includes(body.evidenceMode) || !['training','examination'].includes(body.action))
+        return res.status(400).json({ error: 'invalid_execution_request' });
+      const replay = body.evidenceMode === 'replay';
+      const clientId = replay ? process.env.REPLAY_AGENT_CLIENT_ID : AGENT_CLIENT_ID;
+      const clientSecret = replay ? process.env.REPLAY_AGENT_CLIENT_SECRET : AGENT_CLIENT_SECRET;
+      if (!clientId || !clientSecret) return res.status(503).json({ error: 'executor_not_configured' });
+      const profile = replay ? 'replay:reference-safe' : `synthetic:${body.profileId || 'competent'}:${body.scenarioId || DEFAULT_EXAM_SCENARIO}`;
+      execution.source(profile); // Known repository source only; enrollment is checked by Gateway.
+      const client = new GatewayProtocolClient({ gatewayUrl: GATEWAY_URL, clientId, clientSecret });
+      if (body.action === 'training') {
+        const result = await createSyntheticAgentLearner({ gatewayClient: client }).train({ agentLearnerKey: clientId,
+          evidenceMode: body.evidenceMode, executionProfile: profile, profileId: body.profileId || 'competent',
+          correlationId: req.correlationId || undefined });
+        return res.status(result.outcome === 'completed' ? 200 : 409).json(result);
+      }
+      if (!execution.UUID.test(body.trainingSessionId || '')) return res.status(400).json({ error: 'training_run_required' });
+      const result = await createExamRunner({ gatewayClient: client }).examine({ trainingSessionId: body.trainingSessionId,
+        executionProfile: profile, correlationId: req.correlationId || undefined });
+      return res.status(result.outcome === 'complete' ? 200 : 409).json(result);
+    } catch (error) {
+      if (error.code) return res.status(error.status || 409).json({ error: error.code });
+      return next(error);
+    }
   });
 
   app.get('/v1/exam-scenarios', (req, res) => {

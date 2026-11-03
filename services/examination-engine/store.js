@@ -1,5 +1,6 @@
 'use strict';
 
+const execution = require('../../packages/execution-provenance');
 const { randomUUID } = require('node:crypto');
 const { sha256 } = require('../curriculum-engine/model');
 const { fail, validateCommand, commandDigest, derive, stateReceipt, isResponseExpired } = require('./lifecycle');
@@ -44,6 +45,13 @@ function attachRemediation(record, command, terminalEventId) {
 function execute(record, command) {
   validateCommand(command);
   let current = snapshot(record);
+  if (command.type === 'response') {
+    if (current.form.provenanceProfile) {
+      const r = current.form.provenance;
+      execution.validateReceipt(r, command.trustedExecution, { mode: r.evidenceMode, environment: r.environment },
+        command.executionEvidence, 'examination', current.form.items.find((i) => i.id === command.itemId) || {}, command.response, current.attemptId);
+    } else if (command.trustedExecution || command.executionEvidence) throw fail('provenance_conflict');
+  }
   const system = ['timeout', 'system_abort'].includes(command.type);
   const digest = system ? null : commandDigest(current.attemptId, command);
   if (!system) {
@@ -64,6 +72,9 @@ function execute(record, command) {
       const accepted = record.responses.find((r) => r.itemId === command.itemId);
       if (accepted) {
         if (accepted.response !== command.response) throw fail('answer_conflict');
+        if (current.form.provenanceProfile && !execution.same(command.executionEvidence,
+          current.events.find((e) => e.eventType === 'response_accepted' && e.payload.itemId === command.itemId)?.payload.executionEvidence))
+          throw fail('provenance_conflict');
         record.commands.push({ key: command.idempotencyKey, digest, receipt: accepted.receipt, eventId: null });
         return reply(record, accepted.receipt, true);
       }
@@ -88,7 +99,8 @@ function execute(record, command) {
   }
   if (command.type === 'response') {
     const responseDigest = sha256(command.response);
-    append('response_accepted', { itemId: command.itemId, responseDigest });
+    append('response_accepted', { itemId: command.itemId, responseDigest,
+      ...(command.executionEvidence ? { executionEvidence: command.executionEvidence } : {}) });
     const response = { itemId: command.itemId, response: command.response, responseDigest,
       acceptedAt: command.now, seq: record.events.length };
     record.responses.push(response);

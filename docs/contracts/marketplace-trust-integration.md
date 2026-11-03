@@ -1,16 +1,16 @@
 # Certification to Marketplace trust integration decision
 
 Base: `1a90ae5e8f14f93cd17f6ca3b53cce27d99bd8e0` (`origin/main`).
-Scope: repair authoritative origin independently; do not sign unvalidated
-environment/evidenceMode labels. Overall status: **BLOCKED BY CONTRACT DECISION**.
+Scope: exact issued origin plus authoritative execution provenance under the
+conservative reference policy submitted for team review.
 
 Tracking authority: [Issue #83 — Sprint 5: Certification-to-Marketplace trust
 provenance integration](https://github.com/tkylevalle/EduAgentX/issues/83).
 The lifecycle-origin portion is implemented and tested on
-`salman/fix-marketplace-trust-integration`. Issue #83 remains **OPEN** because
-authoritative signed environment/evidenceMode provenance is unresolved; it blocks
-Issue #33's formal Marketplace acceptance. This origin-only change does not
-complete #83.
+`salman/fix-marketplace-trust-integration`. Issue #83 remains **OPEN** for team
+review. The origin checkpoint and subsequent
+execution-provenance implementation together address the integration blocking
+Issue #33; the formal #33 suite is not run by this branch.
 
 ## Origin decision
 
@@ -42,71 +42,44 @@ outcomes are trust failures and enter neither matching lane. Failed/aborted
 examinations cannot create decisions. Persisted issuance is replayed unchanged,
 including after restart; lookup requires no current Examination availability.
 
-## Provenance analysis and required owner decision
+## Execution provenance reference decision
 
-The meaning of the basic pairs is clear:
+The user adopted a conservative reference policy for review under #83. This does
+not claim team consensus. The [versioned contract](execution-provenance.md)
+replaces the earlier unresolved authority question with explicit server enrollment
+of platform-controlled mode-enforcing principals.
 
-| Evidence mode | Environment | Existing contract |
-| --- | --- | --- |
-| synthetic | simulation | Deterministic seeded responses |
-| replay | simulation | Sanitized, versioned captured fixtures |
-| live | live | Fresh model responses during this run |
-| fallback | simulation | Protocol label for deterministic fallback; not a Marketplace evidenceMode |
+Synthetic and replay are implemented end to end. Caller labels, generic agent
+permissions, evaluator/admin identities and provider names are not authority.
+Training pins the run at admission and stores validated response receipts;
+Examination pins the exact completion and validates its own responses.
+Certification validates the answer-free summary before persisting and signing
+explicit environment/evidenceMode. The verifier checks the versioned profile;
+Marketplace maps only its signed labels and retains independent origin checks.
 
-Sources: [protocol](external-agent-learner-protocol.md#evidence-modes),
-[approved demonstration boundary](../blueprint/issues/03-decide-demo-agent-boundary.md),
-[matching](marketplace-matching.md#integration-boundary).
-The missing decision is which authoritative record proves those facts, not how
-to spell their enums or transport their fields.
+Replay is an honest capture of the deterministic reference adapter, with capture
+framework, original synthetic mode, template/request hashes, timestamps, fixture
+versions, exact entries and a manifest digest. It is not represented as captured
+live provider output. Runtime uploads and arbitrary replacement text are refused.
 
-Observed implementation:
+Live authority remains disabled because the existing optional adapter has no
+durable lifecycle invocation/budget ledger. Its ordinary legacy path is not
+silently upgraded. No paid inference is required for #33.
 
-1. `packages/external-agent-protocol/index.js:normalizeEvidence` validates the
-   caller's enum/environment/label combination. It does not validate a seeded
-   run, replay fixture identity or fresh model invocation.
-2. `services/api-gateway/auth.js` authenticates a subject and role; it supplies no
-   trusted run/mode claim. `forwardTrainingInteraction` forwards the learner's
-   normalized evidence unchanged. Provider/model names are opaque by contract.
-3. `services/training-service/index.js:requestInput` validates only the enum pair.
-   Session events retain each request's labels. Session guards do not bind a mode
-   for the entire session. `session.js:completionEnvelope` copies the final
-   request's labels, even if earlier requests declared other valid modes.
-4. `services/examination-engine/generation.js` pins that completion evidence in
-   `form.training.evidence`. Examination responses carry no independent mode/run
-   attestation. The Certification projection drops the Training evidence.
-5. Fallback forms explicitly have no Training event; the Engine labels assessment
-   as `fallback/simulation`. Marketplace evidenceMode admits synthetic/replay/live,
-   separately from standard/fallback assessment mode. No contract deterministically
-   maps fallback to one of those learner evidence modes.
-6. Certification does not validate, persist or sign environment/evidenceMode.
-   Blueprint contracts additionally require a separate test issuer/key for
-   synthetic/replay credentials; the current service has one configured signer.
-   Routing validated provenance to issuer/key policy needs to be specified too.
+Assessment standard/fallback remains separate. A fallback may retain a valid
+cause's run or bind an exact Training completion when generation produced no
+attempt; its responses require the same execution evidence. Missing bindings
+remain uncheckable. No fallback-to-synthetic inference exists.
 
-Training/Examination, Gateway authentication, and Certification/Marketplace owners
-must agree and version:
+Migration adds nullable Training provenance/receipt JSON and a unique receipt
+index. Old rows are not backfilled. Examination and Certification reuse immutable
+JSON evidence. Existing decisions replay before source lookup, preserving the
+original signed result and exactly-once constraints.
 
-- The source authority and exact run/evidence record that validates mode, subject
-  and configuration, including the required seeded-run, replay-fixture and live
-  invocation bindings. An authenticated learner's string alone is insufficient.
-- Where that record is pinned and how every Training/Examination interaction is
-  checked against it, including conflicting/mixed modes and a new run after a
-  mode change. The last request must not silently relabel earlier evidence.
-- Fallback provenance: retain a validated learner-run mode separately from
-  assessment mode, or another explicitly approved representation and Marketplace
-  rule. Do not infer synthetic from deterministic grading.
-- The test/live issuer and signing-key selection policy.
-
-After that decision, propagate the validated record through the answer-free
-Examination projection; validate it before Certification persists; retain it in
-immutable decision evidence; include environment/evidenceMode before signing;
-and add supported synthetic/replay/live/fallback and conflict/restart tests.
-
-No label defaults, provider inference or caller-label signing were introduced.
-Existing non-Marketplace Certification behavior stays compatible. All credentials
-without trusted signed provenance remain uncheckable in Marketplace. Existing
-credentials without the newly signed decision ID remain origin-uncheckable too;
-no old signature or decision is rewritten.
+The reference Compose issuer explicitly permits simulation provenance only.
+Test/live issuer keys must be provisioned separately. Neither requests nor
+executors can choose the signing key. Legacy credentials remain unchanged and
+Marketplace-uncheckable when provenance or the signed decision binding is absent.
 
 ## Verification scope
 
@@ -121,8 +94,8 @@ focused Compose test. It uses the real Gateway, Registry, Training, Examination,
 grader, Certification, verifier, outbox, Redis consumer and Marketplace. No
 Marketplace authority fixtures or database edits create candidates. Its positive
 result is **trusted issued origin**, followed by real exclusion for missing
-provenance. It also tests actual issuer outage and process restart. It cannot
-claim a positive Eligible Match until the provenance contract is resolved.
+provenance. It also tests actual issuer outage and process restart. The origin-only rehearsal remains available for deployments without executor
+enrollment. The new execution-provenance rehearsal proves real Eligible results.
 
 Run against a new isolated Compose project with checkout-local `.env`/`keys/`,
 random loopback ports and fresh volumes. Set `MARKETPLACE_LIFECYCLE_CONFIG` to an
@@ -141,3 +114,15 @@ refresh its random host port in the URL configuration, then use
 `--test-name-pattern='^real issuer restart'`. State is retained only under ignored
 `artifacts/marketplace-trust/`; remove only resources created by the invocation.
 These are focused integration checks, not the formal golden or 1,000-case suites.
+
+
+The focused authoritative rehearsal is
+`services/marketplace-service/integration/execution-provenance.test.js`.
+Use `MARKETPLACE_PROVENANCE_CONFIG` for an ignored JSON URL configuration and
+`envFile` pointing at an ignored checkout-local test environment. Enroll separate
+synthetic/replay identities, use fresh project volumes and random loopback ports,
+and disable live provider access. Run only the `^real authoritative` stage; then
+stop that project's issuer for `MARKETPLACE_PROVENANCE_STAGE=issuer-unavailable`
+and its matching test, restart lifecycle services for `restarted`, and remove only
+that project's resources. Detailed counts and limitations are in the Sprint 5
+handoff. These are focused checks, not either formal suite.

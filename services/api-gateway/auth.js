@@ -91,6 +91,11 @@ function knownClients() {
       role: 'agent',
     },
     {
+      clientId: process.env.REPLAY_AGENT_CLIENT_ID || '',
+      clientSecret: process.env.REPLAY_AGENT_CLIENT_SECRET || '',
+      role: 'agent',
+    },
+    {
       clientId: process.env.ADMIN_CLIENT_ID || '',
       clientSecret: process.env.ADMIN_CLIENT_SECRET || '',
       role: 'admin',

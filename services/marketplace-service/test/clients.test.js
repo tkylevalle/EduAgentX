@@ -284,8 +284,8 @@ test('origin labels are mapped only from explicit credential fields, never infer
     const input = structuredClone(issued);
     Object.assign(input.credential, { environment, evidenceMode });
     const mapped = toCandidate(input);
-    assert.equal(mapped.environment, environment);
-    assert.equal(mapped.evidenceMode, evidenceMode);
+    assert.equal(mapped.environment, null, 'legacy labels have no authoritative provenance profile');
+    assert.equal(mapped.evidenceMode, null);
   }
   for (const bad of [undefined, null, '', 'unknown', 'LIVE', true, {}]) {
     const input = structuredClone(issued);
