@@ -6,6 +6,7 @@
 // state. Grading, finalization and certification are never called from here;
 // the Gateway does not expose them to an agent.
 
+const execution = require('../../packages/execution-provenance');
 const { randomUUID } = require('node:crypto');
 
 const POLL_INTERVAL_MS = 1000;
@@ -22,9 +23,9 @@ function createExamRunner({ gatewayClient, idGenerator = randomUUID, pollInterva
   // answerFor(item, index) returns the response text, or null to stop
   // answering (the attempt then waits for its deadline).
   async function examine({ answerFor, correlationId = `exam-run-${idGenerator()}`,
-    gradingWaitMs = DEFAULT_GRADING_WAIT_MS, onProgress = () => {} } = {}) {
+    gradingWaitMs = DEFAULT_GRADING_WAIT_MS, trainingSessionId, executionProfile, onProgress = () => {} } = {}) {
     const call = (method, path, body) => gatewayClient.request(method, path, { body, correlationId });
-    const started = await call('POST', '/v1/examinations', { idempotencyKey: `exam-${idGenerator()}` });
+    const started = await call('POST', '/v1/examinations', { idempotencyKey: `exam-${idGenerator()}`, ...(trainingSessionId ? { trainingSessionId } : {}), ...(executionProfile ? { executionProfile } : {}) });
     if (started.status !== 201 && started.status !== 200) {
       return { outcome: 'not_started', status: started.status, reason: started.body?.error || 'examination_unavailable',
         correlationId };
@@ -34,11 +35,13 @@ function createExamRunner({ gatewayClient, idGenerator = randomUUID, pollInterva
     onProgress({ stage: 'started', attemptId: attempt.attemptId, itemCount: items.length });
     const answered = [];
     for (const [index, item] of items.entries()) {
-      const response = await answerFor(item, index);
+      const produced = attempt.provenance ? execution.receipt(attempt.provenance, 'examination', item, attempt.attemptId) : null;
+      const response = produced ? produced.response : await answerFor(item, index);
       if (response === null || response === undefined) break;
       const receipt = await call('POST', `/v1/examinations/${attempt.attemptId}/responses`, {
         idempotencyKey: `answer-${attempt.attemptId}-${item.id}`, expectedSequence: attempt.sequence,
-        itemId: item.id, response,
+        itemId: item.id, response, ...(executionProfile ? { executionProfile } : {}),
+        ...(produced ? { executionEvidence: produced.executionEvidence } : {}),
       });
       if (receipt.status !== 200) {
         return { outcome: 'response_rejected', attemptId: attempt.attemptId, itemId: item.id,

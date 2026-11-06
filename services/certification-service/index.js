@@ -18,7 +18,9 @@ const matchesSecret = (a, b) => {
 };
 
 function createApp({ store, examinationEvidence, internalKey = process.env.CERTIFICATION_INTERNAL_KEY,
+  originReadKey = process.env.MARKETPLACE_INTERNAL_KEY,
   packageTrust = async () => true,
+  issuanceEnvironment = process.env.CERTIFICATION_ENVIRONMENT,
   privateKey = null, keyId = process.env.CERTIFICATION_KEY_ID,
   issuer = process.env.CERTIFICATION_ISSUER, credentialBase = process.env.CREDENTIAL_BASE_URL,
   clock = () => new Date().toISOString() } = {}) {
@@ -31,6 +33,24 @@ function createApp({ store, examinationEvidence, internalKey = process.env.CERTI
   app.get('/health', async (_req, res) => {
     try { await store.health(); res.json({ status: 'ok', service: 'certification-service' }); }
     catch { res.status(503).json({ status: 'unhealthy', service: 'certification-service' }); }
+  });
+  // Marketplace's existing internal key authorizes ONLY this exact-selector
+  // read. It does not grant the issuer's broad Gateway reads or issuance rights.
+  app.get('/internal/credential-origins/:credentialId', async (req, res) => {
+    if (!originReadKey || matchesSecret(originReadKey, internalKey) ||
+        !matchesSecret(req.header('x-internal-service-key'), originReadKey) ||
+        req.header('x-actor-role') !== 'marketplace' || req.header('x-actor-subject') !== 'marketplace-service')
+      return res.status(403).json({ error: 'forbidden' });
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(req.params.credentialId) ||
+        Object.keys(req.query).length)
+      return res.status(400).json({ apiVersion: 'v1', error: 'invalid_request' });
+    try {
+      const origin = await store.findOriginByCredential(req.params.credentialId);
+      if (!origin) return res.status(404).json({ apiVersion: 'v1', error: 'origin_not_found' });
+      res.json({ apiVersion: 'v1', origin });
+    } catch {
+      res.status(503).json({ apiVersion: 'v1', error: 'certification_unavailable' });
+    }
   });
   app.use('/internal', (req, res, next) => {
     if (!matchesSecret(req.header('x-internal-service-key'), internalKey)) return res.status(403).json({ error: 'forbidden' });
@@ -45,14 +65,15 @@ function createApp({ store, examinationEvidence, internalKey = process.env.CERTI
     if (replay) return replay;
     const latencyStartedAt = process.hrtime.bigint();
     const source = await examinationEvidence(examinationId, correlationId);
-    const pending = validatedEvidence(source);
+    const pending = validatedEvidence(source, null, issuanceEnvironment, issuer);
+    if (pending.examinationId !== examinationId) throw fail('examination_evidence_mismatch');
     const trustedPackage = await packageTrust(pending.packageId, pending.packageVersion, correlationId);
     if (!trustedPackage) throw fail('package_quarantined');
-    const evidence = validatedEvidence(source, trustedPackage);
+    const evidence = validatedEvidence(source, trustedPackage, issuanceEnvironment, issuer);
     return store.issue({ evidence, commandKey: idempotencyKey,
       commandDigest: digest({ examinationId, idempotencyKey }),
       latencyStartedAt,
-      createCredential: () => issueCredential(evidence, { privateKey, keyId, issuer, credentialBase, now: clock }) });
+      createCredential: (decisionId) => issueCredential(evidence, { privateKey, keyId, issuer, credentialBase, decisionId, environment: issuanceEnvironment, now: clock }) });
   };
   app.post('/internal/decisions', async (req, res) => {
     try {
@@ -166,13 +187,14 @@ async function start() {
           try {
             const source = await examinationEvidence(candidate.examinationId);
             const pending = validatedEvidence(source);
+            if (pending.examinationId !== candidate.examinationId) throw fail('examination_evidence_mismatch');
             const trustedPackage = await packageTrust(pending.packageId, pending.packageVersion);
             if (!trustedPackage) throw fail('package_quarantined');
             const evidence = validatedEvidence(source, trustedPackage);
             await store.issue({ evidence, commandKey: `examination:${candidate.examinationId}`,
               commandDigest: digest({ examinationId: candidate.examinationId, event: 'attempt_completed' }),
               latencyStartedAt,
-              createCredential: () => issueCredential(evidence, { privateKey, keyId: process.env.CERTIFICATION_KEY_ID,
+              createCredential: (decisionId) => issueCredential(evidence, { privateKey, decisionId, keyId: process.env.CERTIFICATION_KEY_ID,
                 issuer: process.env.CERTIFICATION_ISSUER, credentialBase: process.env.CREDENTIAL_BASE_URL }) });
           } catch (error) {
             // Permanently invalid evidence must never receive a decision, but it

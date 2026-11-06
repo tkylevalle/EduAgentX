@@ -1,12 +1,13 @@
 'use strict';
 
+const execution = require('../../packages/execution-provenance');
 const { createHash, randomUUID, sign } = require('node:crypto');
 
 const digest = (value) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const text = (value) => typeof value === 'string' && value.trim().length > 0;
 const fail = (code, status = 409) => Object.assign(new Error(code), { code, status });
 
-function validatedEvidence(attempt, trustedPackage = null) {
+function validatedEvidence(attempt, trustedPackage = null, issuanceEnvironment = process.env.CERTIFICATION_ENVIRONMENT, issuer = process.env.CERTIFICATION_ISSUER) {
   if (!attempt || attempt.status !== 'complete' || attempt.responseCollectionComplete !== true ||
       attempt.result?.schemaVersion !== 'examination-result/1.0.0' || attempt.result.valid !== true ||
       attempt.result.passed !== true || !attempt.assessment || attempt.assessment.passed !== true)
@@ -65,6 +66,17 @@ function validatedEvidence(attempt, trustedPackage = null) {
       digest: attempt.bank?.digest, templateFamily: 'deterministic-fallback' }
     : { id: template.id, version: template.version, digest: template.digest };
   if (!text(templateEvidence.digest)) throw fail('examination_evidence_malformed');
+  if (attempt.schemaVersion && !['certification-evidence/1.0.0','certification-evidence/1.1.0'].includes(attempt.schemaVersion))
+    throw fail('examination_provenance_invalid');
+  const hasProvenance = attempt.schemaVersion === 'certification-evidence/1.1.0' || Object.hasOwn(attempt, 'provenanceProfile') || Object.hasOwn(attempt, 'provenance');
+  if (hasProvenance && (attempt.provenanceProfile !== execution.RUN ||
+    !execution.validSummary(attempt.provenance, { subjectId: agentLearnerKey, fingerprint: configurationFingerprint,
+      package: pkg, examinationId: attemptId, itemIds: assessment.itemOutcomes.map((i) => i.itemId) }) || attempt.provenance.run.environment !== issuanceEnvironment || !execution.issuerPermits(issuanceEnvironment, issuer)))
+    throw fail('examination_provenance_invalid');
+  if (hasProvenance && trustedPackage !== null && (!trustedPackage ||
+    (trustedPackage.packageId || trustedPackage.id || trustedPackage.manifest?.packageId) !== pkg.id ||
+    (trustedPackage.version || trustedPackage.manifest?.version) !== pkg.version || trustedPackage.digest !== pkg.digest))
+    throw fail('examination_provenance_invalid');
   const safetyResult = { passed: true, criticalViolationRuleIds: [], failureReasons: [] };
   const scores = { overallPercent: assessment.overallPercent, tierPercents: assessment.tierPercents,
     itemOutcomes: assessment.itemOutcomes };
@@ -74,7 +86,9 @@ function validatedEvidence(attempt, trustedPackage = null) {
     templateId: templateEvidence.id, templateVersion: templateEvidence.version, templateDigest: templateEvidence.digest,
     rubricId: rubric.id, rubricVersion: rubric.version, rubricDigest: rubric.digest,
     mode, scores, safetyResult,
+    ...(hasProvenance ? { provenance: attempt.provenance } : {}),
     examinationEvidence: { examinationId: attemptId, formDigest, result: attempt.result,
+      ...(hasProvenance ? { provenanceProfile: execution.RUN, provenance: attempt.provenance } : {}),
       completedAt, sequence: attempt.sequence, package: pkg, mode, template: templateEvidence,
       rubric: { id: rubric.id, version: rubric.version, digest: rubric.digest }, scores, safetyResult,
       ...(assessmentPolicy ? { passingPolicy: { overallPassPercent: assessmentPolicy.overallPassPercent,
@@ -85,8 +99,12 @@ function validatedEvidence(attempt, trustedPackage = null) {
 }
 
 function issueCredential(evidence, { privateKey, keyId, issuer = 'https://eduagentx.example/issuers/eduagentx',
-  credentialBase = 'https://eduagentx.example/credentials', now = () => new Date().toISOString(), validityDays = 365 }) {
+  credentialBase = 'https://eduagentx.example/credentials', decisionId,
+  now = () => new Date().toISOString(), validityDays = 365, environment = process.env.CERTIFICATION_ENVIRONMENT }) {
   if (!privateKey || !text(keyId)) throw fail('signing_not_configured', 503);
+  if (evidence.provenance && (!execution.validSummary(evidence.provenance, { subjectId: evidence.subjectId,
+    fingerprint: evidence.subjectFingerprint, package: { id: evidence.packageId, version: evidence.packageVersion, digest: evidence.packageDigest }, examinationId: evidence.examinationId, itemIds: evidence.scores.itemOutcomes.map((i) => i.itemId) }) ||
+    evidence.provenance.run.environment !== environment || !execution.issuerPermits(environment, issuer))) throw fail('examination_provenance_invalid');
   const credentialId = randomUUID();
   const issuedAt = now();
   const credential = {
@@ -94,14 +112,16 @@ function issueCredential(evidence, { privateKey, keyId, issuer = 'https://eduage
     id: `${credentialBase}/${credentialId}`,
     type: ['VerifiableCredential', 'EduAgentXCompetencyCredential'],
     issuer,
+    ...(evidence.provenance ? { environment: evidence.provenance.run.environment, evidenceMode: evidence.provenance.run.evidenceMode } : {}),
     validFrom: issuedAt,
     validUntil: new Date(Date.parse(issuedAt) + validityDays * 86400000).toISOString(),
     credentialSubject: { id: `${issuer}/agents/${encodeURIComponent(evidence.subjectId)}`,
       configurationFingerprint: evidence.subjectFingerprint,
       competency: { packageId: evidence.packageId, packageVersion: evidence.packageVersion,
         result: 'pass', mode: evidence.mode, scores: evidence.scores, safetyResult: evidence.safetyResult } },
-    credentialSchema: { id: 'https://eduagentx.example/schemas/competency/v1.json', type: 'JsonSchema' },
-    evidence: { type: 'EduAgentXAssessmentEvidence', ...evidence.examinationEvidence },
+    credentialSchema: { id: evidence.provenance ? execution.SCHEMA : 'https://eduagentx.example/schemas/competency/v1.json', type: 'JsonSchema' },
+    evidence: { type: 'EduAgentXAssessmentEvidence', ...evidence.examinationEvidence,
+      ...(decisionId ? { certificationDecisionId: decisionId } : {}) },
     termsOfUse: { type: 'EduAgentXProjectCredentialPolicy',
       id: 'https://eduagentx.example/policies/credential/v1', scope: 'EduAgentX capstone project; no external accreditation implied' },
   };
