@@ -92,3 +92,28 @@ test('versioned synthetic snapshot preserves legacy deterministic scenario respo
     }
   }
 });
+
+const replayEnrollment = [{ subject: 'replay-agent', evidenceMode: 'replay', sources: ['replay:reference-safe'] }];
+const manifestDigest = () => p.source('replay:reference-safe').digest;
+const review = (reviewer, digest = manifestDigest()) => ({ reviewer, digest, reviewedAt: '2026-11-06T00:00:00.000Z' });
+const reviewRecord = (...reviews) => ({ schemaVersion: 'execution-replay-review/1.0.0', capturedBy: 'capturer', reviews });
+
+test('replay enrollment needs two distinct reviewers of the exact manifest', () => {
+  for (const reviews of [[], [review('a')], [review('a'), review('A')], [review('a'), review('capturer')], [review('a'), review('b', 'sha256:stale')]])
+    assert.throws(() => p.enrollments(replayEnrollment, { replayReview: reviewRecord(...reviews) }), /recorded fixture reviews/);
+  assert.equal(p.enrollments(replayEnrollment, { replayReview: reviewRecord(review('a'), review('b')) }).length, 1);
+});
+
+test('the review record pins the shipped replay manifest digest', () => {
+  const record = require('../replay.review.json');
+  assert.deepEqual(record.manifest, p.source('replay:reference-safe'));
+  assert.equal(new Set(record.reviews.map((r) => r.reviewer.toLowerCase())).size, record.reviews.length);
+});
+
+test('simulation evidence is permitted only under the test issuer', () => {
+  assert.equal(p.issuerPermits('simulation', p.SIMULATION_ISSUER), true);
+  assert.equal(p.issuerPermits('simulation', 'https://eduagentx.example/issuers/eduagentx'), false);
+  assert.equal(p.issuerPermits('live', p.SIMULATION_ISSUER), false);
+  assert.equal(p.issuerPermits('live', 'https://eduagentx.example/issuers/eduagentx'), true);
+  assert.equal(p.issuerPermits(undefined, p.SIMULATION_ISSUER), false);
+});

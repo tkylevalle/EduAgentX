@@ -288,7 +288,7 @@ function authoritativeEvidence(mode) {
 for (const mode of ['synthetic','replay']) {
   test(`authoritative ${mode} is validated, persisted, signed and replayed without a second decision`, async (t) => {
     const source = authoritativeEvidence(mode);
-    const c = await boot(t, async () => source, async () => provenanceFixture('synthetic', 'agent-1').pkg, { issuanceEnvironment: 'simulation', issuer: 'https://eduagentx.example/issuers/test' });
+    const c = await boot(t, async () => source, async () => provenanceFixture('synthetic', 'agent-1').pkg, { issuanceEnvironment: 'simulation', issuer: provenance.SIMULATION_ISSUER, keyId: `${provenance.SIMULATION_ISSUER}#test` });
     const body = { examinationId: source.attemptId, idempotencyKey: 'provenance' };
     const issued = await c.call('/internal/decisions', body);
     assert.equal(issued.status, 201, JSON.stringify(issued.body));
@@ -336,6 +336,13 @@ for (const [name, edit] of [
   const c = await boot(t, async () => source, async () => provenanceFixture('synthetic', 'agent-1').pkg, { issuanceEnvironment: 'simulation' });
   const r = await c.call('/internal/decisions', { examinationId: source.attemptId, idempotencyKey: name });
   assert.equal(r.status, 409); assert.deepEqual(await c.store.counts(), { decisions: 0, credentials: 0 });
+});
+test('simulation provenance is refused before persistence under any issuer but the test issuer', async (t) => {
+  const source = authoritativeEvidence('synthetic');
+  const c = await boot(t, async () => source, async () => provenanceFixture('synthetic', 'agent-1').pkg,
+    { issuanceEnvironment: 'simulation', issuer: 'https://eduagentx.example/issuers/eduagentx' });
+  assert.equal((await c.call('/internal/decisions', { examinationId: source.attemptId, idempotencyKey: 'other-issuer' })).status, 409);
+  assert.deepEqual(await c.store.counts(), { decisions: 0, credentials: 0 });
 });
 test('simulation provenance cannot select a live-only or unconfigured issuer environment', async (t) => {
   for (const issuanceEnvironment of ['live', undefined]) {

@@ -129,8 +129,8 @@ function createApp({ learner = createDefaultLearner(), examRunner = null, liveMo
         !['synthetic','replay'].includes(body.evidenceMode) || !['training','examination'].includes(body.action))
         return res.status(400).json({ error: 'invalid_execution_request' });
       const replay = body.evidenceMode === 'replay';
-      const clientId = replay ? process.env.REPLAY_AGENT_CLIENT_ID : AGENT_CLIENT_ID;
-      const clientSecret = replay ? process.env.REPLAY_AGENT_CLIENT_SECRET : AGENT_CLIENT_SECRET;
+      const clientId = replay ? process.env.REPLAY_AGENT_CLIENT_ID : process.env.SYNTHETIC_EXECUTOR_CLIENT_ID;
+      const clientSecret = replay ? process.env.REPLAY_AGENT_CLIENT_SECRET : process.env.SYNTHETIC_EXECUTOR_CLIENT_SECRET;
       if (!clientId || !clientSecret) return res.status(503).json({ error: 'executor_not_configured' });
       const profile = replay ? 'replay:reference-safe' : `synthetic:${body.profileId || 'competent'}:${body.scenarioId || DEFAULT_EXAM_SCENARIO}`;
       execution.source(profile); // Known repository source only; enrollment is checked by Gateway.

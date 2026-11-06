@@ -445,6 +445,8 @@ services:
       JWT_PRIVATE_KEY_PATH: ${JWT_PRIVATE_KEY_PATH}
       JWT_PUBLIC_KEY_PATH: ${JWT_PUBLIC_KEY_PATH}
       EXECUTION_PRINCIPALS: ${EXECUTION_PRINCIPALS:-[]}
+      SYNTHETIC_EXECUTOR_CLIENT_ID: ${SYNTHETIC_EXECUTOR_CLIENT_ID:-}
+      SYNTHETIC_EXECUTOR_CLIENT_SECRET: ${SYNTHETIC_EXECUTOR_CLIENT_SECRET:-}
       REPLAY_AGENT_CLIENT_ID: ${REPLAY_AGENT_CLIENT_ID:-}
       REPLAY_AGENT_CLIENT_SECRET: ${REPLAY_AGENT_CLIENT_SECRET:-}
       AGENT_CLIENT_ID: ${AGENT_CLIENT_ID}
@@ -509,11 +511,11 @@ services:
       DATABASE_URL: postgres://certification_owner:${CERTIFICATION_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
       CERTIFICATION_INTERNAL_KEY: ${CERTIFICATION_INTERNAL_KEY:?Run node scripts/setup-dev.js}
       CERTIFICATION_ENVIRONMENT: ${CERTIFICATION_ENVIRONMENT:-simulation}
-      CERTIFICATION_KEY_ID: ${CERTIFICATION_KEY_ID:-https://eduagentx.example/issuers/eduagentx#dev-ed25519-1}
+      CERTIFICATION_KEY_ID: ${CERTIFICATION_KEY_ID:-https://eduagentx.example/issuers/eduagentx-test#test-ed25519-1}
       # Read-only origin lookup; distinct from the issuer's command/read key.
       MARKETPLACE_INTERNAL_KEY: ${MARKETPLACE_INTERNAL_KEY:?Run node scripts/setup-dev.js}
-      CERTIFICATION_PRIVATE_KEY_PATH: ${CERTIFICATION_PRIVATE_KEY_PATH:-/app/keys/certification-ed25519-private.pem}
-      CERTIFICATION_ISSUER: ${CERTIFICATION_ISSUER:-https://eduagentx.example/issuers/eduagentx}
+      CERTIFICATION_PRIVATE_KEY_PATH: ${CERTIFICATION_PRIVATE_KEY_PATH:-/app/keys/certification-test-ed25519-private.pem}
+      CERTIFICATION_ISSUER: ${CERTIFICATION_ISSUER:-https://eduagentx.example/issuers/eduagentx-test}
       CREDENTIAL_BASE_URL: ${CREDENTIAL_BASE_URL:-https://eduagentx.example/credentials}
       CERTIFICATION_SWEEP_INTERVAL_MS: ${CERTIFICATION_SWEEP_INTERVAL_MS:-1000}
       EXAMINATION_ENGINE_URL: http://examination-engine:4005
@@ -564,6 +566,8 @@ services:
       API_GATEWAY_URL: http://api-gateway:4000
       SERVICE_NAME: synthetic-agent-learner
       EXECUTION_PRINCIPALS: ${EXECUTION_PRINCIPALS:-[]}
+      SYNTHETIC_EXECUTOR_CLIENT_ID: ${SYNTHETIC_EXECUTOR_CLIENT_ID:-}
+      SYNTHETIC_EXECUTOR_CLIENT_SECRET: ${SYNTHETIC_EXECUTOR_CLIENT_SECRET:-}
       REPLAY_AGENT_CLIENT_ID: ${REPLAY_AGENT_CLIENT_ID:-}
       REPLAY_AGENT_CLIENT_SECRET: ${REPLAY_AGENT_CLIENT_SECRET:-}
       AGENT_CLIENT_ID: ${AGENT_CLIENT_ID}
@@ -742,8 +746,9 @@ services:
       PORT: 4030
       SERVICE_NAME: credential-verification
       # Trusts the issuer certification-service signs as, with its public key.
-      CREDENTIAL_ISSUER: ${CERTIFICATION_ISSUER:-https://eduagentx.example/issuers/eduagentx}
+      CREDENTIAL_ISSUER: ${CERTIFICATION_ISSUER:-https://eduagentx.example/issuers/eduagentx-test},https://eduagentx.example/issuers/eduagentx
       CREDENTIAL_PUBLIC_KEY_PATH: /keys/certification-ed25519-public.pem
+      CREDENTIAL_TEST_PUBLIC_KEY_PATH: /keys/certification-test-ed25519-public.pem
       CREDENTIAL_INTERNAL_KEY: ${CREDENTIAL_INTERNAL_KEY:?Run node scripts/setup-dev.js}
       CREDENTIAL_STATUS_PATH: /data/credential-status.json
       MONITORING_URL: http://monitoring-service:4040

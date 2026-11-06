@@ -60,7 +60,9 @@ test('real authoritative synthetic and replay lifecycles become Eligible; legacy
     const requestId = created.body.request.id;
     assert.equal((await c.gateway(`/v1/marketplace/capability-requests/${requestId}/open`, 'POST', { version: 1 })).status, 200);
     const saved = { requestId, credentials: [] };
-    for (const mode of ['synthetic','replay']) await t.test(`${mode}: real authority, signing, verification, publication, origin and Eligible match`, async () => {
+    // Replay stays unenrolled until replay.review.json records two reviewers.
+    const modes = JSON.parse(c.env.EXECUTION_PRINCIPALS.replace(/^'|'$/g, '')).map((e) => e.evidenceMode);
+    for (const mode of modes) await t.test(`${mode}: real authority, signing, verification, publication, origin and Eligible match`, async () => {
       const training = await c.request(`${c.urls.syntheticUrl}/v1/execution-runs`, 'POST', { evidenceMode: mode, action: 'training' });
       assert.equal(training.status, 200, JSON.stringify(training.body));
       assert.equal(training.body.outcome, 'completed'); assert.equal(training.body.provenance.evidenceMode, mode);
@@ -75,7 +77,7 @@ test('real authoritative synthetic and replay lifecycles become Eligible; legacy
       assert.equal(record.credential.environment, 'simulation'); assert.equal(record.credential.evidenceMode, mode);
       assert.equal(await c.origin.isLifecycleOrigin(toCandidate(record)), true);
       assert.equal(await c.origin.isLifecycleOrigin({ ...toCandidate(record), credentialId: randomUUID() }), false);
-      await c.list(mode === 'replay' ? 'REPLAY_AGENT' : 'AGENT', mode);
+      await c.list(mode === 'replay' ? 'REPLAY_AGENT' : 'SYNTHETIC_EXECUTOR', mode);
       let check, candidate;
       for (let n = 0; n < 30; n++) {
         check = await c.gateway(`/v1/marketplace/capability-requests/${requestId}/eligibility-checks`, 'POST', { idempotencyKey: randomUUID() });

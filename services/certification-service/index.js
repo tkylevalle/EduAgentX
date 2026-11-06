@@ -65,11 +65,11 @@ function createApp({ store, examinationEvidence, internalKey = process.env.CERTI
     if (replay) return replay;
     const latencyStartedAt = process.hrtime.bigint();
     const source = await examinationEvidence(examinationId, correlationId);
-    const pending = validatedEvidence(source, null, issuanceEnvironment);
+    const pending = validatedEvidence(source, null, issuanceEnvironment, issuer);
     if (pending.examinationId !== examinationId) throw fail('examination_evidence_mismatch');
     const trustedPackage = await packageTrust(pending.packageId, pending.packageVersion, correlationId);
     if (!trustedPackage) throw fail('package_quarantined');
-    const evidence = validatedEvidence(source, trustedPackage, issuanceEnvironment);
+    const evidence = validatedEvidence(source, trustedPackage, issuanceEnvironment, issuer);
     return store.issue({ evidence, commandKey: idempotencyKey,
       commandDigest: digest({ examinationId, idempotencyKey }),
       latencyStartedAt,

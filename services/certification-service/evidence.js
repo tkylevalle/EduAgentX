@@ -7,7 +7,7 @@ const digest = (value) => createHash('sha256').update(JSON.stringify(value)).dig
 const text = (value) => typeof value === 'string' && value.trim().length > 0;
 const fail = (code, status = 409) => Object.assign(new Error(code), { code, status });
 
-function validatedEvidence(attempt, trustedPackage = null, issuanceEnvironment = process.env.CERTIFICATION_ENVIRONMENT) {
+function validatedEvidence(attempt, trustedPackage = null, issuanceEnvironment = process.env.CERTIFICATION_ENVIRONMENT, issuer = process.env.CERTIFICATION_ISSUER) {
   if (!attempt || attempt.status !== 'complete' || attempt.responseCollectionComplete !== true ||
       attempt.result?.schemaVersion !== 'examination-result/1.0.0' || attempt.result.valid !== true ||
       attempt.result.passed !== true || !attempt.assessment || attempt.assessment.passed !== true)
@@ -71,7 +71,7 @@ function validatedEvidence(attempt, trustedPackage = null, issuanceEnvironment =
   const hasProvenance = attempt.schemaVersion === 'certification-evidence/1.1.0' || Object.hasOwn(attempt, 'provenanceProfile') || Object.hasOwn(attempt, 'provenance');
   if (hasProvenance && (attempt.provenanceProfile !== execution.RUN ||
     !execution.validSummary(attempt.provenance, { subjectId: agentLearnerKey, fingerprint: configurationFingerprint,
-      package: pkg, examinationId: attemptId, itemIds: assessment.itemOutcomes.map((i) => i.itemId) }) || attempt.provenance.run.environment !== issuanceEnvironment))
+      package: pkg, examinationId: attemptId, itemIds: assessment.itemOutcomes.map((i) => i.itemId) }) || attempt.provenance.run.environment !== issuanceEnvironment || !execution.issuerPermits(issuanceEnvironment, issuer)))
     throw fail('examination_provenance_invalid');
   if (hasProvenance && trustedPackage !== null && (!trustedPackage ||
     (trustedPackage.packageId || trustedPackage.id || trustedPackage.manifest?.packageId) !== pkg.id ||
@@ -104,7 +104,7 @@ function issueCredential(evidence, { privateKey, keyId, issuer = 'https://eduage
   if (!privateKey || !text(keyId)) throw fail('signing_not_configured', 503);
   if (evidence.provenance && (!execution.validSummary(evidence.provenance, { subjectId: evidence.subjectId,
     fingerprint: evidence.subjectFingerprint, package: { id: evidence.packageId, version: evidence.packageVersion, digest: evidence.packageDigest }, examinationId: evidence.examinationId, itemIds: evidence.scores.itemOutcomes.map((i) => i.itemId) }) ||
-    evidence.provenance.run.environment !== environment)) throw fail('examination_provenance_invalid');
+    evidence.provenance.run.environment !== environment || !execution.issuerPermits(environment, issuer))) throw fail('examination_provenance_invalid');
   const credentialId = randomUUID();
   const issuedAt = now();
   const credential = {

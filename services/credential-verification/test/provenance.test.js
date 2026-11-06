@@ -10,8 +10,9 @@ const { toCandidate } = require('../../marketplace-service/clients');
 const keys = generateKeyPairSync('ed25519');
 const privateKey = keys.privateKey.export({ type: 'pkcs8', format: 'pem' });
 const publicKey = keys.publicKey.export({ type: 'spki', format: 'pem' });
-const issuer = 'https://eduagentx.example/issuers/provenance-test';
-process.env.CREDENTIAL_ISSUER = issuer;
+const issuer = p.SIMULATION_ISSUER;
+const otherIssuer = 'https://eduagentx.example/issuers/eduagentx';
+process.env.CREDENTIAL_ISSUER = `${issuer},${otherIssuer}`;
 function vc(mode) {
   const f = fixture(mode), examinationId = randomUUID();
   const items = require('../../examination-engine/standard-generator').createStandardItems({ packageDigest: f.pkg.digest,
@@ -52,6 +53,23 @@ for (const [name, edit] of [
 ]) test(`properly signed ${name} still fails provenance schema`, () => {
   const v = vc('synthetic'); edit(v);
   assert.equal(verify(v).schema.status, 'FAIL');
+});
+test('simulation provenance under another issuer fails the provenance schema', () => {
+  const v = vc('synthetic'); v.issuer = otherIssuer;
+  v.credentialSubject.id = `${otherIssuer}/agents/${v.evidence.provenance.run.agentLearnerKey}`;
+  const report = verifyCredential(signCredential(v, privateKey, `${otherIssuer}#dev`), publicKey, { getStatus: () => 'active' });
+  assert.equal(report.schema.status, 'FAIL');
+  assert.equal(toCandidate({ credentialId: v.id.split('/').at(-1), credential: v }).environment, null);
+});
+test('the test issuer and the test key ID must appear together', () => {
+  const underTestIssuer = vc('synthetic');
+  const wrongKey = verifyCredential(signCredential(underTestIssuer, privateKey, `${otherIssuer}#dev`), publicKey, { getStatus: () => 'active' });
+  assert.equal(wrongKey.issuerPolicy.reason, 'issuer_key_mismatch');
+  const legacy = vc('synthetic'); delete legacy.evidence.provenance; legacy.issuer = otherIssuer;
+  legacy.credentialSchema.id = 'https://eduagentx.example/schemas/competency/v1.json';
+  const wrongIssuer = verifyCredential(signCredential(legacy, privateKey, `${issuer}#test`), publicKey, { getStatus: () => 'active' });
+  assert.equal(wrongIssuer.issuerPolicy.reason, 'issuer_key_mismatch');
+  assert.equal(wrongIssuer.overall, 'INVALID');
 });
 test('legacy credentials remain readable and descriptive labels never establish Marketplace provenance', () => {
   const v = vc('synthetic'); delete v.evidence.provenance;
