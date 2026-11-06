@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Activity, BadgeCheck, BookOpenCheck, FlaskConical, LayoutDashboard, Network, ScanLine } from 'lucide-react';
+import { Activity, BadgeCheck, BookOpenCheck, FlaskConical, LayoutDashboard, Network, ScanLine, Store } from 'lucide-react';
 import { BrandMark } from './ui.jsx';
 import { api, ago, clock, EVENT_COPY } from './lib.js';
 import Overview from './pages/Overview.jsx';
@@ -8,6 +8,7 @@ import Credentials from './pages/Credentials.jsx';
 import Verify from './pages/Verify.jsx';
 import Curriculum from './pages/Curriculum.jsx';
 import System from './pages/System.jsx';
+import Marketplace from './pages/Marketplace.jsx';
 
 const PAGES = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard, component: Overview },
@@ -16,6 +17,7 @@ const PAGES = [
   { id: 'verify', label: 'Verify', icon: ScanLine, component: Verify },
   { id: 'curriculum', label: 'Curriculum', icon: BookOpenCheck, component: Curriculum },
   { id: 'system', label: 'System', icon: Network, component: System },
+  { id: 'marketplace', label: 'Marketplace', icon: Store, component: Marketplace },
 ];
 const LIGHT_TARGETS = '.panel, .ledger-cell, .seg-option';
 const TICKER_POLL_MS = 8000;
