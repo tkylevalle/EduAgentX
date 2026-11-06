@@ -189,3 +189,66 @@ test('an unreachable gateway reports marketplace_unavailable, not a crash', asyn
   assert.equal(reply.status, 503);
   assert.equal((await reply.json()).error, 'marketplace_unavailable');
 });
+
+test('evidence bundle route collects what is live and forwards the sanitized result', async (t) => {
+  const calls = [];
+  const fetchImpl = async (url, init = {}) => {
+    calls.push({ url, method: init.method || 'GET', body: init.body ? JSON.parse(init.body) : undefined });
+    const reply = (status, body) => ({ status, text: async () => JSON.stringify(body) });
+    if (url.endsWith('/v1/auth/tokens')) return reply(200, { accessToken: 'admin-token', expiresIn: 900 });
+    if (url.endsWith('/v1/admin/certifications/kpi')) return reply(200, { issued: 42 });
+    if (url.endsWith('/bundle'))
+      return reply(200, { bundleVersion: '1.0.0', generatedAt: '2026-01-01T00:00:00.000Z',
+        retention: { raw: '90d', aggregate: '365d' },
+        sections: { buildEnv: {}, packages: [], kpis: { issued: 42 }, contracts: [], policies: [],
+          datasets: [], incidents: [], demonstrations: [], costs: {}, limitations: ['x'] },
+        digests: { buildEnv: 'd0', packages: 'd1', kpis: 'd2', contracts: 'd3', policies: 'd4',
+          datasets: 'd5', incidents: 'd6', demonstrations: 'd7', costs: 'd8', limitations: 'd9' },
+        bundleDigest: 'bd0' });
+    return reply(404, { error: 'not_found' });
+  };
+  const base = await listen(t, { fetchImpl, driver: failingDriver() });
+
+  const reply = await post(base, '/api/evidence/bundle', {});
+  assert.equal(reply.status, 200);
+  const bundle = await reply.json();
+  assert.equal(bundle.bundleVersion, '1.0.0');
+  assert.equal(bundle.sections.kpis.issued, 42);
+  assert.equal(bundle.bundleDigest, 'bd0');
+
+  const bundleCall = calls.find((c) => c.url.endsWith('/bundle'));
+  assert.ok(bundleCall, 'called the evidence-bundle service');
+  assert.deepEqual(bundleCall.body.kpis, { issued: 42 });
+  assert.deepEqual(bundleCall.body.packages, [], 'no active package with this driver, so packages stays empty rather than invented');
+  assert.ok(Array.isArray(bundleCall.body.limitations) && bundleCall.body.limitations.length > 0, 'honest about what is not sourced yet');
+});
+
+test('an unreachable evidence-bundle service reports evidence_unavailable, not a crash', async (t) => {
+  const fetchImpl = async (url) => {
+    if (url.endsWith('/v1/auth/tokens')) return { status: 200, text: async () => JSON.stringify({ accessToken: 't', expiresIn: 900 }) };
+    if (url.includes('/health')) throw new Error('ECONNREFUSED');
+    if (url.endsWith('/v1/admin/certifications/kpi')) return { status: 200, text: async () => JSON.stringify({}) };
+    throw new Error('ECONNREFUSED'); // evidence-bundle itself is down
+  };
+  const base = await listen(t, { fetchImpl, driver: failingDriver() });
+  const reply = await post(base, '/api/evidence/bundle', {});
+  assert.equal(reply.status, 503);
+  assert.equal((await reply.json()).error, 'evidence_unavailable');
+});
+
+test('the HTML export regenerates from live data and returns the rendered page', async (t) => {
+  const fetchImpl = async (url, init = {}) => {
+    const reply = (status, body) => ({ status, text: async () => JSON.stringify(body) });
+    if (url.endsWith('/v1/auth/tokens')) return reply(200, { accessToken: 'admin-token', expiresIn: 900 });
+    if (url.endsWith('/v1/admin/certifications/kpi')) return reply(200, {});
+    if (url.endsWith('/bundle/html'))
+      return { status: 200, text: async () => '<!DOCTYPE html><html><body>EduAgentX Evidence Bundle</body></html>' };
+    return reply(404, { error: 'not_found' });
+  };
+  const base = await listen(t, { fetchImpl, driver: failingDriver() });
+  const reply = await fetch(`${base}/api/evidence/bundle.html`);
+  assert.equal(reply.status, 200);
+  assert.match(reply.headers.get('content-type') || '', /html/);
+  const text = await reply.text();
+  assert.match(text, /Evidence Bundle/);
+});
