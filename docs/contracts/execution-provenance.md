@@ -48,6 +48,14 @@ version. Reference replay may capture the deterministic EduAgentX adapter; this
 is explicitly simulation evidence and makes no claim of prior live inference.
 No runtime fixture uploads or arbitrary replacement responses are accepted.
 
+Replay enrollment requires two reviews recorded in
+`packages/execution-provenance/replay.review.json`. A review counts only if it names
+the current manifest digest, and the person who captured the fixtures cannot review
+them. Until then the Gateway and Training refuse to start with a replay entry. To
+record a review, add `{ "reviewer": "<github-login>", "digest": "<manifest digest>",
+"reviewedAt": "<ISO time>" }` to `reviews` in your own commit. Recapturing resets the
+record. A test pins the record to the shipped manifest, so a fixture edit fails CI.
+
 Training completion includes pinned provenance and a versioned answer-free
 coverage summary. Examination selects an exact completed run, binds its digest
 in the immutable form, and requires matching evidence for every answer. Its
@@ -62,8 +70,13 @@ persistence, stores it in immutable examination evidence, and signs top-level
 per examination and one credential per decision remain unchanged. The configured
 `CERTIFICATION_ENVIRONMENT` is server-owned; authoritative simulation issuance
 requires simulation configuration, and live issuance requires live configuration.
-Use separate issuer/key deployments for test and live evidence; request content
-cannot choose keys or issuers. The reference Compose deployment is simulation.
+Simulation evidence is signed only under the test issuer
+`https://eduagentx.example/issuers/eduagentx-test` with its own key; live evidence can never use that
+issuer. Certification refuses any other pairing before persistence, and the verifier
+and Marketplace recheck it. The credential's key ID selects its verification key.
+Request content cannot choose keys or issuers. The reference Compose deployment is
+simulation; credentials issued earlier under the previous issuer still verify and
+gain no provenance.
 
 The verifier recognizes the new static provenance profile and validates its
 structure, bindings and pair matrix. Marketplace uses signed fields and verifies

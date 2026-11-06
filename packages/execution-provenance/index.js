@@ -8,6 +8,10 @@ const RUN = 'execution-provenance/1.0.0';
 const RECEIPT = 'execution-receipt/1.0.0';
 const COVERAGE = 'execution-coverage/1.0.0';
 const SCHEMA = require('./credential.schema.json').$id;
+// Synthetic and replay credentials are signed only under this test issuer.
+const SIMULATION_ISSUER = 'https://eduagentx.example/issuers/eduagentx-test';
+const REPLAY_REVIEW = 'execution-replay-review/1.0.0';
+const REQUIRED_FIXTURE_REVIEWS = 2;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const HASH = /^sha256:[0-9a-f]{64}$/;
 const text = (v) => typeof v === 'string' && v.length > 0 && v.length <= 256;
@@ -41,6 +45,21 @@ function replayManifest() {
   }
   return replay;
 }
+// A review counts only for the exact manifest digest it names, so editing a
+// fixture voids earlier reviews. The person who captured it cannot review it.
+function replayReviewed(record, digest = source('replay:reference-safe').digest) {
+  if (record?.schemaVersion !== REPLAY_REVIEW || !text(record.capturedBy) || !Array.isArray(record.reviews)) return false;
+  const reviewers = record.reviews.filter((r) => text(r?.reviewer) && r.digest === digest &&
+    Number.isFinite(Date.parse(r.reviewedAt))).map((r) => r.reviewer.toLowerCase());
+  const distinct = new Set(reviewers);
+  distinct.delete(record.capturedBy.toLowerCase());
+  return distinct.size >= REQUIRED_FIXTURE_REVIEWS;
+}
+function loadReplayReview() { return JSON.parse(fs.readFileSync(`${__dirname}/replay.review.json`, 'utf8')); }
+function issuerPermits(environment, issuer) {
+  if (environment === 'simulation') return issuer === SIMULATION_ISSUER;
+  return environment === 'live' && text(issuer) && issuer !== SIMULATION_ISSUER;
+}
 function source(id) {
   if (id === 'replay:reference-safe') {
     const m = replayManifest();
@@ -57,7 +76,7 @@ function validSource(s) {
 }
 
 // This configuration is read by the Gateway, never merged with request JSON.
-function enrollments(value = process.env.EXECUTION_PRINCIPALS || '[]') {
+function enrollments(value = process.env.EXECUTION_PRINCIPALS || '[]', { replayReview = loadReplayReview() } = {}) {
   const list = typeof value === 'string' ? JSON.parse(value) : value;
   if (!Array.isArray(list)) throw new Error('invalid execution enrollment');
   const ids = new Set();
@@ -66,6 +85,8 @@ function enrollments(value = process.env.EXECUTION_PRINCIPALS || '[]') {
         !['synthetic', 'replay'].includes(e.evidenceMode) || !Array.isArray(e.sources) || !e.sources.length ||
         new Set(e.sources).size !== e.sources.length || e.sources.some((id) => sourceMode(source(id)) !== e.evidenceMode))
       throw new Error('invalid or unsupported execution enrollment');
+    if (e.evidenceMode === 'replay' && !replayReviewed(replayReview))
+      throw new Error(`replay enrollment needs ${REQUIRED_FIXTURE_REVIEWS} recorded fixture reviews`);
     ids.add(e.subject);
   }
   return structuredClone(list);
@@ -203,9 +224,10 @@ function credentialProvenance(vc) {
     package: vc.evidence?.package, examinationId: vc.evidence?.examinationId,
     itemIds: outcomes.map((i) => i.itemId) }, false) &&
     vc.credentialSubject?.id === `${vc.issuer}/agents/${encodeURIComponent(s.run.agentLearnerKey)}` &&
-    UUID.test(vc.evidence?.certificationDecisionId) && vc.environment === s.run.environment && vc.evidenceMode === s.run.evidenceMode;
+    UUID.test(vc.evidence?.certificationDecisionId) && vc.environment === s.run.environment && vc.evidenceMode === s.run.evidenceMode &&
+    issuerPermits(vc.environment, vc.issuer);
 }
 
-module.exports = { POLICY, RUN, RECEIPT, COVERAGE, SCHEMA, UUID, hash, responseHash, same, pair, fail,
+module.exports = { POLICY, RUN, RECEIPT, COVERAGE, SCHEMA, UUID, SIMULATION_ISSUER, replayReviewed, issuerPermits, hash, responseHash, same, pair, fail,
   source, sourceMode, validSource, enrollments, authority, validAuthority, bindRun, validRun, matchesAuthority, runAuthority,
   context, generated, receipt, validateReceipt, coverage, validCoverage, validCompletion, validSummary, credentialProvenance };

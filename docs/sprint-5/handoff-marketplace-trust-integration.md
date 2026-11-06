@@ -59,14 +59,18 @@ See [the exact contract](../contracts/execution-provenance.md) and
   Runtime uses the exact captured entry. These are not claimed as prior live
   provider responses. New/unrecorded contexts fail closed and require a reviewed
   versioned capture. Runtime uploads are not supported.
+  Replay enrollment is refused until `replay.review.json` records two distinct
+  reviewers, neither of them the capturer, for the pinned manifest digest. The
+  record ships with no reviews, so replay is unavailable by default.
 - **Live:** authoritative enrollment is disabled. The optional existing live
   adapter lacks durable lifecycle invocation/budget accounting. Ordinary legacy
   participation does not gain trusted labels; no paid model call was made.
-- **Issuer isolation:** the reference Compose issuer explicitly permits
-  simulation provenance. A live-only or unconfigured issuer refuses simulation
-  provenance. Separate test/live issuer/key deployments must be provisioned by
-  the operator; request content cannot select an issuer or key. No new PKI was
-  introduced.
+- **Issuer isolation:** simulation provenance is signed only under the test
+  issuer (`SIMULATION_ISSUER`) with its own key, which `scripts/setup-dev.js`
+  generates. Certification refuses another issuer before persistence, the
+  verifier fails a credential whose issuer and key ID do not agree, and live
+  provenance can never use the test issuer. Request content cannot select an
+  issuer or key.
 - **Legacy:** old rows and signatures remain unchanged. Descriptive labels do
   not gain authority. New authoritative profiles cannot silently downgrade when
   required data is missing. Finish legacy open sessions before enrolling their

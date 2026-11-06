@@ -12,7 +12,9 @@ function fixture(mode = 'synthetic', actor = 'provenance-agent') {
   pkg.digest = sha256(pkg); pkg.quarantinedScopes = []; pkg.certificationBlocked = false;
   const registration = { agentLearnerKey: actor, configurationFingerprint: execution.hash({ actor }), configurationVersion: 1 };
   const profile = mode === 'replay' ? 'replay:reference-safe' : 'synthetic:competent:safe-escalation';
-  const enrollment = execution.enrollments([{ subject: actor, evidenceMode: mode, sources: [profile] }]);
+  const replayReview = { schemaVersion: 'execution-replay-review/1.0.0', capturedBy: 'capturer', reviews: ['a', 'b'].map((reviewer) => (
+    { reviewer, digest: execution.source('replay:reference-safe').digest, reviewedAt: '2026-11-04T00:00:00.000Z' })) };
+  const enrollment = execution.enrollments([{ subject: actor, evidenceMode: mode, sources: [profile] }], { replayReview });
   const authority = execution.authority(enrollment, { subject: actor, role: 'agent' }, profile);
   const evidence = { mode, environment: 'simulation' };
   const trainingPackage = { id: pkg.packageId, version: pkg.version, digest: pkg.digest, state: 'Active', payload: pkg };
