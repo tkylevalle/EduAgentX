@@ -14,6 +14,8 @@ the API Gateway and drives one real Agent Learner through the lifecycle.
 | Verify | Operate | Paste any compact JWS; tamper with it to show the signature check failing |
 | Curriculum | Read | The active Domain Assurance Package: modules, gates, exam blueprint, objectives, sources |
 | System | Read | Fourteen services by layer with live health and the GitHub issue that built each |
+| Marketplace | Operate | Open a Capability Request, generate Eligible/Near Match candidates against real credentials |
+| Evidence | Operate | Regenerate the sanitized, digested Evidence Bundle from what the platform can currently back live |
 
 ## Audience
 

@@ -113,3 +113,142 @@ function statusWithHost(base, host) {
     request.end(JSON.stringify({ scenario: 'safe-escalation' }));
   });
 }
+
+// --- marketplace (Issue #35): a stand-in for the Gateway's own marketplace
+// routes, so these tests check this app's proxying/validation, not #30/#31's logic.
+function fakeMarketplaceGateway() {
+  const calls = [];
+  const fetchImpl = async (url, init = {}) => {
+    calls.push({ url, method: init.method || 'GET', body: init.body ? JSON.parse(init.body) : undefined });
+    const reply = (status, body) => ({ status, text: async () => JSON.stringify(body) });
+    if (url.endsWith('/v1/auth/tokens')) return reply(200, { accessToken: 'admin-token', expiresIn: 900 });
+    const method = init.method || 'GET';
+    if (url.endsWith('/v1/marketplace/capability-requests') && method === 'POST')
+      return reply(201, { apiVersion: 'v1', outcome: 'created',
+        request: { id: 'req-1', state: { status: 'draft', openVersion: null }, versions: [{ version: 1 }] } });
+    if (url.endsWith('/v1/marketplace/capability-requests') && method === 'GET')
+      return reply(200, { apiVersion: 'v1', requests: [] });
+    if (/\/v1\/marketplace\/capability-requests\/[^/]+\/open$/.test(url))
+      return reply(200, { apiVersion: 'v1', outcome: 'opened', request: { id: 'req-1', state: { status: 'open', openVersion: 1 } } });
+    if (/\/v1\/marketplace\/capability-requests\/[^/]+\/matches$/.test(url))
+      return reply(201, { apiVersion: 'v1', outcome: 'created',
+        matchResult: { resultId: 'result-1', outcome: 'MATCHED', eligibleMatches: [], nearMatches: [], exclusions: [] } });
+    if (/\/v1\/marketplace\/match-results\/[^/]+$/.test(url))
+      return reply(200, { apiVersion: 'v1', outcome: 'found', matchResult: { resultId: 'result-1' } });
+    return reply(404, { error: 'not_found' });
+  };
+  return { fetchImpl, calls };
+}
+
+test('marketplace routes validate input before calling the gateway', async (t) => {
+  const { fetchImpl, calls } = fakeMarketplaceGateway();
+  const base = await listen(t, { fetchImpl, driver: failingDriver() });
+  assert.equal((await post(base, '/api/marketplace/capability-requests', { idempotencyKey: '', request: {} })).status, 400);
+  assert.equal((await post(base, '/api/marketplace/capability-requests', { idempotencyKey: 'k1' })).status, 400);
+  assert.equal((await post(base, '/api/marketplace/capability-requests/not-a-uuid/open', { version: 1 })).status, 400);
+  assert.equal((await post(base, `/api/marketplace/capability-requests/${ATTEMPT_ID}/open`, { version: 0 })).status, 400);
+  assert.equal((await post(base, '/api/marketplace/capability-requests/not-a-uuid/matches', { idempotencyKey: 'k1' })).status, 400);
+  assert.equal((await post(base, `/api/marketplace/capability-requests/${ATTEMPT_ID}/matches`, { idempotencyKey: '' })).status, 400);
+  assert.equal((await fetch(`${base}/api/marketplace/match-results/not-a-uuid`)).status, 400);
+  assert.equal(calls.length, 0, 'nothing reached the gateway');
+});
+
+test('marketplace routes proxy to the gateway and forward its response through', async (t) => {
+  const { fetchImpl, calls } = fakeMarketplaceGateway();
+  const base = await listen(t, { fetchImpl, driver: failingDriver() });
+
+  const created = await post(base, '/api/marketplace/capability-requests', { idempotencyKey: 'k1', request: { title: 'x' } });
+  assert.equal(created.status, 201);
+  const createdBody = await created.json();
+  assert.equal(createdBody.outcome, 'created');
+  assert.equal(createdBody.request.id, 'req-1');
+
+  const opened = await post(base, `/api/marketplace/capability-requests/${ATTEMPT_ID}/open`, { version: 1 });
+  assert.equal(opened.status, 200);
+  assert.equal((await opened.json()).request.state.status, 'open');
+
+  const matched = await post(base, `/api/marketplace/capability-requests/${ATTEMPT_ID}/matches`, { idempotencyKey: 'k2' });
+  assert.equal(matched.status, 201);
+  assert.equal((await matched.json()).matchResult.resultId, 'result-1');
+
+  const result = await fetch(`${base}/api/marketplace/match-results/${ATTEMPT_ID}`);
+  assert.equal(result.status, 200);
+  assert.equal((await result.json()).matchResult.resultId, 'result-1');
+
+  assert.equal((await fetch(`${base}/api/marketplace/capability-requests`)).status, 200);
+
+  const marketplaceCalls = calls.filter((c) => c.url.includes('/v1/marketplace/'));
+  assert.equal(marketplaceCalls.length, 5, 'one gateway call per route, no retries or extra round-trips');
+  assert.deepEqual(marketplaceCalls[0].body, { idempotencyKey: 'k1', request: { title: 'x' } });
+});
+
+test('an unreachable gateway reports marketplace_unavailable, not a crash', async (t) => {
+  const fetchImpl = async () => { throw new Error('ECONNREFUSED'); };
+  const base = await listen(t, { fetchImpl, driver: failingDriver() });
+  const reply = await post(base, '/api/marketplace/capability-requests', { idempotencyKey: 'k1', request: { title: 'x' } });
+  assert.equal(reply.status, 503);
+  assert.equal((await reply.json()).error, 'marketplace_unavailable');
+});
+
+test('evidence bundle route collects what is live and forwards the sanitized result', async (t) => {
+  const calls = [];
+  const fetchImpl = async (url, init = {}) => {
+    calls.push({ url, method: init.method || 'GET', body: init.body ? JSON.parse(init.body) : undefined });
+    const reply = (status, body) => ({ status, text: async () => JSON.stringify(body) });
+    if (url.endsWith('/v1/auth/tokens')) return reply(200, { accessToken: 'admin-token', expiresIn: 900 });
+    if (url.endsWith('/v1/admin/certifications/kpi')) return reply(200, { issued: 42 });
+    if (url.endsWith('/bundle'))
+      return reply(200, { bundleVersion: '1.0.0', generatedAt: '2026-01-01T00:00:00.000Z',
+        retention: { raw: '90d', aggregate: '365d' },
+        sections: { buildEnv: {}, packages: [], kpis: { issued: 42 }, contracts: [], policies: [],
+          datasets: [], incidents: [], demonstrations: [], costs: {}, limitations: ['x'] },
+        digests: { buildEnv: 'd0', packages: 'd1', kpis: 'd2', contracts: 'd3', policies: 'd4',
+          datasets: 'd5', incidents: 'd6', demonstrations: 'd7', costs: 'd8', limitations: 'd9' },
+        bundleDigest: 'bd0' });
+    return reply(404, { error: 'not_found' });
+  };
+  const base = await listen(t, { fetchImpl, driver: failingDriver() });
+
+  const reply = await post(base, '/api/evidence/bundle', {});
+  assert.equal(reply.status, 200);
+  const bundle = await reply.json();
+  assert.equal(bundle.bundleVersion, '1.0.0');
+  assert.equal(bundle.sections.kpis.issued, 42);
+  assert.equal(bundle.bundleDigest, 'bd0');
+
+  const bundleCall = calls.find((c) => c.url.endsWith('/bundle'));
+  assert.ok(bundleCall, 'called the evidence-bundle service');
+  assert.deepEqual(bundleCall.body.kpis, { issued: 42 });
+  assert.deepEqual(bundleCall.body.packages, [], 'no active package with this driver, so packages stays empty rather than invented');
+  assert.ok(Array.isArray(bundleCall.body.limitations) && bundleCall.body.limitations.length > 0, 'honest about what is not sourced yet');
+});
+
+test('an unreachable evidence-bundle service reports evidence_unavailable, not a crash', async (t) => {
+  const fetchImpl = async (url) => {
+    if (url.endsWith('/v1/auth/tokens')) return { status: 200, text: async () => JSON.stringify({ accessToken: 't', expiresIn: 900 }) };
+    if (url.includes('/health')) throw new Error('ECONNREFUSED');
+    if (url.endsWith('/v1/admin/certifications/kpi')) return { status: 200, text: async () => JSON.stringify({}) };
+    throw new Error('ECONNREFUSED'); // evidence-bundle itself is down
+  };
+  const base = await listen(t, { fetchImpl, driver: failingDriver() });
+  const reply = await post(base, '/api/evidence/bundle', {});
+  assert.equal(reply.status, 503);
+  assert.equal((await reply.json()).error, 'evidence_unavailable');
+});
+
+test('the HTML export regenerates from live data and returns the rendered page', async (t) => {
+  const fetchImpl = async (url, init = {}) => {
+    const reply = (status, body) => ({ status, text: async () => JSON.stringify(body) });
+    if (url.endsWith('/v1/auth/tokens')) return reply(200, { accessToken: 'admin-token', expiresIn: 900 });
+    if (url.endsWith('/v1/admin/certifications/kpi')) return reply(200, {});
+    if (url.endsWith('/bundle/html'))
+      return { status: 200, text: async () => '<!DOCTYPE html><html><body>EduAgentX Evidence Bundle</body></html>' };
+    return reply(404, { error: 'not_found' });
+  };
+  const base = await listen(t, { fetchImpl, driver: failingDriver() });
+  const reply = await fetch(`${base}/api/evidence/bundle.html`);
+  assert.equal(reply.status, 200);
+  assert.match(reply.headers.get('content-type') || '', /html/);
+  const text = await reply.text();
+  assert.match(text, /Evidence Bundle/);
+});

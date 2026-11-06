@@ -14,6 +14,7 @@ const PORT = Number(process.env.PORT || 4300);
 const GATEWAY_URL = process.env.API_GATEWAY_URL || 'http://api-gateway:4000';
 const SYNTHETIC_URL = process.env.SYNTHETIC_AGENT_URL || 'http://synthetic-agent-learner:4200';
 const VALIDATION_URL = process.env.VALIDATION_ACTIVATION_URL || 'http://validation-activation:4010';
+const EVIDENCE_URL = process.env.EVIDENCE_BUNDLE_URL || 'http://evidence-bundle:4050';
 const REQUEST_TIMEOUT_MS = 8000;
 const HEALTH_TIMEOUT_MS = 1500;
 const REMEDIATION_WAIT_MS = 15_000;
@@ -151,6 +152,26 @@ function createServer({ env = process.env, fetchImpl = fetch, driver } = {}) {
     };
   }
 
+  // What the Evidence Bundle service can be given right now, honestly: only
+  // sections this platform can actually back with live data. Everything else
+  // stays empty rather than inventing contracts, datasets or demonstrations
+  // the platform cannot yet produce (demonstrations wait on Issues #33/#34).
+  async function collectEvidenceInput() {
+    const [services, kpi, pkg] = await Promise.all([
+      healthMap(),
+      settle(gateway('/v1/admin/certifications/kpi')),
+      activePackage().catch(() => null),
+    ]);
+    return {
+      buildEnv: { generatedAt: new Date().toISOString(), nodeVersion: process.version,
+        services: services.map(({ id, name, layer, issue, healthy }) => ({ id, name, layer, issue, healthy })) },
+      packages: pkg ? [{ id: pkg.packageId, version: pkg.version, digest: pkg.digest, state: pkg.state }] : [],
+      kpis: kpi.unavailable ? {} : kpi,
+      contracts: [], policies: [], datasets: [], incidents: [], demonstrations: [], costs: {},
+      limitations: ['Demonstrations, contracts, policies, datasets, incidents and costs are not yet sourced from a live service; they wait on Issue #33 (end-to-end suite) and #34 (hero scenarios) landing on main.'],
+    };
+  }
+
   const app = express();
   app.disable('x-powered-by');
   app.use(express.json({ limit: '80kb' }));
@@ -280,6 +301,77 @@ function createServer({ env = process.env, fetchImpl = fetch, driver } = {}) {
       runInProgress = false;
       res.end();
     }
+  });
+
+  // --- evidence bundle (Issue #35): collect what the platform can back live,
+  // then hand it to the evidence-bundle service (#28) for redaction and digests.
+
+  app.post('/api/evidence/bundle', async (req, res) => {
+    try {
+      const input = await collectEvidenceInput();
+      const reply = await call(`${EVIDENCE_URL}/bundle`, { method: 'POST', body: input });
+      res.status(reply.status).json(reply.data);
+    } catch { res.status(503).json({ error: 'evidence_unavailable' }); }
+  });
+
+  // A GET so the browser can open/download it directly; still regenerates
+  // from live data each time, same as the JSON route above.
+  app.get('/api/evidence/bundle.html', async (req, res) => {
+    try {
+      const input = await collectEvidenceInput();
+      const response = await fetchImpl(`${EVIDENCE_URL}/bundle/html`, { method: 'POST',
+        headers: { 'content-type': 'application/json' }, body: JSON.stringify(input), signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+      const text = await response.text();
+      if (response.status !== 200) return res.status(response.status).json({ error: 'evidence_unavailable' });
+      res.set('content-type', 'text/html').send(text);
+    } catch { res.status(503).json({ error: 'evidence_unavailable' }); }
+  });
+
+  // --- marketplace (Issue #35 console, over #30/#31's real Capability Requests)
+
+  app.post('/api/marketplace/capability-requests', async (req, res) => {
+    const idempotencyKey = typeof req.body?.idempotencyKey === 'string' ? req.body.idempotencyKey : '';
+    const request = req.body?.request;
+    if (!idempotencyKey.trim() || !request || typeof request !== 'object') return res.status(400).json({ error: 'invalid_request' });
+    try {
+      const reply = await gateway('/v1/marketplace/capability-requests', { method: 'POST', body: { idempotencyKey, request } });
+      res.status(reply.status).json(reply.data);
+    } catch { res.status(503).json({ error: 'marketplace_unavailable' }); }
+  });
+
+  app.post('/api/marketplace/capability-requests/:id/open', async (req, res) => {
+    const { id } = req.params;
+    const version = Number(req.body?.version);
+    if (!UUID.test(id) || !Number.isInteger(version) || version < 1) return res.status(400).json({ error: 'invalid_request' });
+    try {
+      const reply = await gateway(`/v1/marketplace/capability-requests/${id}/open`, { method: 'POST', body: { version } });
+      res.status(reply.status).json(reply.data);
+    } catch { res.status(503).json({ error: 'marketplace_unavailable' }); }
+  });
+
+  app.post('/api/marketplace/capability-requests/:id/matches', async (req, res) => {
+    const { id } = req.params;
+    const idempotencyKey = typeof req.body?.idempotencyKey === 'string' ? req.body.idempotencyKey : '';
+    if (!UUID.test(id) || !idempotencyKey.trim()) return res.status(400).json({ error: 'invalid_request' });
+    try {
+      const reply = await gateway(`/v1/marketplace/capability-requests/${id}/matches`, { method: 'POST', body: { idempotencyKey } });
+      res.status(reply.status).json(reply.data);
+    } catch { res.status(503).json({ error: 'marketplace_unavailable' }); }
+  });
+
+  app.get('/api/marketplace/match-results/:resultId', async (req, res) => {
+    if (!UUID.test(req.params.resultId)) return res.status(400).json({ error: 'invalid_request' });
+    try {
+      const reply = await gateway(`/v1/marketplace/match-results/${req.params.resultId}`);
+      res.status(reply.status).json(reply.data);
+    } catch { res.status(503).json({ error: 'marketplace_unavailable' }); }
+  });
+
+  app.get('/api/marketplace/capability-requests', async (req, res) => {
+    try {
+      const reply = await gateway('/v1/marketplace/capability-requests');
+      res.status(reply.status).json(reply.data);
+    } catch { res.status(503).json({ error: 'marketplace_unavailable' }); }
   });
 
   const dist = path.join(__dirname, 'dist');
