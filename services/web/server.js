@@ -282,6 +282,53 @@ function createServer({ env = process.env, fetchImpl = fetch, driver } = {}) {
     }
   });
 
+  // --- marketplace (Issue #35 console, over #30/#31's real Capability Requests)
+
+  app.post('/api/marketplace/capability-requests', async (req, res) => {
+    const idempotencyKey = typeof req.body?.idempotencyKey === 'string' ? req.body.idempotencyKey : '';
+    const request = req.body?.request;
+    if (!idempotencyKey.trim() || !request || typeof request !== 'object') return res.status(400).json({ error: 'invalid_request' });
+    try {
+      const reply = await gateway('/v1/marketplace/capability-requests', { method: 'POST', body: { idempotencyKey, request } });
+      res.status(reply.status).json(reply.data);
+    } catch { res.status(503).json({ error: 'marketplace_unavailable' }); }
+  });
+
+  app.post('/api/marketplace/capability-requests/:id/open', async (req, res) => {
+    const { id } = req.params;
+    const version = Number(req.body?.version);
+    if (!UUID.test(id) || !Number.isInteger(version) || version < 1) return res.status(400).json({ error: 'invalid_request' });
+    try {
+      const reply = await gateway(`/v1/marketplace/capability-requests/${id}/open`, { method: 'POST', body: { version } });
+      res.status(reply.status).json(reply.data);
+    } catch { res.status(503).json({ error: 'marketplace_unavailable' }); }
+  });
+
+  app.post('/api/marketplace/capability-requests/:id/matches', async (req, res) => {
+    const { id } = req.params;
+    const idempotencyKey = typeof req.body?.idempotencyKey === 'string' ? req.body.idempotencyKey : '';
+    if (!UUID.test(id) || !idempotencyKey.trim()) return res.status(400).json({ error: 'invalid_request' });
+    try {
+      const reply = await gateway(`/v1/marketplace/capability-requests/${id}/matches`, { method: 'POST', body: { idempotencyKey } });
+      res.status(reply.status).json(reply.data);
+    } catch { res.status(503).json({ error: 'marketplace_unavailable' }); }
+  });
+
+  app.get('/api/marketplace/match-results/:resultId', async (req, res) => {
+    if (!UUID.test(req.params.resultId)) return res.status(400).json({ error: 'invalid_request' });
+    try {
+      const reply = await gateway(`/v1/marketplace/match-results/${req.params.resultId}`);
+      res.status(reply.status).json(reply.data);
+    } catch { res.status(503).json({ error: 'marketplace_unavailable' }); }
+  });
+
+  app.get('/api/marketplace/capability-requests', async (req, res) => {
+    try {
+      const reply = await gateway('/v1/marketplace/capability-requests');
+      res.status(reply.status).json(reply.data);
+    } catch { res.status(503).json({ error: 'marketplace_unavailable' }); }
+  });
+
   const dist = path.join(__dirname, 'dist');
   if (fs.existsSync(dist)) {
     app.use(express.static(dist, { index: false, maxAge: '1h' }));
