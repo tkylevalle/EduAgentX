@@ -4,6 +4,7 @@
 // an Agent Learner. Issue #17 must first persist its immutable attempt and
 // item references; Issue #18 owns grading. The item generator is injectable
 // so replay fixtures can exercise the zero-paid-API path.
+const execution = require('../../packages/execution-provenance');
 const { sha256 } = require('../curriculum-engine/model');
 
 const COUNTS = Object.freeze({ recall: 5, applied: 6, adversarial: 4 });
@@ -46,6 +47,8 @@ function validateInputs({ pkg, registration, completion }) {
     completion.completion?.completedItems !== completion.completion?.plannedItems ||
     !Number.isInteger(completion.completion?.plannedItems) || completion.completion.plannedItems < 1)
     fail('matching_training_completion_required');
+  if ((completion.provenance || completion.schemaVersion === '1.1.0') && !execution.validCompletion(completion))
+    fail('provenance_conflict');
   const template = pkg.examTemplate;
   if (!template || !nonempty(template.id) || !nonempty(template.version) ||
     !nonempty(template.generationPolicy) || template.curriculumTrackVersion !== pkg.curriculumTrack?.version ||
@@ -123,7 +126,8 @@ function validateGeneratedForm({ pkg, registration, completion, items }) {
       fail('insufficient_objective_coverage');
   }
   return deepFreeze({
-    schemaVersion: 'examination-form/1.0.0', mode: 'standard',
+    schemaVersion: completion.provenance ? 'examination-form/1.1.0' : 'examination-form/1.0.0', mode: 'standard',
+    ...(completion.provenance ? { provenanceProfile: execution.RUN, provenance: completion.provenance } : {}),
     package: { id: pkg.packageId || pkg.id, version: pkg.version, digest: pkg.digest },
     template: { id: template.id, version: template.version, digest: sha256(template) },
     rubric: { id: rubric.id, version: rubric.version, digest: sha256(rubric) },
@@ -132,6 +136,7 @@ function validateGeneratedForm({ pkg, registration, completion, items }) {
     // and label the remediation event without reading Training again.
     training: { eventId: completion.eventId, sessionId: completion.sessionId,
       sessionKind: completion.sessionKind ?? 'standard', remediationRequestId: completion.remediationRequestId ?? null,
+      ...(completion.provenance ? { completionDigest: execution.hash(completion), executionCoverage: completion.executionCoverage } : {}),
       evidence: completion.evidence ? { mode: completion.evidence.mode, environment: completion.evidence.environment } : null },
     subject: { agentLearnerKey: registration.agentLearnerKey,
       configurationFingerprint: registration.configurationFingerprint },
@@ -158,7 +163,7 @@ async function generateStandardForm({ pkg, registration, completion, generateIte
 // Allowlisted projection only. Issue #17 must return this after durable attempt
 // admission; no caller may expose generator output directly.
 function publicForm(form) {
-  if (form?.schemaVersion !== 'examination-form/1.0.0') fail('invalid_generated_form');
+  if (!['examination-form/1.0.0', 'examination-form/1.1.0'].includes(form?.schemaVersion)) fail('invalid_generated_form');
   return {
     schemaVersion: form.schemaVersion, mode: form.mode, package: form.package,
     template: form.template, rubric: form.rubric, generationPolicySha256: form.generationPolicySha256,

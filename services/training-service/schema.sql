@@ -164,3 +164,9 @@ ALTER TABLE training_service.completion_delivery_incidents
 DROP TRIGGER IF EXISTS completion_delivery_incidents_immutable ON training_service.completion_delivery_incidents;
 CREATE TRIGGER completion_delivery_incidents_immutable BEFORE UPDATE OR DELETE ON training_service.completion_delivery_incidents
 FOR EACH ROW EXECUTE FUNCTION training_service.forbid_evidence_change();
+
+-- #83: nullable only for legacy rows. New authoritative sessions validate before INSERT.
+ALTER TABLE training_service.sessions ADD COLUMN IF NOT EXISTS provenance jsonb;
+ALTER TABLE training_service.session_events ADD COLUMN IF NOT EXISTS execution_evidence jsonb;
+CREATE UNIQUE INDEX IF NOT EXISTS execution_receipt_once
+  ON training_service.session_events ((execution_evidence->>'receiptId')) WHERE execution_evidence IS NOT NULL;

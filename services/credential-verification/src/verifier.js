@@ -3,8 +3,10 @@
  * W3C VC 2.0 verification engine.
  * Reports each check separately. Fails closed on tamper, unknown key/issuer, bad algorithm.
  */
+const { credentialProvenance, SIMULATION_ISSUER } = require('../../../packages/execution-provenance');
 const { verifyJws } = require('./signer');
 
+const TEST_KEY_PREFIX = `${SIMULATION_ISSUER}#`;
 const DEFAULT_ISSUER = 'did:example:eduagentx-dev-2026';
 // Accepted credential types: the original test profile and the type that
 // certification-service issues.
@@ -14,6 +16,11 @@ const COMPETENCY_TYPES = ['CompetencyCredential', 'EduAgentXCompetencyCredential
 // it applies without reloading the module.
 function trustedIssuers() {
   return new Set((process.env.CREDENTIAL_ISSUER || DEFAULT_ISSUER).split(',').map((issuer) => issuer.trim()).filter(Boolean));
+}
+
+function keyIdOf(jws) {
+  try { return String(JSON.parse(Buffer.from(String(jws).split('.')[0], 'base64url').toString()).kid || ''); }
+  catch { return ''; } // A malformed header fails the signature check that follows.
 }
 
 /**
@@ -63,6 +70,7 @@ function verifyCredential(jws, publicKeyPem, statusStore = null) {
   const required = ['@context', 'type', 'id', 'issuer', 'credentialSubject'];
   const missing = required.filter(f => !credential[f]);
   if (!validFrom) missing.push('validFrom');
+  if (!credentialProvenance(credential)) missing.push('supported execution provenance');
   if (missing.length) {
     report.schema = { status: 'FAIL', reason: `missing fields: ${missing.join(', ')}` };
     report.reasonCodes.push('SCHEMA_INVALID');
@@ -121,6 +129,9 @@ function verifyCredential(jws, publicKeyPem, statusStore = null) {
   if (!trustedIssuers().has(issuer)) {
     report.issuerPolicy = { status: 'FAIL', reason: `untrusted_issuer: ${issuer}` };
     report.reasonCodes.push('UNTRUSTED_ISSUER');
+  } else if ((issuer === SIMULATION_ISSUER) !== keyIdOf(jws).startsWith(TEST_KEY_PREFIX)) {
+    report.issuerPolicy = { status: 'FAIL', reason: 'issuer_key_mismatch' };
+    report.reasonCodes.push('ISSUER_KEY_MISMATCH');
   } else {
     report.issuerPolicy = { status: 'PASS', reason: null };
   }
@@ -150,4 +161,4 @@ function verifyCredential(jws, publicKeyPem, statusStore = null) {
   return report;
 }
 
-module.exports = { verifyCredential, trustedIssuers, COMPETENCY_TYPES };
+module.exports = { verifyCredential, trustedIssuers, COMPETENCY_TYPES, TEST_KEY_PREFIX, keyIdOf };

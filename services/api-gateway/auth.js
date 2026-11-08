@@ -90,6 +90,18 @@ function knownClients() {
       clientSecret: process.env.LIVE_AGENT_CLIENT_SECRET || '',
       role: 'agent',
     },
+    // Enrolled executor. Ordinary agents stay outside EXECUTION_PRINCIPALS, so
+    // their scenarios keep working without provenance.
+    {
+      clientId: process.env.SYNTHETIC_EXECUTOR_CLIENT_ID || '',
+      clientSecret: process.env.SYNTHETIC_EXECUTOR_CLIENT_SECRET || '',
+      role: 'agent',
+    },
+    {
+      clientId: process.env.REPLAY_AGENT_CLIENT_ID || '',
+      clientSecret: process.env.REPLAY_AGENT_CLIENT_SECRET || '',
+      role: 'agent',
+    },
     {
       clientId: process.env.ADMIN_CLIENT_ID || '',
       clientSecret: process.env.ADMIN_CLIENT_SECRET || '',

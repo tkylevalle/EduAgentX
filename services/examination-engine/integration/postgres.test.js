@@ -391,3 +391,39 @@ test('PostgreSQL relay claims are exclusive, back off, and order equal timestamp
     WHERE event_id = ANY($1) ORDER BY event_id`, [[...ids]]);
   assert.deepEqual(rows.rows.map((row) => row.attempts), [2, 2]);
 });
+
+
+test('PostgreSQL retains authoritative form and response evidence across restart and rejects cross-attempt receipts', async () => {
+  const p = require('../../../packages/execution-provenance');
+  const { fixture } = require('../../../packages/execution-provenance/test/fixtures');
+  const pool = new Pool({ connectionString: process.env.EXAMINATION_TEST_DATABASE_URL });
+  try {
+    await pool.query(fs.readFileSync(path.resolve(__dirname, '../schema.sql'), 'utf8'));
+    for (const mode of ['synthetic','replay']) {
+      const f = fixture(mode, `pg-exam-${mode}`);
+      const form = await generateStandardForm({ pkg: f.pkg, registration: f.registration, completion: f.completion, generateItems: createStandardItems });
+      const now = new Date().toISOString(), deadlineAt = new Date(Date.now()+3600000).toISOString();
+      const store = createPgStore(pool);
+      const admitted = await store.admit({ actor: f.run.agentLearnerKey, key: randomUUID(), form, now, deadlineAt, correlationId: 'provenance-pg' });
+      let a = admitted.attempt, firstCommand;
+      for (const item of form.items) {
+        const produced = p.receipt(f.run, 'examination', item, a.attemptId, now);
+        const command = { type: 'response', idempotencyKey: item.id, expectedSequence: a.sequence, itemId: item.id,
+          ...produced, trustedExecution: f.authority, now, correlationId: 'provenance-pg' };
+        firstCommand ||= command;
+        a = (await store.command(a.attemptId, command)).attempt;
+      }
+      const fresh = new Pool({ connectionString: process.env.EXAMINATION_TEST_DATABASE_URL });
+      try {
+        const restarted = createPgStore(fresh), saved = await restarted.get(a.attemptId);
+        assert.deepEqual(saved.form.provenance, f.run);
+        assert.deepEqual(saved.executionCoverage, a.executionCoverage);
+        assert.equal(saved.executionCoverage.itemCount, 15);
+        assert.equal((await restarted.command(a.attemptId, firstCommand)).replay, true);
+        const bad = structuredClone(firstCommand); bad.executionEvidence.attemptId = randomUUID();
+        await assert.rejects(restarted.command(a.attemptId, bad), /provenance_conflict/);
+        assert.deepEqual((await restarted.get(a.attemptId)).executionCoverage, saved.executionCoverage);
+      } finally { await fresh.end(); }
+    }
+  } finally { await pool.end(); }
+});
