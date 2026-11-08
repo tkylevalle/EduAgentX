@@ -1,5 +1,6 @@
 'use strict';
 
+const execution = require('../../packages/execution-provenance');
 const { sha256 } = require('../curriculum-engine/model');
 const { checkAssessment } = require('./assessment');
 const KEY = /^[\x20-\x7e]{1,256}$/;
@@ -38,7 +39,7 @@ function validateCommand(command) {
 function commandDigest(attemptId, command) {
   const semantic = { attemptId, type: command.type, expectedSequence: command.expectedSequence };
   for (const name of ['itemId', 'response', 'eventId', 'formDigest', 'rubricDigest', 'responseSetDigest', 'result', 'reason',
-    'assessment'])
+    'assessment','executionEvidence'])
     if (command[name] !== undefined) semantic[name] = command[name];
   return sha256(semantic);
 }
@@ -51,6 +52,13 @@ function derive(attempt, events, responses) {
     attempt.form.subject.configurationFingerprint !== attempt.configurationFingerprint || attempt.form.mode !== attempt.mode ||
     sha256(attempt.form.package) !== sha256(attempt.package) || Date.parse(attempt.deadlineAt) <= Date.parse(attempt.startedAt))
     throw fail('invalid_manifest');
+  if ((attempt.form.provenanceProfile || attempt.form.schemaVersion.endsWith('/1.1.0')) && (!execution.validRun(attempt.form.provenance) ||
+    attempt.form.provenanceProfile !== execution.RUN || attempt.form.provenance.agentLearnerKey !== attempt.agentLearnerKey ||
+    attempt.form.provenance.configurationFingerprint !== attempt.configurationFingerprint ||
+    !execution.same(attempt.form.provenance.package, attempt.package) ||
+    !execution.validCoverage(attempt.form.training.executionCoverage, attempt.form.provenance, 'training', attempt.form.training.executionCoverage?.itemCount)))
+    throw fail('invalid_manifest');
+  const executionReceipts = [];
   const answered = new Set(), identities = new Set();
   let grade = null, previousTime = Date.parse(attempt.startedAt);
   const orderedDigest = () => sha256(attempt.form.items.flatMap((item) => {
@@ -71,6 +79,12 @@ function derive(attempt, events, responses) {
         time >= Date.parse(attempt.deadlineAt) || row.seq !== event.seq || Date.parse(row.acceptedAt) !== time ||
         row.responseDigest !== event.payload.responseDigest || sha256(row.response) !== row.responseDigest)
         throw fail('invalid_event_history');
+      if (attempt.form.provenanceProfile) {
+        const r = attempt.form.provenance;
+        execution.validateReceipt(r, execution.runAuthority(r), { mode: r.evidenceMode, environment: r.environment },
+          event.payload.executionEvidence, 'examination', attempt.form.items.find((i) => i.id === row.itemId), row.response, attempt.attemptId);
+        executionReceipts.push(event.payload.executionEvidence);
+      }
       answered.add(row.itemId);
       state.responsesReceived++;
     } else if (event.eventType === 'grade_recorded') {
@@ -101,7 +115,9 @@ function derive(attempt, events, responses) {
   state.responseCollectionComplete = answered.size === attempt.form.items.length;
   if (responses.length !== answered.size || new Set(responses.map((r) => r.itemId)).size !== responses.length)
     throw fail('invalid_response_history');
-  return { ...attempt, ...state, responseSetDigest: orderedDigest(), events, responses };
+  return { ...attempt, ...state,
+    ...(attempt.form.provenanceProfile && state.responseCollectionComplete ? { executionCoverage: execution.coverage(attempt.form.provenance,
+      'examination', attempt.form.items.map((i) => i.id), attempt.form.items.map((i) => executionReceipts.find((r) => r.itemId === i.id)), attempt.attemptId) } : {}), responseSetDigest: orderedDigest(), events, responses };
 }
 
 function stateReceipt(snapshot) {

@@ -21,6 +21,55 @@ Decision and credential rows are committed in one PostgreSQL transaction. `exami
 
 The credential is a project-scoped W3C VC 2.0 payload in compact JWS, signed with Ed25519 (`alg=EdDSA`). The private signing key is a checkout-local ignored file mounted read-only; it is never written to PostgreSQL or returned. This is project evidence, not external accreditation. Raw answers and hidden grader material are not included.
 
+New service-issued credentials also sign `evidence.certificationDecisionId`. The
+store allocates that ID inside its existing serialized issuance transaction,
+before signing, and uses it for the decision/credential relationship. Replays
+return the original bytes; existing credentials are never rewritten. An evidence
+projection naming a different examination than the requested selector is refused.
+
+## Marketplace origin read
+
+`GET /internal/credential-origins/:credentialId` accepts one lowercase UUID and
+no query parameters. Required headers are `x-internal-service-key` with the
+existing `MARKETPLACE_INTERNAL_KEY`, `x-actor-subject: marketplace-service`, and
+`x-actor-role: marketplace`. Certification must receive that key in its runtime
+configuration. It must differ from `CERTIFICATION_INTERNAL_KEY`; absent or
+identical keys refuse the origin read. The Marketplace key grants no access to
+other issuer reads, credential enumeration, or issuance commands.
+
+The read joins the immutable credential to its immutable decision by
+`decision_id`, selecting the exact credential UUID. A 200 response contains only
+`{ apiVersion: "v1", origin }`, where `origin` has these fields:
+
+| Field | Meaning |
+| --- | --- |
+| `schemaVersion` | `certification-origin/1.0.0` |
+| `outcome` | `certified`; only issued decision/credential pairs are returned |
+| `credentialId` | Exact requested credential UUID |
+| `decisionId` | Owning immutable Certification Decision UUID |
+| `examinationId` | Owning passing Examination UUID |
+| `subjectId` | Registered learner key bound by the decision |
+| `configurationFingerprint` | Decision's learner configuration fingerprint |
+| `credentialDigest` | `sha256:` plus lowercase hex SHA-256 of the exact UTF-8 compact JWS |
+
+Unknown IDs return 404, malformed selectors return 400, unauthorized callers
+return 403, and storage uncertainty returns 503. No credential dump, scores,
+assessment items, answers, prompts, rationale, keys or tokens are returned.
+Origin proves historical issuance only; signature, schema, status, fingerprint
+freshness and all other Marketplace gates still run independently.
+
+New authoritative credentials use the versioned [execution provenance reference
+policy](execution-provenance.md), validate complete Training/Examination coverage,
+and sign top-level `environment` and `evidenceMode` before the existing transaction.
+The complete answer-free binding is retained under `evidence.provenance`.
+`certification-evidence/1.1.0` cannot silently downgrade when required provenance
+is missing. Legacy evidence and signed bytes are never upgraded.
+
+`CERTIFICATION_ENVIRONMENT` must explicitly match authoritative issuance.
+The reference Compose issuer is simulation-only. Use separately provisioned
+issuer/key deployments for live credentials; callers cannot select either.
+Live provenance enrollment is disabled in this reference policy.
+
 ## Examination Engine evidence source
 
 `GET /internal/certification-evidence/:examinationId` returns a purpose-limited projection containing the subject fingerprint, package, mode, template, rubric, result, scores, safety outcome, and timestamps. It excludes responses and expected answers. `GET /internal/certification-candidates` returns completed passing attempt IDs after a durable cursor; the Certification Service polls this list and advances its cursor after issuance, replay, or permanent evidence rejection (without creating a decision). A quarantine refusal does not advance the cursor, so trust restoration can safely resume pending issuance.

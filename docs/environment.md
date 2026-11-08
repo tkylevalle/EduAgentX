@@ -19,12 +19,19 @@ generates its own secrets for each run.
 | `REGISTRY_DB_PASSWORD` | postgres, agent-registry | Password of the restricted `registry_owner` role | generated |
 | `CERTIFICATION_DB_PASSWORD` | postgres, certification-service | Password of the restricted `certification_owner` role | generated |
 | `CERTIFICATION_INTERNAL_KEY` | certification-service | Shared credential for its trusted internal issuance contract | generated |
-| `CERTIFICATION_KEY_ID` | certification-service | Key identifier embedded in compact credential signatures | `https://eduagentx.example/issuers/eduagentx#dev-ed25519-1` |
-| `CERTIFICATION_PRIVATE_KEY_PATH` | certification-service | Ed25519 private signing key inside the container; generated under ignored `keys/` | `/app/keys/certification-ed25519-private.pem` |
-| `CERTIFICATION_ISSUER` | certification-service | Project issuer URL in the credential | `https://eduagentx.example/issuers/eduagentx` |
+| `CERTIFICATION_KEY_ID` | certification-service | Key identifier embedded in compact credential signatures | `https://eduagentx.example/issuers/eduagentx-test#test-ed25519-1` |
+| `CERTIFICATION_PRIVATE_KEY_PATH` | certification-service | Ed25519 private signing key inside the container; generated under ignored `keys/` | `/app/keys/certification-test-ed25519-private.pem` |
+| `CERTIFICATION_ISSUER` | certification-service | Issuer URL in the credential. Simulation evidence is signed only under the test issuer | `https://eduagentx.example/issuers/eduagentx-test` |
+| `CERTIFICATION_ENVIRONMENT` | certification-service | Environment this issuer may sign provenance for: `simulation` or `live` | `simulation` |
+| `CREDENTIAL_TEST_PUBLIC_KEY_PATH` | credential-verification | Public key for credentials signed under the test issuer | `/keys/certification-test-ed25519-public.pem` |
+| `EXECUTION_PRINCIPALS` | api-gateway, training-service | JSON list of enrolled executors. Each binds one subject to one evidence mode and its sources. A replay entry needs two recorded fixture reviews | the synthetic executor |
+| `SYNTHETIC_EXECUTOR_CLIENT_ID` | api-gateway, synthetic-agent-learner | Client ID of the enrolled synthetic executor | `synthetic-executor-dev` |
+| `SYNTHETIC_EXECUTOR_CLIENT_SECRET` | api-gateway, synthetic-agent-learner | Secret for that client | generated |
+| `REPLAY_AGENT_CLIENT_ID` | api-gateway, synthetic-agent-learner | Client ID of the replay executor | empty |
+| `REPLAY_AGENT_CLIENT_SECRET` | api-gateway, synthetic-agent-learner | Secret for that client | empty |
 | `CREDENTIAL_BASE_URL` | certification-service | Base URL used for credential IDs | `https://eduagentx.example/credentials` |
 | `MARKETPLACE_DB_PASSWORD` | postgres, marketplace-service | Password of the restricted `marketplace_owner` role | generated |
-| `MARKETPLACE_INTERNAL_KEY` | api-gateway, marketplace-service | Shared credential for the Gateway's calls to Marketplace internal routes | generated |
+| `MARKETPLACE_INTERNAL_KEY` | api-gateway, marketplace-service, certification-service, skill-gap-service | Shared credential for the Gateway's calls to Marketplace internal routes | generated |
 | `POSTGRES_DB` | postgres, agent-registry | Database name | `eduagentx` |
 | `POSTGRES_PORT` | host | Host port for PostgreSQL (127.0.0.1 only) | `5432` |
 | `REDIS_PORT` | host | Host port for Redis (127.0.0.1 only) | `6379` |

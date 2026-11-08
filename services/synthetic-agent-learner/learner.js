@@ -1,3 +1,4 @@
+const execution = require('../../packages/execution-provenance');
 const { randomUUID } = require('node:crypto');
 
 const {
@@ -175,7 +176,7 @@ function createSyntheticAgentLearner({ gatewayClient, idGenerator = randomUUID }
   // contract; respond(item) returns the response text for one delivered item.
   async function train({ agentLearnerKey, profileId = 'competent', resumeSessionId,
     maxItems = 20, correlationId = `synthetic-training-${idGenerator()}`, timeoutMs = 5000,
-    registration = {}, evidenceMode = 'synthetic', respond = null } = {}) {
+    registration = {}, evidenceMode = 'synthetic', respond = null, executionProfile } = {}) {
     const profile = getSyntheticProfile(profileId);
     if (!profile || !agentLearnerKey || !Number.isInteger(maxItems) || maxItems < 1 || maxItems > 20)
       return { outcome: 'rejected', reason: 'invalid_training_request', credentialIssued: false };
@@ -191,37 +192,44 @@ function createSyntheticAgentLearner({ gatewayClient, idGenerator = randomUUID }
       const interact = async (interactionType, data) => gatewayClient.interact(createLifecycleMessage({
         messageId: `synthetic-training-${idGenerator()}`, correlationId,
         idempotencyKey: `synthetic-training-${idGenerator()}`, timeoutMs, evidence,
-        payload: { interactionType, data: { agentLearnerKey, response: 'acknowledge', ...data } },
+        payload: { interactionType, data: { agentLearnerKey, response: 'acknowledge', ...(executionProfile ? { executionProfile } : {}), ...data } },
       }));
       const started = await interact('training.session.start', {});
       if (!isSuccess(started) || !started.body?.sessionId)
         return { outcome: 'system_aborted', reason: started.body?.error || 'training_start_failed', credentialIssued: false };
       const sessionId = started.body.sessionId;
+      const provenance = started.body.provenance || null;
       if (resumeSessionId && resumeSessionId !== sessionId)
         return { outcome: 'rejected', reason: 'session_identity_changed', sessionId, credentialIssued: false };
       const completedItems = [];
       for (let index = 0; index < maxItems; index += 1) {
         const delivery = await interact('training.session.continue', { sessionId });
         if (!isSuccess(delivery)) return { outcome: 'system_aborted', reason: delivery.body?.error || 'training_continue_failed', sessionId, completedItems, credentialIssued: false };
-        if (delivery.body.status === 'completed') return { outcome: 'completed', sessionId, completedItems, credentialIssued: false };
+        if (delivery.body.status === 'completed') return { outcome: 'completed', sessionId, ...(provenance ? { provenance } : {}), completedItems, credentialIssued: false };
         const item = delivery.body.item;
         if (!item?.deliveryItemId || delivery.body.bounds?.modelWeightsModified !== false)
           return { outcome: 'rejected', reason: 'unsafe_training_contract', sessionId, completedItems, credentialIssued: false };
         let response = profile.response || 'deterministic synthetic practice';
+        let executionEvidence;
+        if (provenance) {
+          if (respond) return { outcome: 'rejected', reason: 'provenance_conflict', credentialIssued: false };
+          const produced = execution.receipt(provenance, 'training', item);
+          response = produced.response; executionEvidence = produced.executionEvidence;
+        }
         if (respond) {
           try { response = await respond(item); } catch (error) {
             return { outcome: 'system_aborted', reason: error.code || 'learner_unavailable', sessionId, completedItems, credentialIssued: false };
           }
         }
         const submitted = await interact('training.session.submit', {
-          sessionId, deliveryItemId: item.deliveryItemId, response,
+          sessionId, deliveryItemId: item.deliveryItemId, response, ...(executionEvidence ? { executionEvidence } : {}),
         });
         if (!isSuccess(submitted) || submitted.body.modelWeightsModified !== false)
           return { outcome: 'system_aborted', reason: submitted.body?.error || 'training_submit_failed', sessionId, completedItems, credentialIssued: false };
         completedItems.push({ moduleId: item.moduleId, deliveryItemId: item.deliveryItemId, kind: item.kind });
-        if (submitted.body.status === 'completed') return { outcome: 'completed', sessionId, completedItems, credentialIssued: false };
+        if (submitted.body.status === 'completed') return { outcome: 'completed', sessionId, ...(provenance ? { provenance } : {}), completedItems, credentialIssued: false };
       }
-      return { outcome: 'open', sessionId, completedItems, credentialIssued: false };
+      return { outcome: 'open', sessionId, ...(provenance ? { provenance } : {}), completedItems, credentialIssued: false };
     } catch {
       return { outcome: 'system_aborted', reason: 'gateway_unavailable', credentialIssued: false };
     }
