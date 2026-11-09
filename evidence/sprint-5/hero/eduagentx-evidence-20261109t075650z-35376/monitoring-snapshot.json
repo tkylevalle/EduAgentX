@@ -1,0 +1,256 @@
+{
+  "snapshotAt": "2026-11-09T07:59:02.920Z",
+  "assurancePosture": {
+    "synthetic-executor-dev": {
+      "agentId": "synthetic-executor-dev",
+      "assurancePosture": "VERIFIED",
+      "certificationId": "58bc87f7-4fa3-4972-925f-e402dcdea00e",
+      "lastEvent": {
+        "type": "credential.issued",
+        "agentId": "synthetic-executor-dev",
+        "certificationId": "58bc87f7-4fa3-4972-925f-e402dcdea00e",
+        "severity": "INFO",
+        "source": "certification-service"
+      },
+      "updatedAt": "2026-11-09T07:59:01.891Z"
+    },
+    "synthetic-agent-learner-dev": {
+      "agentId": "synthetic-agent-learner-dev",
+      "assurancePosture": "VERIFIED",
+      "certificationId": "a0dee8bd-3452-4641-99f5-b90b140f7e68",
+      "lastEvent": {
+        "type": "credential.issued",
+        "agentId": "synthetic-agent-learner-dev",
+        "certificationId": "a0dee8bd-3452-4641-99f5-b90b140f7e68",
+        "severity": "INFO",
+        "source": "certification-service"
+      },
+      "updatedAt": "2026-11-09T07:58:46.874Z"
+    },
+    "hero-near-match-a-dev": {
+      "agentId": "hero-near-match-a-dev",
+      "assurancePosture": "VERIFIED",
+      "certificationId": "6a259bac-62ed-4829-a77d-7cdc1a25fb3a",
+      "lastEvent": {
+        "type": "credential.issued",
+        "agentId": "hero-near-match-a-dev",
+        "certificationId": "6a259bac-62ed-4829-a77d-7cdc1a25fb3a",
+        "severity": "INFO",
+        "source": "certification-service"
+      },
+      "updatedAt": "2026-11-09T07:58:51.882Z"
+    },
+    "hero-near-match-b-dev": {
+      "agentId": "hero-near-match-b-dev",
+      "assurancePosture": "VERIFIED",
+      "certificationId": "270c9b57-8fb3-4421-8bc2-a6dd40387db0",
+      "lastEvent": {
+        "type": "credential.issued",
+        "agentId": "hero-near-match-b-dev",
+        "certificationId": "270c9b57-8fb3-4421-8bc2-a6dd40387db0",
+        "severity": "INFO",
+        "source": "certification-service"
+      },
+      "updatedAt": "2026-11-09T07:58:56.890Z"
+    }
+  },
+  "operationalHealth": {
+    "api-gateway": {
+      "serviceId": "api-gateway",
+      "health": "UNKNOWN",
+      "reason": "never_seen"
+    },
+    "agent-registry": {
+      "serviceId": "agent-registry",
+      "health": "UNKNOWN",
+      "reason": "never_seen"
+    },
+    "curriculum-engine": {
+      "serviceId": "curriculum-engine",
+      "health": "UNKNOWN",
+      "reason": "never_seen"
+    },
+    "curriculum-index": {
+      "serviceId": "curriculum-index",
+      "health": "UNKNOWN",
+      "reason": "never_seen"
+    },
+    "training-service": {
+      "serviceId": "training-service",
+      "health": "UNKNOWN",
+      "reason": "never_seen"
+    },
+    "grading-service": {
+      "serviceId": "grading-service",
+      "health": "UNKNOWN",
+      "reason": "never_seen"
+    },
+    "certification-service": {
+      "serviceId": "certification-service",
+      "health": "UNKNOWN",
+      "reason": "never_seen"
+    },
+    "credential-verification": {
+      "serviceId": "credential-verification",
+      "health": "UNKNOWN",
+      "reason": "never_seen"
+    },
+    "validation-activation": {
+      "serviceId": "validation-activation",
+      "health": "UNKNOWN",
+      "reason": "never_seen"
+    },
+    "monitoring-service": {
+      "serviceId": "monitoring-service",
+      "health": "UNKNOWN",
+      "reason": "never_seen"
+    }
+  },
+  "kpiEvidence": {
+    "registration": {
+      "kpiId": "registration",
+      "evidence": "UNMEASURED"
+    },
+    "curriculum": {
+      "kpiId": "curriculum",
+      "evidence": "UNMEASURED"
+    },
+    "training": {
+      "kpiId": "training",
+      "evidence": "UNMEASURED"
+    },
+    "examination": {
+      "kpiId": "examination",
+      "evidence": "UNMEASURED"
+    },
+    "certification": {
+      "kpiId": "certification",
+      "evidence": "UNMEASURED"
+    },
+    "grading": {
+      "kpiId": "grading",
+      "evidence": "UNMEASURED"
+    },
+    "operations": {
+      "kpiId": "operations",
+      "evidence": "UNMEASURED"
+    },
+    "provider": {
+      "kpiId": "provider",
+      "evidence": "UNMEASURED"
+    },
+    "cost": {
+      "kpiId": "cost",
+      "evidence": "UNMEASURED"
+    }
+  },
+  "attention": [],
+  "eventCount": 14,
+  "recentEvents": [
+    {
+      "type": "credential.issued",
+      "agentId": "synthetic-executor-dev",
+      "certificationId": "58bc87f7-4fa3-4972-925f-e402dcdea00e",
+      "severity": "INFO",
+      "source": "certification-service",
+      "receivedAt": "2026-11-09T07:59:01.891Z"
+    },
+    {
+      "type": "training.started",
+      "agentId": "synthetic-executor-dev",
+      "sessionId": "03e90868-4198-444d-aae2-522298db5538",
+      "source": "api-gateway",
+      "receivedAt": "2026-11-09T07:58:57.870Z"
+    },
+    {
+      "type": "credential.issued",
+      "agentId": "hero-near-match-b-dev",
+      "certificationId": "270c9b57-8fb3-4421-8bc2-a6dd40387db0",
+      "severity": "INFO",
+      "source": "certification-service",
+      "receivedAt": "2026-11-09T07:58:56.890Z"
+    },
+    {
+      "type": "training.started",
+      "agentId": "hero-near-match-b-dev",
+      "sessionId": "eaaa3f84-1853-49c5-8d4c-5292870cb7cc",
+      "source": "api-gateway",
+      "receivedAt": "2026-11-09T07:58:52.931Z"
+    },
+    {
+      "type": "credential.issued",
+      "agentId": "hero-near-match-a-dev",
+      "certificationId": "6a259bac-62ed-4829-a77d-7cdc1a25fb3a",
+      "severity": "INFO",
+      "source": "certification-service",
+      "receivedAt": "2026-11-09T07:58:51.882Z"
+    },
+    {
+      "type": "training.started",
+      "agentId": "hero-near-match-a-dev",
+      "sessionId": "e1fef1bf-f43c-408f-a883-bde5538fc9fa",
+      "source": "api-gateway",
+      "receivedAt": "2026-11-09T07:58:47.211Z"
+    },
+    {
+      "type": "credential.issued",
+      "agentId": "synthetic-agent-learner-dev",
+      "certificationId": "a0dee8bd-3452-4641-99f5-b90b140f7e68",
+      "severity": "INFO",
+      "source": "certification-service",
+      "receivedAt": "2026-11-09T07:58:46.874Z"
+    },
+    {
+      "type": "training.started",
+      "agentId": "synthetic-agent-learner-dev",
+      "sessionId": "075e49d0-f0a4-4289-825a-809402deeece",
+      "source": "api-gateway",
+      "receivedAt": "2026-11-09T07:58:43.996Z"
+    },
+    {
+      "type": "credential.issued",
+      "agentId": "synthetic-executor-dev",
+      "certificationId": "cc40212d-17f9-48a8-ad60-494e2b35b26e",
+      "severity": "INFO",
+      "source": "certification-service",
+      "receivedAt": "2026-11-09T07:58:41.214Z"
+    },
+    {
+      "type": "credential.issued",
+      "agentId": "synthetic-agent-learner-dev",
+      "certificationId": "7c94e1f0-8be6-4fe7-9f1f-c682bcfed0b0",
+      "severity": "INFO",
+      "source": "certification-service",
+      "receivedAt": "2026-11-09T07:58:22.098Z"
+    },
+    {
+      "type": "training.started",
+      "agentId": "synthetic-agent-learner-dev",
+      "sessionId": "5038fd05-448e-451f-8e8d-187d86851fdc",
+      "source": "api-gateway",
+      "receivedAt": "2026-11-09T07:58:18.411Z"
+    },
+    {
+      "type": "training.started",
+      "agentId": "synthetic-agent-learner-dev",
+      "sessionId": "356d5df5-8d3c-4bcd-a943-33affb04089a",
+      "source": "api-gateway",
+      "receivedAt": "2026-11-09T07:58:13.812Z"
+    },
+    {
+      "type": "credential.issued",
+      "agentId": "synthetic-executor-dev",
+      "certificationId": "4507e826-d6c8-4066-a6ad-c748767ca564",
+      "severity": "INFO",
+      "source": "certification-service",
+      "receivedAt": "2026-11-09T07:58:12.137Z"
+    },
+    {
+      "type": "training.started",
+      "agentId": "synthetic-executor-dev",
+      "sessionId": "dce623d5-6d20-42af-bf9f-dcb5b6cfeb48",
+      "source": "api-gateway",
+      "receivedAt": "2026-11-09T07:58:04.581Z"
+    }
+  ]
+}

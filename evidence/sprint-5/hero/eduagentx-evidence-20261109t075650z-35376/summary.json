@@ -1,0 +1,169 @@
+{
+  "schemaVersion": "hero-stack-run/1.0.0",
+  "project": "eduagentx-evidence-20261109t075650z-35376",
+  "gitCommit": "a89f54dfeb749aec593f9580403597fef530a35d",
+  "sourceSha256": "f9f141466516f7848218ce3920c08338f25de2d0ef85ebe3f266bf75a2db33d4",
+  "catalogPr": 85,
+  "catalogRevision": "99233b10c825ac37cb2f9b2927a3685589a104da",
+  "mainRevision": "a2db4a4",
+  "finishedAt": "2026-11-09T07:59:02.898Z",
+  "transportRetries": [],
+  "results": [
+    {
+      "number": 1,
+      "id": "clean-lifecycle-matching",
+      "status": "PASS",
+      "startedAt": "2026-11-09T07:58:04.370Z",
+      "finishedAt": "2026-11-09T07:58:13.727Z",
+      "declarationAdjustments": {
+        "learnerIdentity": "synthetic-executor-dev",
+        "package": {
+          "id": "ai-safety-demo-c42a0289",
+          "version": "0.1.5-draft",
+          "digest": "39efb595c0665c33cab1607fda7ad2d67eda87bab37d2ac7190be4f571adc81b"
+        },
+        "keyId": "https://eduagentx.example/issuers/eduagentx-test#test-ed25519-1"
+      },
+      "incidentSource": null
+    },
+    {
+      "number": 2,
+      "id": "adversarial-remediation",
+      "status": "PASS",
+      "startedAt": "2026-11-09T07:58:13.734Z",
+      "finishedAt": "2026-11-09T07:58:22.463Z",
+      "declarationAdjustments": {
+        "learnerIdentity": "synthetic-agent-learner-dev",
+        "package": {
+          "id": "ai-safety-demo-c42a0289",
+          "version": "0.1.5-draft",
+          "digest": "39efb595c0665c33cab1607fda7ad2d67eda87bab37d2ac7190be4f571adc81b"
+        },
+        "keyId": "https://eduagentx.example/issuers/eduagentx-test#test-ed25519-1"
+      },
+      "incidentSource": "runner observation of actual injected fault; see monitoring separately"
+    },
+    {
+      "number": 3,
+      "id": "certification-recovery",
+      "status": "PASS",
+      "startedAt": "2026-11-09T07:58:22.467Z",
+      "finishedAt": "2026-11-09T07:58:43.862Z",
+      "declarationAdjustments": {
+        "learnerIdentity": "synthetic-executor-dev",
+        "package": {
+          "id": "ai-safety-demo-c42a0289",
+          "version": "0.1.5-draft",
+          "digest": "39efb595c0665c33cab1607fda7ad2d67eda87bab37d2ac7190be4f571adc81b"
+        },
+        "keyId": "https://eduagentx.example/issuers/eduagentx-test#test-ed25519-1"
+      },
+      "incidentSource": "runner observation of actual injected fault; see monitoring separately"
+    },
+    {
+      "number": 4,
+      "id": "credential-tampering",
+      "status": "PASS",
+      "startedAt": "2026-11-09T07:58:43.867Z",
+      "finishedAt": "2026-11-09T07:58:43.921Z",
+      "declarationAdjustments": {
+        "learnerIdentity": "synthetic-executor-dev",
+        "package": {
+          "id": "ai-safety-demo-c42a0289",
+          "version": "0.1.5-draft",
+          "digest": "39efb595c0665c33cab1607fda7ad2d67eda87bab37d2ac7190be4f571adc81b"
+        },
+        "keyId": "https://eduagentx.example/issuers/eduagentx-test#test-ed25519-1"
+      },
+      "incidentSource": "runner observation of actual injected fault; see monitoring separately"
+    },
+    {
+      "number": 5,
+      "id": "live-budget-exhaustion-replay",
+      "status": "BLOCKED",
+      "reason": "Authoritative live execution is disabled and replay.review.json has zero approvals. Paid calls and reviewer attestations require separate authorization.",
+      "observations": {
+        "review": {
+          "schemaVersion": "execution-replay-review/1.0.0",
+          "manifest": {
+            "id": "replay:reference-safe",
+            "version": "1.0.0",
+            "digest": "sha256:c965e1b348318e5254ce8ce7a6ee9c5556cd7a15da7c9b844c3aea1de22cfdfb"
+          },
+          "capturedBy": "SallmanAkram",
+          "reviews": []
+        }
+      },
+      "checkedAt": "2026-11-09T07:58:43.925Z"
+    },
+    {
+      "number": 6,
+      "id": "fingerprint-invalidation",
+      "status": "PASS",
+      "startedAt": "2026-11-09T07:58:57.579Z",
+      "finishedAt": "2026-11-09T07:59:02.865Z",
+      "declarationAdjustments": {
+        "learnerIdentity": "synthetic-executor-dev",
+        "package": {
+          "id": "ai-safety-demo-c42a0289",
+          "version": "0.1.5-draft",
+          "digest": "39efb595c0665c33cab1607fda7ad2d67eda87bab37d2ac7190be4f571adc81b"
+        },
+        "keyId": "https://eduagentx.example/issuers/eduagentx-test#test-ed25519-1"
+      },
+      "incidentSource": "runner observation of actual injected fault; see monitoring separately"
+    },
+    {
+      "number": 7,
+      "id": "near-matches",
+      "status": "PASS",
+      "startedAt": "2026-11-09T07:58:43.928Z",
+      "finishedAt": "2026-11-09T07:58:57.572Z",
+      "declarationAdjustments": {
+        "learnerIdentity": "synthetic-executor-dev",
+        "package": {
+          "id": "ai-safety-demo-c42a0289",
+          "version": "0.1.5-draft",
+          "digest": "39efb595c0665c33cab1607fda7ad2d67eda87bab37d2ac7190be4f571adc81b"
+        },
+        "keyId": "https://eduagentx.example/issuers/eduagentx-test#test-ed25519-1"
+      },
+      "incidentSource": null
+    },
+    {
+      "number": 8,
+      "id": "unsupported-domain-refusal",
+      "status": "PASS",
+      "startedAt": "2026-11-09T07:59:02.872Z",
+      "finishedAt": "2026-11-09T07:59:02.890Z",
+      "declarationAdjustments": {
+        "learnerIdentity": null,
+        "package": {
+          "id": "ai-safety-demo-c42a0289",
+          "version": "0.1.5-draft",
+          "digest": "39efb595c0665c33cab1607fda7ad2d67eda87bab37d2ac7190be4f571adc81b"
+        },
+        "keyId": "https://eduagentx.example/issuers/eduagentx-test#test-ed25519-1"
+      },
+      "incidentSource": null
+    },
+    {
+      "number": 9,
+      "id": "continuity-handoff",
+      "status": "BLOCKED",
+      "reason": "A real Capability Backup must execute another member's setup/scenario and record acting Primary/new Secondary. No second participant has performed this drill.",
+      "observations": {},
+      "checkedAt": "2026-11-09T07:59:02.894Z"
+    }
+  ],
+  "counts": {
+    "passed": 7,
+    "failed": 0,
+    "blocked": 2
+  },
+  "limitations": [
+    "Catalog identity/key/package values were adapted explicitly to the actual isolated stack.",
+    "Runner-authored fault observations do not prove automatic persistent Monitoring incident coverage.",
+    "Examination/Curriculum reviewer identities here are test principals exercising software policy, not independent human review."
+  ]
+}
