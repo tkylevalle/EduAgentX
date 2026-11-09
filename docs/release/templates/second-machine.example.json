@@ -1,0 +1,11 @@
+{
+  "type": "second-machine",
+  "sourceFingerprint": "<output of node packages/release-gate/cli.js --fingerprint>",
+  "recordedBy": "<github login>",
+  "recordedAt": "<ISO 8601 time>",
+  "evidenceReference": "<evidence/release/... folder>",
+  "machine": "<short description, not the development computer>",
+  "operator": "<github login>",
+  "paidApiCalls": 0,
+  "steps": { "setup": "PASS", "tests": "PASS", "demonstration": "PASS", "evidenceBundle": "PASS" }
+}
