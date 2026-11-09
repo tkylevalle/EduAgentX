@@ -1,0 +1,19 @@
+{
+  "number": 5,
+  "id": "live-budget-exhaustion-replay",
+  "status": "BLOCKED",
+  "reason": "Authoritative live execution is disabled and replay.review.json has zero approvals. Paid calls and reviewer attestations require separate authorization.",
+  "observations": {
+    "review": {
+      "schemaVersion": "execution-replay-review/1.0.0",
+      "manifest": {
+        "id": "replay:reference-safe",
+        "version": "1.0.0",
+        "digest": "sha256:c965e1b348318e5254ce8ce7a6ee9c5556cd7a15da7c9b844c3aea1de22cfdfb"
+      },
+      "capturedBy": "SallmanAkram",
+      "reviews": []
+    }
+  },
+  "checkedAt": "2026-11-09T07:58:43.925Z"
+}
