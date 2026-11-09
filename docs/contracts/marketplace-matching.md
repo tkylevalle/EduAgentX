@@ -150,11 +150,16 @@ This API change does not implement a frontend current-status comparison.
 
 ## Integration boundary
 
-The main branch at this change's base still has a lifecycle-origin adapter that
-returns `source_not_available`; the real issuer fixture also lacks the origin
-labels needed here. The mapper accepts explicit credential fields but does not
-invent them or replace signature verification. Certification/verification owners
-must complete their agreed authoritative lifecycle and credential contracts.
-Until then affected real candidates are excluded from both lanes. Passing tests
-with injected authorities demonstrate matching behavior, not a completed live
-certification-to-marketplace deployment.
+The [issuer origin read](certification.md#marketplace-origin-read) now binds new
+credentials to their immutable Certification Decision, Examination, learner,
+fingerprint and exact signed artifact. The client also checks that projected
+claims equal the signed payload. Signature/status and all matching gates remain
+independent.
+
+Authoritative environment/evidenceMode now comes from the versioned
+[execution provenance reference policy](execution-provenance.md). The projection
+maps these labels only for a complete supported signed provenance profile.
+Legacy/descriptive labels remain uncheckable. The verifier checks the full pair
+matrix and bindings; origin remains independent. Real composed synthetic and
+replay candidates can become Eligible when every existing gate passes. Missing
+or uncertain trust still excludes both lanes. No ranking policy changed.

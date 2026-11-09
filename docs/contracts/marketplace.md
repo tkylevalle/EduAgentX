@@ -142,12 +142,25 @@ The package answer counts only when its digest equals the digest pinned in the c
 | Domain, objective ids, digest | validation-activation `GET /packages/:id?version=` (with `CURRICULUM_INTERNAL_KEY`) | id/version differ, package quarantined or `certificationBlocked` not `false`, domain text other than `AI Agent Safety and Secure Tool Use`, duplicate or missing objective ids, error, timeout |
 | Signature, schema | credential-verification `POST /verify` with `{ jws }` only, never a `credentialId` | any check other than an explicit `PASS`; `INVALID` overall while the parts pass makes the schema invalid |
 | Status | credential-verification `GET /status/:credentialId` (read-only) | anything other than `active`, `suspended` or `revoked` for this exact id (404, error, timeout) is `indeterminate` |
-| Lifecycle origin | none yet | always `source_not_available` |
-| Environment | not in credentials yet (decision C) | always `null` |
+| Lifecycle origin | Certification `GET /internal/credential-origins/:credentialId`, authenticated with `MARKETPLACE_INTERNAL_KEY` and the Marketplace service identity | unknown credential, mismatched signed decision/examination/subject/fingerprint/artifact, malformed response, missing signed binding, error or timeout |
+| Environment / evidence mode | Explicit signed fields in the supported execution-provenance credential profile | missing/legacy profile, invalid binding/pair, verification failure, or incompatible request environment |
 
-## Credential event feed (proposed contract, nothing emits it yet)
+The origin client uses a two-second deadline, refuses redirects, and validates
+`certification-origin/1.0.0`. It compares the issuer's exact-JWS digest and identity
+bindings with the signed payload, including `evidence.certificationDecisionId`
+and `evidence.examinationId`. It also reconstructs the entire candidate from that
+payload and compares it with the event projection: an unsigned event field cannot
+borrow trust from a different signed value. A valid origin answer does not imply
+that any other eligibility gate passed. See [Certification](certification.md).
 
-marketplace-service reads the Redis Stream `CREDENTIAL_EVENT_STREAM` (default `certification.credentials`) with consumer group `marketplace-projection-v1`. Each entry has one field, `envelope`, holding JSON:
+Legacy credentials without a signed decision binding remain origin-uncheckable;
+their signed bytes are unchanged. Missing environment/evidenceMode also remains
+uncheckable. [The integration decision](marketplace-trust-integration.md) records
+how the configured execution reference policy establishes authority independently of caller labels.
+
+## Credential event feed
+
+Certification's durable outbox publishes issued credentials. marketplace-service reads the Redis Stream `CREDENTIAL_EVENT_STREAM` (default `certification.credentials`) with consumer group `marketplace-projection-v1`. Each entry has one field, `envelope`, holding JSON:
 
 ```json
 { "eventId": "unique id", "eventType": "credential.issued", "credentialId": "uuid",

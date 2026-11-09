@@ -22,6 +22,7 @@ const {
   validateProtocolMessage,
 } = require('../../packages/external-agent-protocol');
 const { authHealth, issueToken, requireRole } = require('./auth');
+const execution = require('../../packages/execution-provenance');
 const { createRateLimit } = require('./rate-limit');
 const { registerAssuranceRoutes } = require('./assurance-routes');
 const { registerReconciliationRoutes } = require('./reconciliation-routes');
@@ -73,6 +74,7 @@ function createApp({
   credentialInternalKey = process.env.CREDENTIAL_INTERNAL_KEY,
   monitoringServiceUrl = process.env.MONITORING_SERVICE_URL,
   protocolIdempotencyStore = new Map(),
+  executionPrincipals = execution.enrollments(),
   // Issue #27: pending two-person approvals for governance commands, keyed
   // by `${packageId}:${scopeType}:${scopeId}`. Ephemeral and per-instance,
   // same bounded-state pattern as protocolIdempotencyStore above — it never
@@ -82,6 +84,7 @@ function createApp({
   governanceApprovalStore = new Map(),
   rateLimit,
 } = {}) {
+  const enrolledExecutors = execution.enrollments(executionPrincipals);
   const app = express();
   // Every request gets a correlation id, either passed in or generated here.
   app.use((req, res, next) => {
@@ -167,6 +170,8 @@ function createApp({
         'payload',
       ],
       timeout: { minimumMs: 1, maximumMs: MAX_TIMEOUT_MS },
+      executionProvenance: { schemaVersion: execution.RUN, policyVersion: execution.POLICY,
+        supportedModes: ['synthetic','replay'], liveEnabled: false, enrollmentRequired: true },
       evidenceModes: Object.fromEntries(EVIDENCE_MODES.map((mode) => [mode, {
         environment: EVIDENCE_ENVIRONMENTS[mode],
         label: EVIDENCE_LABELS[mode],
@@ -465,7 +470,7 @@ function createApp({
   // authenticated subject, never an agentLearnerKey from the request body.
   const trainingHeaders = (req) => ({
     'x-internal-service-key': trainingInternalKey,
-    'x-actor-subject': req.auth.subject,
+    'x-actor-subject': req.auth.subject, 'x-actor-role': 'gateway',
   });
   // Without the internal key Training would refuse every call; answer 503
   // here instead of sending a request that cannot be authorised.
@@ -475,6 +480,11 @@ function createApp({
   };
 
   async function forwardTrainingInteraction(req, res, message, training) {
+    let trustedExecution;
+    try { trustedExecution = execution.authority(enrolledExecutors, req.auth, message.payload.data.executionProfile); }
+    catch (e) { return res.status(e.status || 403).json({ error: e.code }); }
+    if (message.payload.data.executionEvidence && !trustedExecution)
+      return res.status(403).json({ error: 'executor_not_authorized' });
     const data = message.payload.data;
     const details = [];
     if (training.needsSession && !TRAINING_IDENTIFIER.test(typeof data.sessionId === 'string' ? data.sessionId : '')) {
@@ -497,6 +507,8 @@ function createApp({
     // acknowledgement string, so it is not forwarded. On submit it is the answer.
     const body = {
       idempotencyKey: message.idempotencyKey,
+      ...(trustedExecution ? { trustedExecution } : {}),
+      ...(training.needsItem && message.payload.data.executionEvidence ? { executionEvidence: message.payload.data.executionEvidence } : {}),
       evidence: { mode: message.evidence.mode, environment: message.evidence.environment },
       ...(training.needsItem ? { deliveryItemId: data.deliveryItemId, response: data.response } : {}),
     };
@@ -562,8 +574,10 @@ function createApp({
         details: unexpected.map((name) => `unexpected:${name}`), correlationId: req.correlationId });
     }
     if (!trainingInternalKey) return trainingUnavailable(req, res);
+    const plannedAuthority = execution.authority(enrolledExecutors, { subject: body.agentLearnerKey, role: 'agent' });
     await proxyJson(req, res, `${trainingServiceUrl}/internal/remediations`,
-      { method: 'POST', body, headers: trainingHeaders(req) });
+      { method: 'POST', body: { ...body, ...(plannedAuthority ? { trustedExecution: plannedAuthority } : {}) },
+      headers: trainingHeaders(req) });
   });
 
   // Issue #32: recommendations and explicit Training handoff share existing admin authority.
@@ -665,11 +679,19 @@ function createApp({
     error: 'examination_unavailable', correlationId: req.correlationId });
   app.post('/v1/examinations', requireRole('agent'), async (req, res) => {
     if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body) ||
-      Object.keys(req.body).some((name) => name !== 'idempotencyKey') ||
+      Object.keys(req.body).some((name) => !['idempotencyKey','trainingSessionId','executionProfile'].includes(name)) ||
       !TRAINING_IDENTIFIER.test(req.body.idempotencyKey || ''))
       return res.status(400).json({ apiVersion: 'v1', error: 'invalid_request', correlationId: req.correlationId });
     if (!examinationInternalKey) return examinationUnavailable(req, res);
-    await proxyJson(req, res, `${examinationEngineUrl}/internal/attempts`, { method: 'POST', body: req.body,
+    let trustedExecution;
+    try { trustedExecution = execution.authority(enrolledExecutors, req.auth, req.body.executionProfile); }
+    catch (e) { return res.status(e.status || 403).json({ error: e.code }); }
+    if (trustedExecution && !execution.UUID.test(req.body.trainingSessionId || ''))
+      return res.status(400).json({ error: 'training_run_required' });
+    const body = { idempotencyKey: req.body.idempotencyKey,
+      ...(req.body.trainingSessionId ? { trainingSessionId: req.body.trainingSessionId } : {}),
+      ...(trustedExecution ? { trustedExecution } : {}) };
+    await proxyJson(req, res, `${examinationEngineUrl}/internal/attempts`, { method: 'POST', body,
       headers: examinationHeaders(req) });
   });
   // The Engine owns durable replay and state checks; the Gateway never caches
@@ -677,16 +699,25 @@ function createApp({
   app.post('/v1/examinations/:attemptId/responses', requireRole('agent'), async (req, res) => {
     const body = req.body;
     if (!body || typeof body !== 'object' || Array.isArray(body) ||
-      Object.keys(body).some((name) => !['idempotencyKey', 'expectedSequence', 'itemId', 'response'].includes(name)) ||
+      Object.keys(body).some((name) => !['idempotencyKey', 'expectedSequence', 'itemId', 'response', 'executionEvidence', 'executionProfile'].includes(name)) ||
       typeof body.idempotencyKey !== 'string' || !TRAINING_IDENTIFIER.test(body.idempotencyKey) ||
       !Number.isSafeInteger(body.expectedSequence) || body.expectedSequence < 1 ||
       typeof body.itemId !== 'string' || !TRAINING_IDENTIFIER.test(body.itemId) ||
       typeof body.response !== 'string' || !body.response.trim() || body.response.length > 16000)
       return res.status(400).json({ apiVersion: 'v1', error: 'invalid_request', correlationId: req.correlationId });
     if (!examinationInternalKey) return examinationUnavailable(req, res);
+    let forwarded;
+    try { forwarded = responseBody(); } catch (e) { return res.status(e.status || 403).json({ error: e.code }); }
     await proxyJson(req, res,
       `${examinationEngineUrl}/internal/attempts/${encodeURIComponent(req.params.attemptId)}/responses`,
-      { method: 'POST', body, headers: examinationHeaders(req) });
+      { method: 'POST', body: forwarded, headers: examinationHeaders(req) });
+    function responseBody() {
+      const trustedExecution = execution.authority(enrolledExecutors, req.auth, body.executionProfile);
+      if (body.executionEvidence && !trustedExecution) throw execution.fail('executor_not_authorized', 403);
+      return { idempotencyKey: body.idempotencyKey, expectedSequence: body.expectedSequence, itemId: body.itemId, response: body.response,
+        ...(body.executionEvidence ? { executionEvidence: body.executionEvidence } : {}),
+        ...(trustedExecution ? { trustedExecution } : {}) };
+    }
   });
   app.get('/v1/examinations/:attemptId', requireRole('agent'), async (req, res) => {
     if (!examinationInternalKey) return examinationUnavailable(req, res);

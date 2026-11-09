@@ -1,0 +1,8 @@
+{
+  "number": 9,
+  "id": "continuity-handoff",
+  "status": "BLOCKED",
+  "reason": "A real Capability Backup must execute another member's setup/scenario and record acting Primary/new Secondary. No second participant has performed this drill.",
+  "observations": {},
+  "checkedAt": "2026-11-09T07:59:02.894Z"
+}

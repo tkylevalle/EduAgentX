@@ -9,6 +9,7 @@ const { GenerationError, generateStandardForm, publicForm } = require('./generat
 const { createStandardItems } = require('./standard-generator');
 const { createPgStore } = require('./store');
 const { createSources, DependencyError } = require('./sources');
+const execution = require('../../packages/execution-provenance');
 const { fail, validateCommand } = require('./lifecycle');
 const { sha256 } = require('../curriculum-engine/model');
 const { buildFallbackForm, publicFallbackForm, mapFallbackResult } = require('./fallback-form');
@@ -89,17 +90,24 @@ function createApp({ store, sources, internalKey = process.env.EXAMINATION_INTER
     try {
       const actor = req.header('x-actor-subject');
       if (req.header('x-actor-role') !== 'agent') throw fail('forbidden', 403);
-      if (!req.body || Object.keys(req.body).length !== 1 || typeof req.body.idempotencyKey !== 'string' ||
+      if (!req.body || Object.keys(req.body).some((k) => !['idempotencyKey','trainingSessionId','trustedExecution'].includes(k)) || typeof req.body.idempotencyKey !== 'string' ||
         !KEY.test(req.body.idempotencyKey)) throw fail('invalid_request', 400);
+      const a = req.body.trustedExecution || null;
+      if (a && (!execution.validAuthority(a) || a.executorId !== actor || !execution.UUID.test(req.body.trainingSessionId || ''))) throw fail('provenance_conflict');
       const existing = await store.findByKey(actor, req.body.idempotencyKey);
       if (existing) {
+        if (existing.form.provenance ? (!a || req.body.trainingSessionId !== existing.form.provenance.runId ||
+          !execution.matchesAuthority(existing.form.provenance, a, { mode: a.evidenceMode, environment: a.environment })) : a) throw fail('provenance_conflict');
         await abortOnGovernance(existing, req.correlationId);
         const attempt = await reconcile(existing, req);
         return res.json({ apiVersion: 'v1', outcome: 'replay', attempt: learnerView(attempt, clock()), correlationId: req.correlationId });
       }
       const pkg = await active(req.correlationId);
       const registration = await sources.registration(actor, req.correlationId);
-      const completion = await sources.completion(actor, pkg, req.correlationId);
+      const completion = await sources.completion(actor, pkg, req.correlationId, req.body.trainingSessionId);
+      if (a && (!execution.validCompletion(completion) || completion.sessionId !== req.body.trainingSessionId ||
+        !execution.matchesAuthority(completion.provenance, a, { mode: a.evidenceMode, environment: a.environment }))) throw fail('provenance_conflict');
+      if (!a && completion?.provenance) throw fail('provenance_conflict');
       await requireRemediation(store, { actor, pkg, completion, now: clock() });
       const form = await generateStandardForm({ pkg, registration, completion, generateItems });
       const now = clock();
@@ -117,7 +125,7 @@ function createApp({ store, sources, internalKey = process.env.EXAMINATION_INTER
   // Reasons are validation-activation's selection vocabulary, not the Engine's
   // own abort REASONS.
   const FALLBACK_REASONS = ['standard_grading_unavailable', 'standard_generation_unavailable'];
-  const FALLBACK_FIELDS = ['idempotencyKey', 'agentLearnerKey', 'reason', 'causeAttemptId'];
+  const FALLBACK_FIELDS = ['idempotencyKey', 'agentLearnerKey', 'reason', 'causeAttemptId', 'trainingSessionId'];
   app.post('/internal/attempts/fallback', trusted, async (req, res) => {
     if (!selectFallback) return res.status(503).json({ apiVersion: 'v1', error: 'fallback_not_configured', correlationId: req.correlationId });
     try {
@@ -135,7 +143,8 @@ function createApp({ store, sources, internalKey = process.env.EXAMINATION_INTER
       const existing = await store.findByKey(agentLearnerKey, idempotencyKey);
       if (existing) {
         if (existing.mode !== 'fallback' || existing.fallbackReason !== reason ||
-          existing.fallbackCauseAttemptId !== causeAttemptId) throw fail('idempotency_conflict');
+          existing.fallbackCauseAttemptId !== causeAttemptId ||
+          (body.trainingSessionId && existing.form.provenance?.runId !== body.trainingSessionId)) throw fail('idempotency_conflict');
         await abortOnGovernance(existing, req.correlationId);
         const attempt = await reconcile(existing, req);
         return res.json({ apiVersion: 'v1', outcome: 'replay', attempt: learnerView(attempt, clock()), correlationId: req.correlationId });
@@ -157,6 +166,19 @@ function createApp({ store, sources, internalKey = process.env.EXAMINATION_INTER
       // A changed configuration is a different Agent Learner state; it never carries over.
       if (cause && cause.configurationFingerprint !== registration.configurationFingerprint)
         throw fail('fallback_cause_fingerprint_changed');
+      let executionBinding = cause?.form.provenance ? { provenance: cause.form.provenance, training: cause.form.training } : null;
+      if (body.trainingSessionId) {
+        if (!execution.UUID.test(body.trainingSessionId)) throw fail('provenance_conflict');
+        const c = await sources.completion(agentLearnerKey, pkg, req.correlationId, body.trainingSessionId);
+        if (!execution.validCompletion(c) || c.sessionId !== body.trainingSessionId ||
+          c.agentLearnerKey !== agentLearnerKey || c.configurationFingerprint !== registration.configurationFingerprint ||
+          !execution.same(c.package, { id: pkg.packageId || pkg.id, version: pkg.version, digest: pkg.digest }) ||
+          (executionBinding && !execution.same(executionBinding.provenance, c.provenance))) throw fail('provenance_conflict');
+        executionBinding = { provenance: c.provenance, training: { eventId: c.eventId, sessionId: c.sessionId,
+          completionDigest: execution.hash(c), executionCoverage: c.executionCoverage } };
+      }
+      if (executionBinding && (!execution.same(executionBinding.provenance.package, { id: pkg.packageId || pkg.id, version: pkg.version, digest: pkg.digest }) ||
+        executionBinding.provenance.configurationFingerprint !== registration.configurationFingerprint)) throw fail('provenance_conflict');
       const selected = await selectFallback({ pkg, reason, correlationId: req.correlationId });
       // /fallback/select returns no version or digest, so confirm governance did not move during the call.
       const confirmed = await active(req.correlationId);
@@ -164,7 +186,7 @@ function createApp({ store, sources, internalKey = process.env.EXAMINATION_INTER
         confirmed.digest !== selected.packageDigest) throw fail('fallback_governance_changed');
       const form = buildFallbackForm({ selection: selected.selection, packageId: confirmed.packageId,
         packageVersion: confirmed.version, packageDigest: confirmed.digest, agentLearnerKey,
-        configurationFingerprint: registration.configurationFingerprint, causeAttemptId, reason });
+        configurationFingerprint: registration.configurationFingerprint, causeAttemptId, reason, executionBinding });
       const { selection } = selected;
       const now = clock();
       const admitted = await store.admitFallback({ actor: agentLearnerKey, key: idempotencyKey, form, now,
@@ -205,6 +227,7 @@ function createApp({ store, sources, internalKey = process.env.EXAMINATION_INTER
       const gradeEvent = attempt.events.find((event) => event.eventType === 'grade_recorded');
       const grade = gradeEvent?.payload;
       res.json({ apiVersion: 'v1', attempt: { attemptId: attempt.attemptId,
+        ...(attempt.form.provenanceProfile ? { schemaVersion: 'certification-evidence/1.1.0' } : {}),
         status: attempt.status, responseCollectionComplete: attempt.responseCollectionComplete,
         sequence: attempt.sequence, agentLearnerKey: attempt.agentLearnerKey,
         configurationFingerprint: attempt.configurationFingerprint, package: attempt.package,
@@ -213,7 +236,11 @@ function createApp({ store, sources, internalKey = process.env.EXAMINATION_INTER
           ? { id: attempt.form.bankId, version: attempt.form.bankVersion, digest: attempt.fallbackBankDigest } : null,
         tierWeights: attempt.form.tierWeights,
         formDigest: attempt.formDigest, result: grade?.result || null,
-        assessment: grade?.assessment || null, completedAt: attempt.completedAt || null },
+        assessment: grade?.assessment || null, completedAt: attempt.completedAt || null,
+        ...(attempt.form.provenanceProfile ? { provenanceProfile: attempt.form.provenanceProfile, provenance: {
+          schemaVersion: 'certification-provenance/1.0.0', run: attempt.form.provenance,
+          training: { eventId: attempt.form.training.eventId, completionDigest: attempt.form.training.completionDigest,
+            coverage: attempt.form.training.executionCoverage }, examination: attempt.executionCoverage } } : {}) },
         correlationId: req.correlationId });
     } catch (error) { sendError(req, res, error); }
   });
@@ -236,7 +263,7 @@ function createApp({ store, sources, internalKey = process.env.EXAMINATION_INTER
     return async (req, res) => {
       try {
         if (owner && req.header('x-actor-role') !== 'agent') throw fail('forbidden', 403);
-        if (!req.body || Array.isArray(req.body) || Object.keys(req.body).length !== fields.length ||
+        if (!req.body || Array.isArray(req.body) || Object.keys(req.body).some((k) => ![...fields, ...(type === 'response' ? ['trustedExecution','executionEvidence'] : [])].includes(k)) ||
           fields.some((field) => !Object.hasOwn(req.body, field))) throw fail('invalid_request', 400);
         const command = { ...req.body, type, now: clock(), correlationId: req.correlationId };
         validateCommand(command);
@@ -355,9 +382,9 @@ function lifecycleView(attempt) {
   const result = {};
   for (const field of ['attemptId','status','sequence','responsesReceived','responseCollectionComplete','terminalReason',
     'completedAt','failedAt','abortedAt','mode','startedAt','deadlineAt']) result[field] = attempt[field];
-  // Fallback evidence is labelled in every view built on this one. Standard attempts
-  // carry no evidence key: none is tracked for them, and none is invented.
-  return { ...result, ...(attempt.mode === 'fallback' ? { evidence: 'fallback/simulation' } : {}) };
+  // Preserve the legacy fallback assessment-delivery label. Execution
+  // provenance is a separate binding and is never inferred from that label.
+  return { ...result, ...(attempt.form.provenance ? { provenance: attempt.form.provenance } : {}), ...(attempt.mode === 'fallback' ? { evidence: 'fallback/simulation' } : {}) };
 }
 function learnerView(attempt, now = attempt.startedAt) {
   const deliver = attempt.status === 'in_progress' && Date.parse(now) < Date.parse(attempt.deadlineAt);

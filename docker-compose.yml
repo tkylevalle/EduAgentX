@@ -297,6 +297,7 @@ services:
     environment:
       PORT: 4004
       DATABASE_URL: postgres://training_owner:${TRAINING_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      EXECUTION_PRINCIPALS: ${EXECUTION_PRINCIPALS:-[]}
       TRAINING_INTERNAL_KEY: ${TRAINING_INTERNAL_KEY:?Run node scripts/setup-dev.js}
       CURRICULUM_INTERNAL_KEY: ${CURRICULUM_INTERNAL_KEY:?Run node scripts/setup-dev.js}
       VALIDATION_ACTIVATION_URL: http://validation-activation:4010
@@ -343,7 +344,8 @@ services:
       VALIDATION_ACTIVATION_URL: http://validation-activation:4010
       AGENT_REGISTRY_URL: http://agent-registry:4001
       CREDENTIAL_VERIFICATION_URL: http://credential-verification:4030
-      # Credential events; nothing publishes to this stream yet (blocker 1).
+      CERTIFICATION_SERVICE_URL: http://certification-service:4011
+      # Credentials are published by Certification's durable outbox.
       REDIS_URL: redis://redis:6379
       CREDENTIAL_EVENT_STREAM: ${CREDENTIAL_EVENT_STREAM:-certification.credentials}
     depends_on:
@@ -442,6 +444,11 @@ services:
       JWT_ACCESS_TOKEN_TTL_SECONDS: ${JWT_ACCESS_TOKEN_TTL_SECONDS}
       JWT_PRIVATE_KEY_PATH: ${JWT_PRIVATE_KEY_PATH}
       JWT_PUBLIC_KEY_PATH: ${JWT_PUBLIC_KEY_PATH}
+      EXECUTION_PRINCIPALS: ${EXECUTION_PRINCIPALS:-[]}
+      SYNTHETIC_EXECUTOR_CLIENT_ID: ${SYNTHETIC_EXECUTOR_CLIENT_ID:-}
+      SYNTHETIC_EXECUTOR_CLIENT_SECRET: ${SYNTHETIC_EXECUTOR_CLIENT_SECRET:-}
+      REPLAY_AGENT_CLIENT_ID: ${REPLAY_AGENT_CLIENT_ID:-}
+      REPLAY_AGENT_CLIENT_SECRET: ${REPLAY_AGENT_CLIENT_SECRET:-}
       AGENT_CLIENT_ID: ${AGENT_CLIENT_ID}
       AGENT_CLIENT_SECRET: ${AGENT_CLIENT_SECRET}
       LIVE_AGENT_CLIENT_ID: ${LIVE_AGENT_CLIENT_ID:-live-agent-learner-dev}
@@ -503,9 +510,12 @@ services:
       PORT: 4011
       DATABASE_URL: postgres://certification_owner:${CERTIFICATION_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
       CERTIFICATION_INTERNAL_KEY: ${CERTIFICATION_INTERNAL_KEY:?Run node scripts/setup-dev.js}
-      CERTIFICATION_KEY_ID: ${CERTIFICATION_KEY_ID:-https://eduagentx.example/issuers/eduagentx#dev-ed25519-1}
-      CERTIFICATION_PRIVATE_KEY_PATH: ${CERTIFICATION_PRIVATE_KEY_PATH:-/app/keys/certification-ed25519-private.pem}
-      CERTIFICATION_ISSUER: ${CERTIFICATION_ISSUER:-https://eduagentx.example/issuers/eduagentx}
+      CERTIFICATION_ENVIRONMENT: ${CERTIFICATION_ENVIRONMENT:-simulation}
+      CERTIFICATION_KEY_ID: ${CERTIFICATION_KEY_ID:-https://eduagentx.example/issuers/eduagentx-test#test-ed25519-1}
+      # Read-only origin lookup; distinct from the issuer's command/read key.
+      MARKETPLACE_INTERNAL_KEY: ${MARKETPLACE_INTERNAL_KEY:?Run node scripts/setup-dev.js}
+      CERTIFICATION_PRIVATE_KEY_PATH: ${CERTIFICATION_PRIVATE_KEY_PATH:-/app/keys/certification-test-ed25519-private.pem}
+      CERTIFICATION_ISSUER: ${CERTIFICATION_ISSUER:-https://eduagentx.example/issuers/eduagentx-test}
       CREDENTIAL_BASE_URL: ${CREDENTIAL_BASE_URL:-https://eduagentx.example/credentials}
       CERTIFICATION_SWEEP_INTERVAL_MS: ${CERTIFICATION_SWEEP_INTERVAL_MS:-1000}
       EXAMINATION_ENGINE_URL: http://examination-engine:4005
@@ -555,6 +565,11 @@ services:
       PORT: 4200
       API_GATEWAY_URL: http://api-gateway:4000
       SERVICE_NAME: synthetic-agent-learner
+      EXECUTION_PRINCIPALS: ${EXECUTION_PRINCIPALS:-[]}
+      SYNTHETIC_EXECUTOR_CLIENT_ID: ${SYNTHETIC_EXECUTOR_CLIENT_ID:-}
+      SYNTHETIC_EXECUTOR_CLIENT_SECRET: ${SYNTHETIC_EXECUTOR_CLIENT_SECRET:-}
+      REPLAY_AGENT_CLIENT_ID: ${REPLAY_AGENT_CLIENT_ID:-}
+      REPLAY_AGENT_CLIENT_SECRET: ${REPLAY_AGENT_CLIENT_SECRET:-}
       AGENT_CLIENT_ID: ${AGENT_CLIENT_ID}
       AGENT_CLIENT_SECRET: ${AGENT_CLIENT_SECRET}
       # Optional live learner (Lifecycle Lab "Live model"). Empty key = disabled.
@@ -724,14 +739,16 @@ services:
 
   credential-verification:
     build:
-      context: ./services/credential-verification
+      context: .
+      dockerfile: services/credential-verification/Dockerfile
     container_name: eduagentx-credential-verification
     environment:
       PORT: 4030
       SERVICE_NAME: credential-verification
       # Trusts the issuer certification-service signs as, with its public key.
-      CREDENTIAL_ISSUER: ${CERTIFICATION_ISSUER:-https://eduagentx.example/issuers/eduagentx}
+      CREDENTIAL_ISSUER: ${CERTIFICATION_ISSUER:-https://eduagentx.example/issuers/eduagentx-test},https://eduagentx.example/issuers/eduagentx
       CREDENTIAL_PUBLIC_KEY_PATH: /keys/certification-ed25519-public.pem
+      CREDENTIAL_TEST_PUBLIC_KEY_PATH: /keys/certification-test-ed25519-public.pem
       CREDENTIAL_INTERNAL_KEY: ${CREDENTIAL_INTERNAL_KEY:?Run node scripts/setup-dev.js}
       CREDENTIAL_STATUS_PATH: /data/credential-status.json
       MONITORING_URL: http://monitoring-service:4040

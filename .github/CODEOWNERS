@@ -1,0 +1,3 @@
+# Fixture changes and their review record need review by these owners.
+/packages/execution-provenance/replay.json @tkylevalle @NXRJ @raniyahabachi
+/packages/execution-provenance/replay.review.json @tkylevalle @NXRJ @raniyahabachi
