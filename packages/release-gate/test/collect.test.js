@@ -52,6 +52,25 @@ test('uncommitted changes block, and a new record does not change the fingerprin
   assert.equal(runReleaseGate(root).fingerprint, before);
 });
 
+test('an existing evidence pack and a real commit are accepted', (t) => {
+  const { root, git } = repository(t, { 'src/app.js': '1', 'evidence/sprint-1/README.md': 'pack' });
+  const commit = git('rev-parse', 'HEAD').trim();
+  fs.mkdirSync(path.join(root, 'docs/release/records'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'docs/release/records/sprint-1.json'), JSON.stringify({ type: 'sprint-pass', sprint: 1,
+    evidencePack: 'evidence/sprint-1', sourceCommit: commit, passedAt: '2026-05-01T00:00:00Z', approvedBy: ['team'], waivers: [] }));
+  git('add', '-A');
+  git('-c', 'user.name=test', '-c', 'user.email=test@example.invalid', 'commit', '-q', '-m', 'record');
+  // git rev-parse reports C:/... with forward slashes on Windows.
+  const blockers = runReleaseGate(root.split(path.sep).join('/')).blockers;
+  assert.ok(blockers.includes('sprint 2: no pass record'));
+  assert.ok(!blockers.some((blocker) => blocker.startsWith('sprint 1:')), blockers.join(' | '));
+});
+
+test('a file too large to scan is reported, not skipped', (t) => {
+  const { root } = repository(t, { 'src/app.js': '1', 'data/huge.txt': 'x'.repeat(2 * 1024 * 1024 + 1) });
+  assert.ok(runReleaseGate(root).blockers.includes('secret scan: data/huge.txt too-large-to-scan'));
+});
+
 test('evidence pack paths cannot escape the repository', (t) => {
   const { root } = repository(t, {
     'src/app.js': '1',
