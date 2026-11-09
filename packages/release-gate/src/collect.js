@@ -8,6 +8,7 @@ const { RECORDS_DIRECTORY, LIMITATIONS_FILE } = require('./paths');
 
 const MAX_SCANNED_BYTES = 2 * 1024 * 1024;
 const GIT_OUTPUT_LIMIT_BYTES = 64 * 1024 * 1024;
+const BINARY_SNIFF_BYTES = 8000;
 
 const git = (root, args) => execFileSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: GIT_OUTPUT_LIMIT_BYTES });
 const gitSucceeds = (root, args) => spawnSync('git', args, { cwd: root, stdio: 'ignore' }).status === 0;
@@ -17,13 +18,24 @@ function insideRoot(root, relative) {
   return resolved === root || resolved.startsWith(root + path.sep) ? resolved : null;
 }
 
-// Binary files are read as empty text. A file too large to read is reported by the scan.
+// git's own binary heuristic: a NUL byte near the start of the file.
+function isBinaryFile(absolute) {
+  const handle = fs.openSync(absolute, 'r');
+  try {
+    const head = Buffer.alloc(BINARY_SNIFF_BYTES);
+    const bytesRead = fs.readSync(handle, head, 0, BINARY_SNIFF_BYTES, 0);
+    return head.subarray(0, bytesRead).includes(0);
+  } finally {
+    fs.closeSync(handle);
+  }
+}
+
+// Binary files are read as empty text. A text file too large to read is reported by the scan.
 function readTrackedFile(root, relative) {
   const absolute = path.join(root, relative);
-  if (!fs.existsSync(absolute)) return { path: relative, text: '' };
+  if (!fs.existsSync(absolute) || isBinaryFile(absolute)) return { path: relative, text: '' };
   if (fs.statSync(absolute).size > MAX_SCANNED_BYTES) return { path: relative, text: '', isTooLarge: true };
-  const bytes = fs.readFileSync(absolute);
-  return { path: relative, text: bytes.includes(0) ? '' : bytes.toString('utf8') };
+  return { path: relative, text: fs.readFileSync(absolute, 'utf8') };
 }
 
 function parseRecord(text) {
