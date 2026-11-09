@@ -71,6 +71,11 @@ test('a file too large to scan is reported, not skipped', (t) => {
   assert.ok(runReleaseGate(root).blockers.includes('secret scan: data/huge.txt too-large-to-scan'));
 });
 
+test('a large binary file is not reported as unscanned text', (t) => {
+  const { root } = repository(t, { 'src/app.js': '1', 'docs/deck.pptx': Buffer.concat([Buffer.from([0x50, 0x4b, 0]), Buffer.alloc(3 * 1024 * 1024)]) });
+  assert.ok(!runReleaseGate(root).blockers.some((blocker) => blocker.includes('deck.pptx')));
+});
+
 test('evidence pack paths cannot escape the repository', (t) => {
   const { root } = repository(t, {
     'src/app.js': '1',
