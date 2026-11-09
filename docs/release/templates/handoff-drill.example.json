@@ -1,0 +1,12 @@
+{
+  "type": "handoff-drill",
+  "sourceFingerprint": "<output of node packages/release-gate/cli.js --fingerprint>",
+  "recordedBy": "<github login>",
+  "recordedAt": "<ISO 8601 time>",
+  "evidenceReference": "<evidence/release/... folder>",
+  "backup": "<github login of the Capability Backup>",
+  "scenarioOwner": "<github login of another member>",
+  "scenario": "<scenario name and runbook path>",
+  "onSecondMachine": true,
+  "result": "PASS"
+}

@@ -1,0 +1,8 @@
+{
+  "type": "sprint-pass",
+  "sprint": 1,
+  "evidencePack": "evidence/sprint-1",
+  "sourceCommit": "<40-character commit the gate passed on>",
+  "passedAt": "<ISO 8601 time of the formal pass>",
+  "approvedBy": ["<github login>"]
+}
