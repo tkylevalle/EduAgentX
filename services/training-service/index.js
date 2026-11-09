@@ -14,6 +14,7 @@ const { createHash, randomUUID } = require('node:crypto');
 const express = require('express');
 const { Pool } = require('pg');
 const telemetry = require('../../packages/telemetry');
+const execution = require('../../packages/execution-provenance');
 const { EVIDENCE_ENVIRONMENTS } = require('../../packages/external-agent-protocol');
 const { decideContinue, decideRemediation, decideStart, decideSubmit, deriveSessionState } = require('./session');
 const { objectiveProgress, policyFromEnv } = require('./plan');
@@ -30,9 +31,9 @@ const IDENTIFIER = /^[\x20-\x7e]{1,256}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // The only body fields each interaction accepts; anything else is refused.
 const BODY_FIELDS = {
-  start: ['idempotencyKey', 'evidence'],
-  continue: ['idempotencyKey', 'evidence'],
-  submit: ['idempotencyKey', 'evidence', 'deliveryItemId', 'response'],
+  start: ['idempotencyKey', 'evidence', 'trustedExecution'],
+  continue: ['idempotencyKey', 'evidence', 'trustedExecution'],
+  submit: ['idempotencyKey', 'evidence', 'deliveryItemId', 'response', 'trustedExecution', 'executionEvidence'],
 };
 const REJECTION_STATUS = {
   not_registered: 403, response_too_long: 422, unknown_objectives: 422, no_targeted_content: 422,
@@ -50,11 +51,12 @@ class HttpError extends Error {
 function createApp({
   pool, internalKey = process.env.TRAINING_INTERNAL_KEY, packageSource, registrySource,
   store = pool ? createPgStore(pool) : undefined, clock = () => new Date().toISOString(), policy = policyFromEnv(),
-  sessionTimeoutMs = sessionTimeoutFromEnv(),
+  sessionTimeoutMs = sessionTimeoutFromEnv(), executionPrincipals = execution.enrollments(),
 } = {}) {
   if (!store || !internalKey || !packageSource || !registrySource) {
     throw new Error('store, internal key, package source and registry source required');
   }
+  const enrolledExecutors = execution.enrollments(executionPrincipals);
   const app = express();
   app.use((req, res, next) => {
     req.correlationId = req.header('x-correlation-id') || randomUUID();
@@ -91,7 +93,7 @@ function createApp({
     const input = requestInput(req, 'start');
     const options = { correlationId: req.correlationId };
     return decideAndAppend(store, actor, async (tx) => {
-      const open = await tx.findOpenSession(actor);
+      const open = await tx.findStart?.(actor, input.idempotencyKey) || await tx.findOpenSession(actor);
       if (!open) {
         const [pkg, registration] = await Promise.all([
           packageSource.getActive(options), registrySource.getRegistration(actor, options)]);
@@ -131,7 +133,7 @@ function createApp({
     }
     // Only a digest and the length of the learner's answer are kept, not the text.
     return {
-      deliveryItemId: body.deliveryItemId, responseDigest: `sha256:${sha256(body.response)}`,
+      submittedResponse: body.response, deliveryItemId: body.deliveryItemId, responseDigest: `sha256:${sha256(body.response)}`,
       responseLength: body.response.length,
     };
   }));
@@ -139,11 +141,19 @@ function createApp({
   // A structured remediation request from an operator (admin-only at the
   // Gateway). The actor is recorded as requestedBy; the learner is named in the body.
   app.post('/internal/remediations', handle(async (req) => {
-    const parsed = parseRemediationRequest(req.body);
+    const { trustedExecution: providedAuthority, ...remediationBody } = req.body || {};
+    const parsed = parseRemediationRequest(remediationBody);
     if (parsed.details) throw new HttpError(400, 'invalid_request', { details: parsed.details });
     const request = parsed.value;
-    const input = {
-      ...request, sessionId: randomUUID(), now: clock(), policy, correlationId: req.correlationId,
+    // A domain relay assigns work, not execution evidence. The planned run
+    // authority comes from server enrollment, never the relay's evidence label.
+    const trustedExecution = providedAuthority || execution.authority(enrolledExecutors, { subject: request.agentLearnerKey, role: 'agent' });
+    if (providedAuthority && (req.header('x-actor-role') !== 'gateway' || !execution.validAuthority(trustedExecution) ||
+      trustedExecution.executorId !== request.agentLearnerKey)) throw new HttpError(403, 'executor_not_authorized');
+    if (trustedExecution && (trustedExecution.evidenceMode !== request.evidence.mode ||
+      trustedExecution.environment !== request.evidence.environment)) throw new HttpError(409, 'provenance_conflict');
+    const input = { trustedExecution,
+      ...request, ...(trustedExecution ? { requestDigest: execution.hash({ requestDigest: request.requestDigest, trustedExecution }) } : {}), sessionId: randomUUID(), now: clock(), policy, correlationId: req.correlationId,
       actor: req.header('x-actor-subject'),
     };
     const options = { correlationId: req.correlationId };
@@ -178,8 +188,9 @@ function createApp({
   app.get('/internal/completions/latest', async (req, res) => {
     try {
       const names = ['agentLearnerKey', 'packageId', 'packageVersion', 'packageDigest'];
+      if (req.query.sessionId && !UUID.test(req.query.sessionId)) throw new HttpError(400, 'invalid_request');
       if (names.some((name) => !IDENTIFIER.test(req.query[name] || '')) ||
-        Object.keys(req.query).some((name) => !names.includes(name)))
+        Object.keys(req.query).some((name) => ![...names, 'sessionId'].includes(name)))
         throw new HttpError(400, 'invalid_request');
       const completion = await store.findCompletion(req.query);
       if (!completion) throw new HttpError(404, 'completion_not_found');
@@ -231,14 +242,22 @@ function createApp({
       throw new HttpError(400, 'invalid_request', { details: ['evidence'] });
     }
     const mode = evidence.mode;
+    const trustedExecution = body.trustedExecution || null;
+    if (trustedExecution && (req.header('x-actor-role') !== 'gateway' || !execution.validAuthority(trustedExecution) ||
+      trustedExecution.executorId !== req.header('x-actor-subject'))) throw new HttpError(403, 'executor_not_authorized');
+    if (body.executionEvidence && !trustedExecution) throw new HttpError(403, 'executor_not_authorized');
+    if (trustedExecution && (trustedExecution.evidenceMode !== mode || trustedExecution.environment !== evidence.environment))
+      throw new HttpError(409, 'provenance_conflict');
     // Training fingerprints the request's meaning itself, so reusing a key for
     // different content is caught whatever the caller sends.
+    const { submittedResponse, ...fingerprintExtra } = extra;
     const requestFingerprint = sha256(JSON.stringify({
-      action, sessionId: req.params.id || null, evidence: { mode, environment: evidence.environment }, ...extra,
+      action, sessionId: req.params.id || null, evidence: { mode, environment: evidence.environment }, ...fingerprintExtra,
+      ...(trustedExecution ? { trustedExecution, executionEvidence: body.executionEvidence || null } : {}),
     }));
     const now = clock();
     return {
-      ...extra, now, idleCutoff: idleCutoff(now, sessionTimeoutMs), evidence: { mode, environment: evidence.environment }, correlationId: req.correlationId,
+      ...extra, trustedExecution, executionEvidence: body.executionEvidence || null, now, idleCutoff: idleCutoff(now, sessionTimeoutMs), evidence: { mode, environment: evidence.environment }, correlationId: req.correlationId,
       actor: req.header('x-actor-subject'), idempotencyKey, requestFingerprint, policy,
     };
   }
@@ -267,6 +286,7 @@ function createApp({
 
   function sendError(req, res, error) {
     const correlationId = req.correlationId;
+    if (error.code === 'provenance_conflict') return res.status(409).json({ error: error.code, correlationId });
     if (error instanceof HttpError) return res.status(error.status).json({ apiVersion: API_VERSION, ...error.body, correlationId });
     if (error instanceof SourceUnavailableError) {
       telemetry.log(SERVICE_NAME, 'dependency_failed', { correlationId, dependency: error.source, outcome: error.code });

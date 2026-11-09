@@ -221,3 +221,17 @@ function sendJson(res, status, body) {
 function listen(server) {
   return new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
 }
+
+test('controlled execution route refuses caller responses, receipts, manifests and live authority', async (t) => {
+  const server = http.createServer(createApp({ learner: { run: async () => ({}) } }));
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  for (const bad of [{ evidenceMode: 'live', action: 'training' },
+    { evidenceMode: 'synthetic', action: 'training', response: 'arbitrary' },
+    { evidenceMode: 'replay', action: 'training', manifest: { id: 'upload' } },
+    { evidenceMode: 'synthetic', action: 'training', executionEvidence: {} }]) {
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/v1/execution-runs`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(bad) });
+    assert.equal(response.status, 400);
+  }
+});

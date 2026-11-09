@@ -436,7 +436,8 @@ function start(env = process.env) {
     package: createPackageSource({ baseUrl: env.VALIDATION_ACTIVATION_URL || 'http://validation-activation:4010',
       internalKey: env.CURRICULUM_INTERNAL_KEY }),
     verification: createVerificationSource({ baseUrl: env.CREDENTIAL_VERIFICATION_URL || 'http://credential-verification:4030' }),
-    lifecycle: createLifecycleSource(),
+    lifecycle: createLifecycleSource({ baseUrl: env.CERTIFICATION_SERVICE_URL || 'http://certification-service:4011',
+      internalKey: env.MARKETPLACE_INTERNAL_KEY }),
   };
   const server = createApp({ store, sources, internalKey: env.MARKETPLACE_INTERNAL_KEY,
     readiness: () => [...state.problems, ...(state.schemaReady ? [] : ['schema_not_applied'])],

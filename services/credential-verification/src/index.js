@@ -2,7 +2,7 @@
 const express = require('express');
 const fs = require('node:fs');
 const { timingSafeEqual } = require('node:crypto');
-const { verifyCredential } = require('./verifier');
+const { verifyCredential, TEST_KEY_PREFIX, keyIdOf } = require('./verifier');
 const { statusStore, StatusTransitionError } = require('./statusStore');
 
 const app = express();
@@ -14,6 +14,14 @@ function getPublicKey() {
   const keyPath = process.env.CREDENTIAL_PUBLIC_KEY_PATH;
   if (keyPath && fs.existsSync(keyPath)) return fs.readFileSync(keyPath, 'utf8');
   return null;
+}
+
+// A credential's key ID selects its verification key, so a test-issuer
+// credential can never verify with the other key, or the reverse.
+function publicKeyFor(jws) {
+  if (!keyIdOf(jws).startsWith(TEST_KEY_PREFIX)) return getPublicKey();
+  const keyPath = process.env.CREDENTIAL_TEST_PUBLIC_KEY_PATH;
+  return keyPath && fs.existsSync(keyPath) ? fs.readFileSync(keyPath, 'utf8') : null;
 }
 
 function matchesSecret(given, expected) {
@@ -54,7 +62,7 @@ app.post('/verify', (req, res) => {
   const { jws } = req.body || {};
   if (!jws) return res.status(400).json({ error: 'missing_jws' });
 
-  const publicKey = getPublicKey();
+  const publicKey = publicKeyFor(jws);
   if (!publicKey) return res.status(503).json({ error: 'no_public_key_configured' });
 
   const report = verifyCredential(jws, publicKey, statusStore);

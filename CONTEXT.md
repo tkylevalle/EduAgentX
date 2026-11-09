@@ -17,7 +17,7 @@ A deterministic test implementation of the External Agent Learner Protocol whose
 _Avoid_: Live model, autonomous production agent
 
 **Replay Agent Learner**:
-A test implementation that returns a sanitized, versioned response previously captured from a live interaction and is always identified as replayed evidence.
+A test implementation that returns a sanitized, versioned response previously captured from a recorded interaction and is always identified as replayed evidence. Each capture records its source, either a live model or the deterministic reference adapter, and a capture of the adapter never claims prior live inference.
 _Avoid_: Live inference, synthetic ground truth
 
 **Live Agent Learner**:

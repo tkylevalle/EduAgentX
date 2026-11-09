@@ -1,9 +1,17 @@
 'use strict';
 
-const { randomUUID } = require('node:crypto');
+const { randomUUID, createHash } = require('node:crypto');
 const { fail } = require('./evidence');
 
 const clone = (value) => structuredClone(value);
+
+// Only immutable identity bindings leave the issuer on the origin read path.
+// The digest binds the exact signed artifact, not an unsigned copy of its claims.
+const originSummary = ({ credentialId, compactJws, decisionId, examinationId, subjectId, configurationFingerprint }) => ({
+  schemaVersion: 'certification-origin/1.0.0', outcome: 'certified', credentialId, decisionId, examinationId,
+  subjectId, configurationFingerprint,
+  credentialDigest: `sha256:${createHash('sha256').update(compactJws).digest('hex')}`,
+});
 
 // Answer-free view of one decision and its credential for operator reads.
 const credentialSummary = ({ examinationId, decision, subjectId, packageId, packageVersion, mode, scores, credential }) => ({
@@ -27,15 +35,22 @@ function createMemoryStore() {
   return {
     async health() {},
     async findByAttempt(id) { const row = byAttempt.get(id); return row ? { ...clone(row), replay: true } : null; },
+    async findOriginByCredential(id) {
+      const row = [...byAttempt.values()].find((row) => row.credential.credentialId === id);
+      return row ? originSummary({ credentialId: id, compactJws: row.credential.compactJws,
+        decisionId: row.decisionId, examinationId: row.examinationId,
+        subjectId: row.evidence.subjectId, configurationFingerprint: row.evidence.subjectFingerprint }) : null;
+    },
     async issue({ evidence, commandKey, commandDigest, createCredential, latencyStartedAt = process.hrtime.bigint() }) {
       return serialize(async () => {
         const keyRow = byKey.get(commandKey);
         if (keyRow && keyRow.examinationId !== evidence.examinationId) throw fail('idempotency_conflict');
         const existing = byAttempt.get(evidence.examinationId);
         if (existing) return { ...clone(existing), replay: true };
-        const issued = createCredential();
+        const decisionId = randomUUID();
+        const issued = createCredential(decisionId);
         const processingLatencyMs = Math.max(0, Number(process.hrtime.bigint() - latencyStartedAt) / 1e6);
-        const row = { decisionId: randomUUID(), examinationId: evidence.examinationId,
+        const row = { decisionId, examinationId: evidence.examinationId,
           commandKey, commandDigest, evidence: clone(evidence), decision: { outcome: 'certified', decidedAt: evidence.decidedAt },
           credential: clone(issued), issuanceLatencyMs: Math.max(0, Date.parse(issued.issuedAt) - Date.parse(evidence.decidedAt)),
           processingLatencyMs, replay: false };
@@ -82,6 +97,16 @@ function createPgStore(pool) {
   return {
     async health() { await pool.query('SELECT 1'); },
     async findByAttempt(id) { const row = await findByAttempt(id); return row ? project(row) : null; },
+    async findOriginByCredential(id) {
+      const { rows } = await pool.query(`SELECT c.credential_id, c.compact_jws, d.decision_id,
+        d.examination_id, d.subject_id, d.subject_fingerprint
+        FROM certification_engine.credentials c JOIN certification_engine.decisions d USING (decision_id)
+        WHERE c.credential_id=$1`, [id]);
+      const row = rows[0];
+      return row ? originSummary({ credentialId: row.credential_id, compactJws: row.compact_jws,
+        decisionId: row.decision_id, examinationId: row.examination_id, subjectId: row.subject_id,
+        configurationFingerprint: row.subject_fingerprint }) : null;
+    },
     async issue({ evidence, commandKey, commandDigest, createCredential, latencyStartedAt = process.hrtime.bigint() }) {
       const client = await pool.connect();
       try {
@@ -92,7 +117,7 @@ function createPgStore(pool) {
         const found = await findByAttempt(evidence.examinationId, client);
         if (found) { await client.query('COMMIT'); return project(found, true); }
         const decisionId = randomUUID();
-        const issued = createCredential();
+        const issued = createCredential(decisionId);
         await client.query(`INSERT INTO certification_engine.decisions
           (decision_id,examination_id,idempotency_key,command_digest,subject_id,subject_fingerprint,
            package_id,package_version,package_digest,template_id,template_version,rubric_id,rubric_version,
