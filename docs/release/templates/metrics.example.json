@@ -4,7 +4,9 @@
   "recordedBy": "<github login>",
   "recordedAt": "<ISO 8601 time>",
   "evidenceReference": "<evidence/release/... folder>",
+  "invariantsRelaxed": [],
   "results": [
-    { "name": "<metric>", "criticalPath": true, "status": "Green", "floorMet": true }
+    { "name": "<metric with an Acceptance Floor>", "criticalPath": true, "status": "Green", "floorMet": true },
+    { "name": "<metric with a Target only>", "criticalPath": false, "status": "Amber", "floorMet": null }
   ]
 }

@@ -10,15 +10,20 @@ be written until the team has reviewed and corrected this file.
 - Replay enrollment is refused until two people record their fixture reviews
   in `packages/execution-provenance/replay.review.json`. The record has no
   reviews today.
-- Issues 31 to 35 are open: ranking and explanations, Skill Gap contracts,
-  the 1,000-scenario suite, hero scenarios and fault injection, and the
-  Marketplace Console with the final Evidence Bundle.
-- The Sprint 1 gate result is BLOCKED until team reviewers write its Issue 7
-  and review records for the released source.
+- Issues 31 to 35 and 83 are open: ranking and explanations, Skill Gap
+  contracts, the 1,000-scenario suite, hero scenarios and fault injection, the
+  Marketplace Console with the final Evidence Bundle, and the
+  Certification-to-Marketplace trust integration.
+- Sprint 1 passed on 29 September 2026 with three waivers: no independent
+  reproduction by a second member, no capability backup handoff, and no
+  independent human trust-boundary review
+  ([evidence/review-summary.md](../../evidence/review-summary.md)). The handoff
+  drill and the approval record must close the last two.
 - `evidence/sprint-3/gate-result.json` and `evidence/sprint-4/gate-result.json`
   name no source commit. The sprint pass records must supply one.
-- The secret scan skips binary files and files over 2 MB. It cannot find a
-  password written in prose.
+- The secret scan does not read binary files, and it blocks on text files
+  over 2 MB instead of reading them. It cannot find a password written in
+  prose.
 
 ## Supporting-scope reductions
 

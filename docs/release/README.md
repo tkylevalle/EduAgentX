@@ -18,13 +18,13 @@ blocker is printed.
 |---|---|---|
 | No `.env`, key file, private key block, signed token or provider key is tracked; example and Compose secrets are empty, `example-only-` or `${...}` | tracked files | machine |
 | The working tree has no uncommitted changes | git | machine |
-| Sprints 1 to 5 each passed, in order, with an evidence pack that exists | `records/sprint-N.json` | people |
+| Sprints 1 to 5 each passed, in order in time and in git history, with an evidence pack that exists; waivers are listed in the result | `records/sprint-N.json` | people, checked against git |
 | Clean setup, tests, deterministic demonstration and Evidence Bundle on a second machine, with no paid API calls | `records/second-machine.json` | people |
 | A Capability Backup ran another member's scenario on the second machine | `records/handoff-drill.json` | people |
 | No open Critical or Major Assurance Incident | `records/incidents.json` | people |
-| Every Acceptance Floor met; every result Green or Amber | `records/metrics.json` | people |
+| Every applicable Acceptance Floor met (`floorMet: null` when none applies); every result Green or Amber; no Invariant relaxed | `records/metrics.json` | people |
 | Optional live usage and its AED cost reported | `records/live-cost.json` | people |
-| Team approval and the mandatory independent reviews | `records/approval.json` | people |
+| Team approval with a link to the decision, every review in `requiredReviews` done, and the demo password check | `records/approval.json` | people |
 | Limitations, scope reductions, residual risks, non-accreditation, live cost and ownership history | [limitations.md](limitations.md) | people |
 
 The gate never writes a record. A record that a script fills in as PASS is not
@@ -51,6 +51,6 @@ records describe earlier commits, so they hold a `sourceCommit` instead.
 
 ## Limits of the secret scan
 
-The scan reads tracked text files up to 2 MB. It skips binary files. It cannot
+The scan reads tracked text files up to 2 MB. A larger file is a blocker, because it was not scanned. Binary files are not scanned. It cannot
 find a reused demo password written in prose, so the approval record must
 confirm that the team checked for one.

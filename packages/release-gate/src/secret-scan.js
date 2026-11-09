@@ -57,11 +57,19 @@ function contentFindings(path, text) {
 }
 
 /**
- * @param {{ path: string, text: string }[]} files tracked files, paths relative to the repository root
- * @returns {{ path: string, line: number|null, rule: string }[]}
+ * @typedef {{ path: string, line: number|null, rule: string }} Finding
+ * @typedef {{ path: string, text: string, isTooLarge?: boolean }} TrackedFile
+ */
+
+/**
+ * @param {TrackedFile[]} files tracked files, paths relative to the repository root
+ * @returns {Finding[]}
  */
 function scanTrackedFiles(files) {
-  return files.flatMap(({ path, text }) => [...pathFindings(path), ...contentFindings(path, text || '')]);
+  return files.flatMap(({ path, text, isTooLarge }) => [
+    ...pathFindings(path),
+    ...(isTooLarge ? [{ path, line: null, rule: 'too-large-to-scan' }] : contentFindings(path, text || '')),
+  ]);
 }
 
 module.exports = { scanTrackedFiles };

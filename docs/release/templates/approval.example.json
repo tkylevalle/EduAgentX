@@ -6,6 +6,8 @@
   "evidenceReference": "<evidence/release/... folder>",
   "outcome": "APPROVED",
   "approvedBy": ["<github login>"],
+  "decisionReference": "<minutes or issue comment that records the team decision>",
+  "requiredReviews": ["<each capability that needs an independent review>"],
   "independentReviews": [
     { "capability": "<capability>", "reviewer": "<github login>" }
   ],
