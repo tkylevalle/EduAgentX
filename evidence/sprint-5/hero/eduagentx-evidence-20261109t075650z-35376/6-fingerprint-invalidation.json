@@ -1,0 +1,1441 @@
+{
+  "number": 6,
+  "id": "fingerprint-invalidation",
+  "status": "PASS",
+  "startedAt": "2026-11-09T07:58:57.579Z",
+  "finishedAt": "2026-11-09T07:59:02.865Z",
+  "declarationAdjustments": {
+    "learnerIdentity": "synthetic-executor-dev",
+    "package": {
+      "id": "ai-safety-demo-c42a0289",
+      "version": "0.1.5-draft",
+      "digest": "39efb595c0665c33cab1607fda7ad2d67eda87bab37d2ac7190be4f571adc81b"
+    },
+    "keyId": "https://eduagentx.example/issuers/eduagentx-test#test-ed25519-1"
+  },
+  "incidentSource": "runner observation of actual injected fault; see monitoring separately",
+  "record": {
+    "schema": "hero-evidence/1",
+    "scenarioId": "fingerprint-invalidation",
+    "runId": "eduagentx-evidence-20261109t075650z-35376",
+    "evidenceMode": "synthetic",
+    "executorMode": "synthetic",
+    "environment": "simulation",
+    "learnerIdentity": "synthetic-executor-dev",
+    "startedAt": "2026-11-09T07:58:57.579Z",
+    "finishedAt": "2026-11-09T07:59:02.861Z",
+    "artifacts": {
+      "beforeMatch": {
+        "policyVersion": "MATCH-POLICY-1.0.0",
+        "eligibleMatches": [
+          {
+            "agentLearnerKey": "synthetic-executor-dev",
+            "credentialId": "4507e826-d6c8-4066-a6ad-c748767ca564",
+            "eligible": true,
+            "lane": "Eligible Matches",
+            "components": {
+              "totalPerformance": {
+                "weight": 35,
+                "actual": 94.4,
+                "denominator": 100,
+                "points": 33.04
+              },
+              "adversarialPerformance": {
+                "weight": 35,
+                "actual": 86,
+                "denominator": 100,
+                "points": 30.1
+              },
+              "preferredCoverage": {
+                "weight": 20,
+                "coveredObjectiveIds": [],
+                "requestedObjectiveIds": [],
+                "points": 20
+              },
+              "credentialRecency": {
+                "weight": 10,
+                "ageDays": 0.00001769675925925926,
+                "maximumAgeDays": 365,
+                "points": 9.999999515157281
+              }
+            },
+            "unroundedTotal": 93.13999951515729,
+            "matchScore": 93.14,
+            "gaps": [],
+            "gapCount": 0,
+            "normalizedShortfall": 0,
+            "shortfallComponents": {
+              "objectives": 0,
+              "overall": 0,
+              "adversarial": 0,
+              "age": 0,
+              "mode": 0
+            },
+            "shortfallDivisor": 5,
+            "issuedAt": "2026-11-09T07:58:12.097Z",
+            "satisfiedRequirements": [
+              "lifecycle_origin",
+              "discoverable",
+              "signature",
+              "schema",
+              "status",
+              "expiry",
+              "fingerprint",
+              "environment",
+              "domain",
+              "objectives",
+              "score_overall",
+              "score_adversarial",
+              "age",
+              "mode"
+            ],
+            "checks": [
+              {
+                "gate": "lifecycle_origin",
+                "tag": "trust",
+                "passed": true
+              },
+              {
+                "gate": "discoverable",
+                "tag": "trust",
+                "passed": true
+              },
+              {
+                "gate": "signature",
+                "tag": "trust",
+                "passed": true
+              },
+              {
+                "gate": "schema",
+                "tag": "trust",
+                "passed": true
+              },
+              {
+                "gate": "status",
+                "tag": "trust",
+                "passed": true
+              },
+              {
+                "gate": "expiry",
+                "tag": "trust",
+                "passed": true
+              },
+              {
+                "gate": "fingerprint",
+                "tag": "trust",
+                "passed": true
+              },
+              {
+                "gate": "environment",
+                "tag": "trust",
+                "passed": true
+              },
+              {
+                "gate": "domain",
+                "tag": "trust",
+                "passed": true
+              },
+              {
+                "gate": "objectives",
+                "tag": "request",
+                "passed": true
+              },
+              {
+                "gate": "score_overall",
+                "tag": "request",
+                "passed": true
+              },
+              {
+                "gate": "score_adversarial",
+                "tag": "request",
+                "passed": true
+              },
+              {
+                "gate": "age",
+                "tag": "request",
+                "passed": true
+              },
+              {
+                "gate": "mode",
+                "tag": "request",
+                "passed": true
+              },
+              {
+                "gate": "identity",
+                "tag": "trust",
+                "passed": true
+              },
+              {
+                "gate": "evidence_mode",
+                "tag": "trust",
+                "passed": true
+              }
+            ],
+            "evidence": {
+              "checkedAt": "2026-11-09T07:58:13.626Z",
+              "credentialStatus": "active",
+              "configurationFingerprint": "sha256:9f88673f79c485e509396e465140de88c368b84ab964243704e51b1876081e51",
+              "assessmentMode": "standard",
+              "evidenceMode": "synthetic",
+              "environment": "simulation",
+              "package": {
+                "id": "ai-safety-demo-c42a0289",
+                "version": "0.1.5-draft",
+                "digest": "39efb595c0665c33cab1607fda7ad2d67eda87bab37d2ac7190be4f571adc81b"
+              }
+            },
+            "sources": {
+              "verification": "answered",
+              "registry": "answered",
+              "package": "answered",
+              "lifecycleOrigin": "answered",
+              "listing": "marketplace"
+            },
+            "credentialSelection": "best_lane_then_lane_order_then_credential_id",
+            "rank": 1,
+            "ordering": {
+              "criteria": [
+                {
+                  "field": "matchScore",
+                  "direction": "desc"
+                },
+                {
+                  "field": "issuedAt",
+                  "direction": "desc"
+                },
+                {
+                  "field": "agentLearnerKey",
+                  "direction": "asc"
+                }
+              ],
+              "comparedWith": null,
+              "decisiveCriterion": "only_or_last_candidate",
+              "tiedCriteria": []
+            }
+          }
+        ],
+        "nearMatches": [],
+        "nearMatchLane": "Not Eligible",
+        "totalEligible": 1,
+        "totalNearMatches": 0,
+        "exclusions": [],
+        "exclusionCounts": {},
+        "outcome": "MATCHED",
+        "resultId": "3283cbd1-5520-4b33-951b-fcd37125c9cc",
+        "requestId": "f5906296-9447-4e97-9700-8c8a4fd65892",
+        "requestVersion": 1,
+        "requestDigest": "sha256:60dce844784fa5e798a99ea0fa8faa166565af169932ef9b1c1d6b7b6dd69c72",
+        "actor": "capstone-admin-dev",
+        "generatedAt": "2026-11-09T07:58:13.626Z",
+        "correlationId": "c114c563-848c-4c12-a7d1-ebffb95c9a23",
+        "idempotencyKey": "232df302-66f1-4919-8e99-1ed98ddb094c",
+        "marketplace": "simulation",
+        "notice": "Immutable point-in-time, non-binding recommendation. Recheck current trust before any later action."
+      },
+      "fingerprintChange": {
+        "agentLearnerId": "13fd95dd-cc95-4aa4-8827-a803f6bfe339",
+        "agentLearnerKey": "synthetic-executor-dev",
+        "status": "active",
+        "configurationVersion": 2,
+        "configurationFingerprint": "sha256:b0c81b0ea615c43fae9c8ebaf0c04f12fd3df736ff8426817eb215a72102ced8",
+        "createdAt": "2026-11-09T07:58:04.407Z",
+        "updatedAt": "2026-11-09T07:58:57.592Z",
+        "currentConfiguration": {
+          "configurationVersion": 2,
+          "configurationFingerprint": "sha256:b0c81b0ea615c43fae9c8ebaf0c04f12fd3df736ff8426817eb215a72102ced8",
+          "model": {
+            "provider": "synthetic",
+            "version": "hero-configuration-2"
+          },
+          "approvedToolManifest": [
+            {
+              "name": "knowledge.lookup",
+              "version": "1.0.0",
+              "permissions": [
+                "read"
+              ]
+            }
+          ],
+          "policyConfigurationHash": "sha256:synthetic-policy-v1",
+          "adapterVersion": "synthetic-agent-learner-1.0.0",
+          "correlationId": "ec3546b1-f480-4fbf-8f3d-b25eff8f83fa",
+          "createdAt": "2026-11-09T07:58:57.592Z"
+        },
+        "configurations": [
+          {
+            "configurationVersion": 2,
+            "configurationFingerprint": "sha256:b0c81b0ea615c43fae9c8ebaf0c04f12fd3df736ff8426817eb215a72102ced8",
+            "model": {
+              "provider": "synthetic",
+              "version": "hero-configuration-2"
+            },
+            "approvedToolManifest": [
+              {
+                "name": "knowledge.lookup",
+                "version": "1.0.0",
+                "permissions": [
+                  "read"
+                ]
+              }
+            ],
+            "policyConfigurationHash": "sha256:synthetic-policy-v1",
+            "adapterVersion": "synthetic-agent-learner-1.0.0",
+            "correlationId": "ec3546b1-f480-4fbf-8f3d-b25eff8f83fa",
+            "createdAt": "2026-11-09T07:58:57.592Z"
+          },
+          {
+            "configurationVersion": 1,
+            "configurationFingerprint": "sha256:9f88673f79c485e509396e465140de88c368b84ab964243704e51b1876081e51",
+            "model": {
+              "provider": "synthetic",
+              "version": "1.0.0"
+            },
+            "approvedToolManifest": [
+              {
+                "name": "knowledge.lookup",
+                "version": "1.0.0",
+                "permissions": [
+                  "read"
+                ]
+              }
+            ],
+            "policyConfigurationHash": "sha256:synthetic-policy-v1",
+            "adapterVersion": "synthetic-agent-learner-1.0.0",
+            "correlationId": "synthetic-training-fa5587ab-6514-4a6d-b88f-b02988afb4ea",
+            "createdAt": "2026-11-09T07:58:04.407Z"
+          }
+        ],
+        "latestAssurance": {
+          "eventId": "cda99494-12b5-4cc8-bef7-c3159a5c27c6",
+          "eventType": "agent_learner.configuration_changed",
+          "agentLearnerId": "13fd95dd-cc95-4aa4-8827-a803f6bfe339",
+          "configurationVersion": 2,
+          "configurationFingerprint": "sha256:b0c81b0ea615c43fae9c8ebaf0c04f12fd3df736ff8426817eb215a72102ced8",
+          "previousFingerprint": "sha256:9f88673f79c485e509396e465140de88c368b84ab964243704e51b1876081e51",
+          "correlationId": "ec3546b1-f480-4fbf-8f3d-b25eff8f83fa",
+          "occurredAt": "2026-11-09T07:58:57.596Z"
+        }
+      },
+      "afterMatch": {
+        "policyVersion": "MATCH-POLICY-1.0.0",
+        "eligibleMatches": [
+          {
+            "agentLearnerKey": "hero-near-match-b-dev",
+            "credentialId": "270c9b57-8fb3-4421-8bc2-a6dd40387db0",
+            "eligible": true,
+            "lane": "Eligible Matches",
+            "components": {
+              "totalPerformance": {
+                "weight": 35,
+                "actual": 94.4,
+                "denominator": 100,
+                "points": 33.04
+              },
+              "adversarialPerformance": {
+                "weight": 35,
+                "actual": 86,
+                "denominator": 100,
+                "points": 30.1
+              },
+              "preferredCoverage": {
+                "weight": 20,
+                "coveredObjectiveIds": [],
+                "requestedObjectiveIds": [],
+                "points": 20
+              },
+              "credentialRecency": {
+                "weight": 10,
+                "ageDays": 0.00001087962962962963,
+                "maximumAgeDays": 365,
+                "points": 9.999999701927955
+              }
+            },
+            "unroundedTotal": 93.13999970192796,
+            "matchScore": 93.14,
+            "gaps": [],
+            "gapCount": 0,
+            "normalizedShortfall": 0,
+            "shortfallComponents": {
+              "objectives": 0,
+              "overall": 0,
+              "adversarial": 0,
+              "age": 0,
+              "mode": 0
+            },
+            "shortfallDivisor": 5,
+            "issuedAt": "2026-11-09T07:58:56.862Z",
+            "satisfiedRequirements": [
+              "lifecycle_origin",
+              "discoverable",
+              "signature",
+              "schema",
+              "status",
+              "expiry",
+              "fingerprint",
+              "environment",
+              "domain",
+              "objectives",
+              "score_overall",
+              "score_adversarial",
+              "age",
+              "mode"
+            ],
+            "checks": [
+              {
+                "gate": "lifecycle_origin",
+                "tag": "trust",
+                "passed": true
+              },
+              {
+                "gate": "discoverable",
+                "tag": "trust",
+                "passed": true
+              },
+              {
+                "gate": "signature",
+                "tag": "trust",
+                "passed": true
+              },
+              {
+                "gate": "schema",
+                "tag": "trust",
+                "passed": true
+              },
+              {
+                "gate": "status",
+                "tag": "trust",
+                "passed": true
+              },
+              {
+                "gate": "expiry",
+                "tag": "trust",
+                "passed": true
+              },
+              {
+                "gate": "fingerprint",
+                "tag": "trust",
+                "passed": true
+              },
+              {
+                "gate": "environment",
+                "tag": "trust",
+                "passed": true
+              },
+              {
+                "gate": "domain",
+                "tag": "trust",
+                "passed": true
+              },
+              {
+                "gate": "objectives",
+                "tag": "request",
+                "passed": true
+              },
+              {
+                "gate": "score_overall",
+                "tag": "request",
+                "passed": true
+              },
+              {
+                "gate": "score_adversarial",
+                "tag": "request",
+                "passed": true
+              },
+              {
+                "gate": "age",
+                "tag": "request",
+                "passed": true
+              },
+              {
+                "gate": "mode",
+                "tag": "request",
+                "passed": true
+              },
+              {
+                "gate": "identity",
+                "tag": "trust",
+                "passed": true
+              },
+              {
+                "gate": "evidence_mode",
+                "tag": "trust",
+                "passed": true
+              }
+            ],
+            "evidence": {
+              "checkedAt": "2026-11-09T07:58:57.802Z",
+              "credentialStatus": "active",
+              "configurationFingerprint": "sha256:9f88673f79c485e509396e465140de88c368b84ab964243704e51b1876081e51",
+              "assessmentMode": "standard",
+              "evidenceMode": "synthetic",
+              "environment": "simulation",
+              "package": {
+                "id": "ai-safety-demo-c42a0289",
+                "version": "0.1.5-draft",
+                "digest": "39efb595c0665c33cab1607fda7ad2d67eda87bab37d2ac7190be4f571adc81b"
+              }
+            },
+            "sources": {
+              "verification": "answered",
+              "registry": "answered",
+              "package": "answered",
+              "lifecycleOrigin": "answered",
+              "listing": "marketplace"
+            },
+            "credentialSelection": "best_lane_then_lane_order_then_credential_id",
+            "rank": 1,
+            "ordering": {
+              "criteria": [
+                {
+                  "field": "matchScore",
+                  "direction": "desc"
+                },
+                {
+                  "field": "issuedAt",
+                  "direction": "desc"
+                },
+                {
+                  "field": "agentLearnerKey",
+                  "direction": "asc"
+                }
+              ],
+              "comparedWith": "hero-near-match-a-dev",
+              "decisiveCriterion": "issuedAt",
+              "tiedCriteria": [
+                "matchScore"
+              ]
+            }
+          },
+          {
+            "agentLearnerKey": "hero-near-match-a-dev",
+            "credentialId": "6a259bac-62ed-4829-a77d-7cdc1a25fb3a",
+            "eligible": true,
+            "lane": "Eligible Matches",
+            "components": {
+              "totalPerformance": {
+                "weight": 35,
+                "actual": 94.4,
+                "denominator": 100,
+                "points": 33.04
+              },
+              "adversarialPerformance": {
+                "weight": 35,
+                "actual": 86,
+                "denominator": 100,
+                "points": 30.1
+              },
+              "preferredCoverage": {
+                "weight": 20,
+                "coveredObjectiveIds": [],
+                "requestedObjectiveIds": [],
+                "points": 20
+              },
+              "credentialRecency": {
+                "weight": 10,
+                "ageDays": 0.00006878472222222222,
+                "maximumAgeDays": 365,
+                "points": 9.999998115487061
+              }
+            },
+            "unroundedTotal": 93.13999811548706,
+            "matchScore": 93.14,
+            "gaps": [],
+            "gapCount": 0,
+            "normalizedShortfall": 0,
+            "shortfallComponents": {
+              "objectives": 0,
+              "overall": 0,
+              "adversarial": 0,
+              "age": 0,
+              "mode": 0
+            },
+            "shortfallDivisor": 5,
+            "issuedAt": "2026-11-09T07:58:51.859Z",
+            "satisfiedRequirements": [
+              "lifecycle_origin",
+              "discoverable",
+              "signature",
+              "schema",
+              "status",
+              "expiry",
+              "fingerprint",
+              "environment",
+              "domain",
+              "objectives",
+              "score_overall",
+              "score_adversarial",
+              "age",
+              "mode"
+            ],
+            "checks": [
+              {
+                "gate": "lifecycle_origin",
+                "tag": "trust",
+                "passed": true
+              },
+              {
+                "gate": "discoverable",
+                "tag": "trust",
+                "passed": true
+              },
+              {
+                "gate": "signature",
+                "tag": "trust",
+                "passed": true
+              },
+              {
+                "gate": "schema",
+                "tag": "trust",
+                "passed": true
+              },
+              {
+                "gate": "status",
+                "tag": "trust",
+                "passed": true
+              },
+              {
+                "gate": "expiry",
+                "tag": "trust",
+                "passed": true
+              },
+              {
+                "gate": "fingerprint",
+                "tag": "trust",
+                "passed": true
+              },
+              {
+                "gate": "environment",
+                "tag": "trust",
+                "passed": true
+              },
+              {
+                "gate": "domain",
+                "tag": "trust",
+                "passed": true
+              },
+              {
+                "gate": "objectives",
+                "tag": "request",
+                "passed": true
+              },
+              {
+                "gate": "score_overall",
+                "tag": "request",
+                "passed": true
+              },
+              {
+                "gate": "score_adversarial",
+                "tag": "request",
+                "passed": true
+              },
+              {
+                "gate": "age",
+                "tag": "request",
+                "passed": true
+              },
+              {
+                "gate": "mode",
+                "tag": "request",
+                "passed": true
+              },
+              {
+                "gate": "identity",
+                "tag": "trust",
+                "passed": true
+              },
+              {
+                "gate": "evidence_mode",
+                "tag": "trust",
+                "passed": true
+              }
+            ],
+            "evidence": {
+              "checkedAt": "2026-11-09T07:58:57.802Z",
+              "credentialStatus": "active",
+              "configurationFingerprint": "sha256:9f88673f79c485e509396e465140de88c368b84ab964243704e51b1876081e51",
+              "assessmentMode": "standard",
+              "evidenceMode": "synthetic",
+              "environment": "simulation",
+              "package": {
+                "id": "ai-safety-demo-c42a0289",
+                "version": "0.1.5-draft",
+                "digest": "39efb595c0665c33cab1607fda7ad2d67eda87bab37d2ac7190be4f571adc81b"
+              }
+            },
+            "sources": {
+              "verification": "answered",
+              "registry": "answered",
+              "package": "answered",
+              "lifecycleOrigin": "answered",
+              "listing": "marketplace"
+            },
+            "credentialSelection": "best_lane_then_lane_order_then_credential_id",
+            "rank": 2,
+            "ordering": {
+              "criteria": [
+                {
+                  "field": "matchScore",
+                  "direction": "desc"
+                },
+                {
+                  "field": "issuedAt",
+                  "direction": "desc"
+                },
+                {
+                  "field": "agentLearnerKey",
+                  "direction": "asc"
+                }
+              ],
+              "comparedWith": null,
+              "decisiveCriterion": "only_or_last_candidate",
+              "tiedCriteria": []
+            }
+          }
+        ],
+        "nearMatches": [],
+        "nearMatchLane": "Not Eligible",
+        "totalEligible": 2,
+        "totalNearMatches": 0,
+        "exclusions": [
+          {
+            "agentLearnerKey": "synthetic-agent-learner-dev",
+            "credentialId": "7c94e1f0-8be6-4fe7-9f1f-c682bcfed0b0",
+            "reasons": [
+              {
+                "code": "ENVIRONMENT_UNCHECKABLE",
+                "gate": "environment",
+                "tag": "trust"
+              },
+              {
+                "code": "EVIDENCE_MODE_UNCHECKABLE",
+                "gate": "evidence_mode",
+                "tag": "trust"
+              }
+            ]
+          },
+          {
+            "agentLearnerKey": "synthetic-agent-learner-dev",
+            "credentialId": "a0dee8bd-3452-4641-99f5-b90b140f7e68",
+            "reasons": [
+              {
+                "code": "ENVIRONMENT_UNCHECKABLE",
+                "gate": "environment",
+                "tag": "trust"
+              },
+              {
+                "code": "EVIDENCE_MODE_UNCHECKABLE",
+                "gate": "evidence_mode",
+                "tag": "trust"
+              }
+            ]
+          },
+          {
+            "agentLearnerKey": "synthetic-executor-dev",
+            "credentialId": "4507e826-d6c8-4066-a6ad-c748767ca564",
+            "reasons": [
+              {
+                "code": "FINGERPRINT_MISMATCH",
+                "gate": "fingerprint",
+                "tag": "trust"
+              }
+            ]
+          },
+          {
+            "agentLearnerKey": "synthetic-executor-dev",
+            "credentialId": "cc40212d-17f9-48a8-ad60-494e2b35b26e",
+            "reasons": [
+              {
+                "code": "FINGERPRINT_MISMATCH",
+                "gate": "fingerprint",
+                "tag": "trust"
+              }
+            ]
+          }
+        ],
+        "exclusionCounts": {
+          "ENVIRONMENT_UNCHECKABLE": 2,
+          "EVIDENCE_MODE_UNCHECKABLE": 2,
+          "FINGERPRINT_MISMATCH": 2
+        },
+        "outcome": "MATCHED",
+        "resultId": "84b815e4-dd70-4e6a-9b5d-5bce10daa682",
+        "requestId": "f5906296-9447-4e97-9700-8c8a4fd65892",
+        "requestVersion": 1,
+        "requestDigest": "sha256:60dce844784fa5e798a99ea0fa8faa166565af169932ef9b1c1d6b7b6dd69c72",
+        "actor": "capstone-admin-dev",
+        "generatedAt": "2026-11-09T07:58:57.802Z",
+        "correlationId": "bafae328-cf61-4c81-a560-71db2c6f165e",
+        "idempotencyKey": "7609e92a-7109-4787-9f17-5a77419e2e02",
+        "marketplace": "simulation",
+        "notice": "Immutable point-in-time, non-binding recommendation. Recheck current trust before any later action."
+      },
+      "recertification": {
+        "credentialId": "58bc87f7-4fa3-4972-925f-e402dcdea00e",
+        "matchResult": {
+          "policyVersion": "MATCH-POLICY-1.0.0",
+          "eligibleMatches": [
+            {
+              "agentLearnerKey": "synthetic-executor-dev",
+              "credentialId": "58bc87f7-4fa3-4972-925f-e402dcdea00e",
+              "eligible": true,
+              "lane": "Eligible Matches",
+              "components": {
+                "totalPerformance": {
+                  "weight": 35,
+                  "actual": 94.4,
+                  "denominator": 100,
+                  "points": 33.04
+                },
+                "adversarialPerformance": {
+                  "weight": 35,
+                  "actual": 86,
+                  "denominator": 100,
+                  "points": 30.1
+                },
+                "preferredCoverage": {
+                  "weight": 20,
+                  "coveredObjectiveIds": [],
+                  "requestedObjectiveIds": [],
+                  "points": 20
+                },
+                "credentialRecency": {
+                  "weight": 10,
+                  "ageDays": 0.000011238425925925925,
+                  "maximumAgeDays": 365,
+                  "points": 9.99999969209792
+                }
+              },
+              "unroundedTotal": 93.13999969209792,
+              "matchScore": 93.14,
+              "gaps": [],
+              "gapCount": 0,
+              "normalizedShortfall": 0,
+              "shortfallComponents": {
+                "objectives": 0,
+                "overall": 0,
+                "adversarial": 0,
+                "age": 0,
+                "mode": 0
+              },
+              "shortfallDivisor": 5,
+              "issuedAt": "2026-11-09T07:59:01.865Z",
+              "satisfiedRequirements": [
+                "lifecycle_origin",
+                "discoverable",
+                "signature",
+                "schema",
+                "status",
+                "expiry",
+                "fingerprint",
+                "environment",
+                "domain",
+                "objectives",
+                "score_overall",
+                "score_adversarial",
+                "age",
+                "mode"
+              ],
+              "checks": [
+                {
+                  "gate": "lifecycle_origin",
+                  "tag": "trust",
+                  "passed": true
+                },
+                {
+                  "gate": "discoverable",
+                  "tag": "trust",
+                  "passed": true
+                },
+                {
+                  "gate": "signature",
+                  "tag": "trust",
+                  "passed": true
+                },
+                {
+                  "gate": "schema",
+                  "tag": "trust",
+                  "passed": true
+                },
+                {
+                  "gate": "status",
+                  "tag": "trust",
+                  "passed": true
+                },
+                {
+                  "gate": "expiry",
+                  "tag": "trust",
+                  "passed": true
+                },
+                {
+                  "gate": "fingerprint",
+                  "tag": "trust",
+                  "passed": true
+                },
+                {
+                  "gate": "environment",
+                  "tag": "trust",
+                  "passed": true
+                },
+                {
+                  "gate": "domain",
+                  "tag": "trust",
+                  "passed": true
+                },
+                {
+                  "gate": "objectives",
+                  "tag": "request",
+                  "passed": true
+                },
+                {
+                  "gate": "score_overall",
+                  "tag": "request",
+                  "passed": true
+                },
+                {
+                  "gate": "score_adversarial",
+                  "tag": "request",
+                  "passed": true
+                },
+                {
+                  "gate": "age",
+                  "tag": "request",
+                  "passed": true
+                },
+                {
+                  "gate": "mode",
+                  "tag": "request",
+                  "passed": true
+                },
+                {
+                  "gate": "identity",
+                  "tag": "trust",
+                  "passed": true
+                },
+                {
+                  "gate": "evidence_mode",
+                  "tag": "trust",
+                  "passed": true
+                }
+              ],
+              "evidence": {
+                "checkedAt": "2026-11-09T07:59:02.836Z",
+                "credentialStatus": "active",
+                "configurationFingerprint": "sha256:b0c81b0ea615c43fae9c8ebaf0c04f12fd3df736ff8426817eb215a72102ced8",
+                "assessmentMode": "standard",
+                "evidenceMode": "synthetic",
+                "environment": "simulation",
+                "package": {
+                  "id": "ai-safety-demo-c42a0289",
+                  "version": "0.1.5-draft",
+                  "digest": "39efb595c0665c33cab1607fda7ad2d67eda87bab37d2ac7190be4f571adc81b"
+                }
+              },
+              "sources": {
+                "verification": "answered",
+                "registry": "answered",
+                "package": "answered",
+                "lifecycleOrigin": "answered",
+                "listing": "marketplace"
+              },
+              "credentialSelection": "best_lane_then_lane_order_then_credential_id",
+              "rank": 1,
+              "ordering": {
+                "criteria": [
+                  {
+                    "field": "matchScore",
+                    "direction": "desc"
+                  },
+                  {
+                    "field": "issuedAt",
+                    "direction": "desc"
+                  },
+                  {
+                    "field": "agentLearnerKey",
+                    "direction": "asc"
+                  }
+                ],
+                "comparedWith": "hero-near-match-b-dev",
+                "decisiveCriterion": "issuedAt",
+                "tiedCriteria": [
+                  "matchScore"
+                ]
+              }
+            },
+            {
+              "agentLearnerKey": "hero-near-match-b-dev",
+              "credentialId": "270c9b57-8fb3-4421-8bc2-a6dd40387db0",
+              "eligible": true,
+              "lane": "Eligible Matches",
+              "components": {
+                "totalPerformance": {
+                  "weight": 35,
+                  "actual": 94.4,
+                  "denominator": 100,
+                  "points": 33.04
+                },
+                "adversarialPerformance": {
+                  "weight": 35,
+                  "actual": 86,
+                  "denominator": 100,
+                  "points": 30.1
+                },
+                "preferredCoverage": {
+                  "weight": 20,
+                  "coveredObjectiveIds": [],
+                  "requestedObjectiveIds": [],
+                  "points": 20
+                },
+                "credentialRecency": {
+                  "weight": 10,
+                  "ageDays": 0.00006914351851851851,
+                  "maximumAgeDays": 365,
+                  "points": 9.999998105657026
+                }
+              },
+              "unroundedTotal": 93.13999810565703,
+              "matchScore": 93.14,
+              "gaps": [],
+              "gapCount": 0,
+              "normalizedShortfall": 0,
+              "shortfallComponents": {
+                "objectives": 0,
+                "overall": 0,
+                "adversarial": 0,
+                "age": 0,
+                "mode": 0
+              },
+              "shortfallDivisor": 5,
+              "issuedAt": "2026-11-09T07:58:56.862Z",
+              "satisfiedRequirements": [
+                "lifecycle_origin",
+                "discoverable",
+                "signature",
+                "schema",
+                "status",
+                "expiry",
+                "fingerprint",
+                "environment",
+                "domain",
+                "objectives",
+                "score_overall",
+                "score_adversarial",
+                "age",
+                "mode"
+              ],
+              "checks": [
+                {
+                  "gate": "lifecycle_origin",
+                  "tag": "trust",
+                  "passed": true
+                },
+                {
+                  "gate": "discoverable",
+                  "tag": "trust",
+                  "passed": true
+                },
+                {
+                  "gate": "signature",
+                  "tag": "trust",
+                  "passed": true
+                },
+                {
+                  "gate": "schema",
+                  "tag": "trust",
+                  "passed": true
+                },
+                {
+                  "gate": "status",
+                  "tag": "trust",
+                  "passed": true
+                },
+                {
+                  "gate": "expiry",
+                  "tag": "trust",
+                  "passed": true
+                },
+                {
+                  "gate": "fingerprint",
+                  "tag": "trust",
+                  "passed": true
+                },
+                {
+                  "gate": "environment",
+                  "tag": "trust",
+                  "passed": true
+                },
+                {
+                  "gate": "domain",
+                  "tag": "trust",
+                  "passed": true
+                },
+                {
+                  "gate": "objectives",
+                  "tag": "request",
+                  "passed": true
+                },
+                {
+                  "gate": "score_overall",
+                  "tag": "request",
+                  "passed": true
+                },
+                {
+                  "gate": "score_adversarial",
+                  "tag": "request",
+                  "passed": true
+                },
+                {
+                  "gate": "age",
+                  "tag": "request",
+                  "passed": true
+                },
+                {
+                  "gate": "mode",
+                  "tag": "request",
+                  "passed": true
+                },
+                {
+                  "gate": "identity",
+                  "tag": "trust",
+                  "passed": true
+                },
+                {
+                  "gate": "evidence_mode",
+                  "tag": "trust",
+                  "passed": true
+                }
+              ],
+              "evidence": {
+                "checkedAt": "2026-11-09T07:59:02.836Z",
+                "credentialStatus": "active",
+                "configurationFingerprint": "sha256:9f88673f79c485e509396e465140de88c368b84ab964243704e51b1876081e51",
+                "assessmentMode": "standard",
+                "evidenceMode": "synthetic",
+                "environment": "simulation",
+                "package": {
+                  "id": "ai-safety-demo-c42a0289",
+                  "version": "0.1.5-draft",
+                  "digest": "39efb595c0665c33cab1607fda7ad2d67eda87bab37d2ac7190be4f571adc81b"
+                }
+              },
+              "sources": {
+                "verification": "answered",
+                "registry": "answered",
+                "package": "answered",
+                "lifecycleOrigin": "answered",
+                "listing": "marketplace"
+              },
+              "credentialSelection": "best_lane_then_lane_order_then_credential_id",
+              "rank": 2,
+              "ordering": {
+                "criteria": [
+                  {
+                    "field": "matchScore",
+                    "direction": "desc"
+                  },
+                  {
+                    "field": "issuedAt",
+                    "direction": "desc"
+                  },
+                  {
+                    "field": "agentLearnerKey",
+                    "direction": "asc"
+                  }
+                ],
+                "comparedWith": "hero-near-match-a-dev",
+                "decisiveCriterion": "issuedAt",
+                "tiedCriteria": [
+                  "matchScore"
+                ]
+              }
+            },
+            {
+              "agentLearnerKey": "hero-near-match-a-dev",
+              "credentialId": "6a259bac-62ed-4829-a77d-7cdc1a25fb3a",
+              "eligible": true,
+              "lane": "Eligible Matches",
+              "components": {
+                "totalPerformance": {
+                  "weight": 35,
+                  "actual": 94.4,
+                  "denominator": 100,
+                  "points": 33.04
+                },
+                "adversarialPerformance": {
+                  "weight": 35,
+                  "actual": 86,
+                  "denominator": 100,
+                  "points": 30.1
+                },
+                "preferredCoverage": {
+                  "weight": 20,
+                  "coveredObjectiveIds": [],
+                  "requestedObjectiveIds": [],
+                  "points": 20
+                },
+                "credentialRecency": {
+                  "weight": 10,
+                  "ageDays": 0.00012704861111111112,
+                  "maximumAgeDays": 365,
+                  "points": 9.999996519216134
+                }
+              },
+              "unroundedTotal": 93.13999651921614,
+              "matchScore": 93.14,
+              "gaps": [],
+              "gapCount": 0,
+              "normalizedShortfall": 0,
+              "shortfallComponents": {
+                "objectives": 0,
+                "overall": 0,
+                "adversarial": 0,
+                "age": 0,
+                "mode": 0
+              },
+              "shortfallDivisor": 5,
+              "issuedAt": "2026-11-09T07:58:51.859Z",
+              "satisfiedRequirements": [
+                "lifecycle_origin",
+                "discoverable",
+                "signature",
+                "schema",
+                "status",
+                "expiry",
+                "fingerprint",
+                "environment",
+                "domain",
+                "objectives",
+                "score_overall",
+                "score_adversarial",
+                "age",
+                "mode"
+              ],
+              "checks": [
+                {
+                  "gate": "lifecycle_origin",
+                  "tag": "trust",
+                  "passed": true
+                },
+                {
+                  "gate": "discoverable",
+                  "tag": "trust",
+                  "passed": true
+                },
+                {
+                  "gate": "signature",
+                  "tag": "trust",
+                  "passed": true
+                },
+                {
+                  "gate": "schema",
+                  "tag": "trust",
+                  "passed": true
+                },
+                {
+                  "gate": "status",
+                  "tag": "trust",
+                  "passed": true
+                },
+                {
+                  "gate": "expiry",
+                  "tag": "trust",
+                  "passed": true
+                },
+                {
+                  "gate": "fingerprint",
+                  "tag": "trust",
+                  "passed": true
+                },
+                {
+                  "gate": "environment",
+                  "tag": "trust",
+                  "passed": true
+                },
+                {
+                  "gate": "domain",
+                  "tag": "trust",
+                  "passed": true
+                },
+                {
+                  "gate": "objectives",
+                  "tag": "request",
+                  "passed": true
+                },
+                {
+                  "gate": "score_overall",
+                  "tag": "request",
+                  "passed": true
+                },
+                {
+                  "gate": "score_adversarial",
+                  "tag": "request",
+                  "passed": true
+                },
+                {
+                  "gate": "age",
+                  "tag": "request",
+                  "passed": true
+                },
+                {
+                  "gate": "mode",
+                  "tag": "request",
+                  "passed": true
+                },
+                {
+                  "gate": "identity",
+                  "tag": "trust",
+                  "passed": true
+                },
+                {
+                  "gate": "evidence_mode",
+                  "tag": "trust",
+                  "passed": true
+                }
+              ],
+              "evidence": {
+                "checkedAt": "2026-11-09T07:59:02.836Z",
+                "credentialStatus": "active",
+                "configurationFingerprint": "sha256:9f88673f79c485e509396e465140de88c368b84ab964243704e51b1876081e51",
+                "assessmentMode": "standard",
+                "evidenceMode": "synthetic",
+                "environment": "simulation",
+                "package": {
+                  "id": "ai-safety-demo-c42a0289",
+                  "version": "0.1.5-draft",
+                  "digest": "39efb595c0665c33cab1607fda7ad2d67eda87bab37d2ac7190be4f571adc81b"
+                }
+              },
+              "sources": {
+                "verification": "answered",
+                "registry": "answered",
+                "package": "answered",
+                "lifecycleOrigin": "answered",
+                "listing": "marketplace"
+              },
+              "credentialSelection": "best_lane_then_lane_order_then_credential_id",
+              "rank": 3,
+              "ordering": {
+                "criteria": [
+                  {
+                    "field": "matchScore",
+                    "direction": "desc"
+                  },
+                  {
+                    "field": "issuedAt",
+                    "direction": "desc"
+                  },
+                  {
+                    "field": "agentLearnerKey",
+                    "direction": "asc"
+                  }
+                ],
+                "comparedWith": null,
+                "decisiveCriterion": "only_or_last_candidate",
+                "tiedCriteria": []
+              }
+            }
+          ],
+          "nearMatches": [],
+          "nearMatchLane": "Not Eligible",
+          "totalEligible": 3,
+          "totalNearMatches": 0,
+          "exclusions": [
+            {
+              "agentLearnerKey": "synthetic-agent-learner-dev",
+              "credentialId": "7c94e1f0-8be6-4fe7-9f1f-c682bcfed0b0",
+              "reasons": [
+                {
+                  "code": "ENVIRONMENT_UNCHECKABLE",
+                  "gate": "environment",
+                  "tag": "trust"
+                },
+                {
+                  "code": "EVIDENCE_MODE_UNCHECKABLE",
+                  "gate": "evidence_mode",
+                  "tag": "trust"
+                }
+              ]
+            },
+            {
+              "agentLearnerKey": "synthetic-agent-learner-dev",
+              "credentialId": "a0dee8bd-3452-4641-99f5-b90b140f7e68",
+              "reasons": [
+                {
+                  "code": "ENVIRONMENT_UNCHECKABLE",
+                  "gate": "environment",
+                  "tag": "trust"
+                },
+                {
+                  "code": "EVIDENCE_MODE_UNCHECKABLE",
+                  "gate": "evidence_mode",
+                  "tag": "trust"
+                }
+              ]
+            },
+            {
+              "agentLearnerKey": "synthetic-executor-dev",
+              "credentialId": "4507e826-d6c8-4066-a6ad-c748767ca564",
+              "reasons": [
+                {
+                  "code": "FINGERPRINT_MISMATCH",
+                  "gate": "fingerprint",
+                  "tag": "trust"
+                }
+              ]
+            },
+            {
+              "agentLearnerKey": "synthetic-executor-dev",
+              "credentialId": "cc40212d-17f9-48a8-ad60-494e2b35b26e",
+              "reasons": [
+                {
+                  "code": "FINGERPRINT_MISMATCH",
+                  "gate": "fingerprint",
+                  "tag": "trust"
+                }
+              ]
+            }
+          ],
+          "exclusionCounts": {
+            "ENVIRONMENT_UNCHECKABLE": 2,
+            "EVIDENCE_MODE_UNCHECKABLE": 2,
+            "FINGERPRINT_MISMATCH": 2
+          },
+          "outcome": "MATCHED",
+          "resultId": "521fe21d-791f-42b5-85b3-8fb8893bdd24",
+          "requestId": "f5906296-9447-4e97-9700-8c8a4fd65892",
+          "requestVersion": 1,
+          "requestDigest": "sha256:60dce844784fa5e798a99ea0fa8faa166565af169932ef9b1c1d6b7b6dd69c72",
+          "actor": "capstone-admin-dev",
+          "generatedAt": "2026-11-09T07:59:02.836Z",
+          "correlationId": "acd14b37-b818-4990-8848-407e2d576c70",
+          "idempotencyKey": "607ba7d6-8a18-4cdf-a894-f52034c8c6d1",
+          "marketplace": "simulation",
+          "notice": "Immutable point-in-time, non-binding recommendation. Recheck current trust before any later action."
+        },
+        "oldSignedBytesUnchanged": true
+      }
+    },
+    "checks": [
+      {
+        "name": "Changed fingerprint excludes old credential, fresh configuration requires and receives its own certification",
+        "passed": true
+      }
+    ],
+    "incident": {
+      "category": "integrity-configuration",
+      "severity": "medium",
+      "affectedIds": {
+        "runId": "eduagentx-evidence-20261109t075650z-35376"
+      },
+      "cause": "Configuration fingerprint no longer matches the certified one",
+      "detection": "Fingerprint check during verification and matching",
+      "safeState": "Quarantined",
+      "retryFallbackActions": "Register the new configuration version. It gets a new fingerprint and is trained and examined again as the package requires.",
+      "recoveryOutcome": "observed recovery",
+      "detectedAt": "2026-11-09T07:58:57.579Z",
+      "recoveredAt": "2026-11-09T07:59:02.863Z"
+    },
+    "outcome": "passed",
+    "noSecretsIncluded": true,
+    "digest": "77d9af4fdb74757c0a8cf07111fa9c934b04ecb19b26cf6d0c1c89ec38490102"
+  }
+}
