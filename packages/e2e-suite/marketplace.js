@@ -1,6 +1,7 @@
 'use strict';
 const { digest, command, identity } = require('./identity');
 const { laneDuplicates } = require('./invariants');
+const { poll } = require('./client');
 // Declarative golden families. Named fixtures refer to REAL lifecycle setup,
 // never rows to insert or credentials to sign in the harness.
 const ALLOCATION = { eligible: 20, gaps: 20, trust: 20, ranking: 15, history: 15, limits: 10 };
@@ -99,7 +100,8 @@ function assessGolden(spec, result, { expectedEligible, expectedNear, expectedEx
   return { status: 'CONFORMANT', reason: null };
 }
 
-async function observeMarketplace({ scenario, agent, admin, pkg, actor, cohort = [], now = Date.now, replayConcurrency = 1 }) {
+async function observeMarketplace({ scenario, agent, admin, pkg, actor, cohort = [], now = Date.now, wait,
+  projectionWaitMs = 60000, replayConcurrency = 1 }) {
   if (!Number.isInteger(replayConcurrency) || replayConcurrency < 1 || replayConcurrency > 8) throw new Error('bounded_replay_required');
   const c = command(scenario.id, 'market-match'), root = '/v1/marketplace';
   const publish = await agent.interact(scenario, 'publish', 'marketplace.listing.publish');
@@ -114,6 +116,13 @@ async function observeMarketplace({ scenario, agent, admin, pkg, actor, cohort =
     const requestId = made.body.request.id;
     const opened = await admin.call('POST', `${root}/capability-requests/${requestId}/open`, { version: 1 }, c.correlationId);
     if (opened.status !== 200) return { status: 'BLOCKED', reason: 'request_open_unavailable' };
+    // Publication is asynchronous. A match command is an immutable snapshot:
+    // never spend its stable idempotency key on a not-yet-projected cohort.
+    let probe = 0;
+    await poll(() => admin.call('POST', `${root}/capability-requests/${requestId}/eligibility-checks`, {
+      idempotencyKey: command(scenario.id, `market-projection:${probe++}`).idempotencyKey }, c.correlationId),
+    r => [200, 201].includes(r.status) && [...(r.body?.eligible || []), ...(r.body?.excluded || [])]
+      .some(a => a.agentLearnerKey === scenario.learnerId), { deadline: now() + projectionWaitMs, now, wait });
     const started = now();
     const matched = await admin.call('POST', `${root}/capability-requests/${requestId}/matches`, { idempotencyKey: c.idempotencyKey }, c.correlationId);
     const matchingDurationMs = now() - started;
@@ -124,6 +133,9 @@ async function observeMarketplace({ scenario, agent, admin, pkg, actor, cohort =
       admin.call('POST', `${root}/capability-requests/${requestId}/matches`, { idempotencyKey: c.idempotencyKey }, c.correlationId)));
     const inventory = await admin.call('GET', `/v1/admin/reconciliation/matches?${new URLSearchParams({ actor, idempotencyKey: c.idempotencyKey })}`, undefined, c.correlationId);
     const self = [...result.eligibleMatches, ...result.nearMatches, ...result.exclusions].some(a => a.agentLearnerKey === scenario.learnerId);
+    const selfEligible = result.eligibleMatches.find(a => a.agentLearnerKey === scenario.learnerId);
+    const selfNear = result.nearMatches.find(a => a.agentLearnerKey === scenario.learnerId);
+    const selfExcluded = result.exclusions.find(a => a.agentLearnerKey === scenario.learnerId);
     // Pilot runs serially after all lifecycles. Only this learner publishes;
     // every earlier pilot listing is withdrawn in finally below. The expected
     // membership is declared from the successful lifecycle cohort, not derived
@@ -141,7 +153,15 @@ async function observeMarketplace({ scenario, agent, admin, pkg, actor, cohort =
       observedCandidates: result.totalEligible + result.totalNearMatches + result.exclusions.length,
       matchCount: inventory.status === 200 ? inventory.body.count : null,
       laneDuplicates: inventory.status === 200 ? laneDuplicates(inventory.body.appearances) : null,
-      replayEqual: replay.status === 200 && digest(replay.body.matchResult) === digest(result) };
+      replayEqual: replay.status === 200 && digest(replay.body.matchResult) === digest(result),
+      selfLane: selfEligible ? 'Eligible' : selfNear ? 'Near Match' : selfExcluded ? 'neither' : null,
+      policyVersion: result.policyVersion, environment: selfEligible?.evidence?.environment,
+      evidenceMode: selfEligible?.evidence?.evidenceMode,
+      selfReasonCount: selfEligible ? 0 : (selfNear?.gaps || selfExcluded?.reasons)?.length,
+      allTrustChecksPassed: selfEligible ? TRUST_CHECKS.every(gate => selfEligible.checks
+        .filter(k => k.tag === 'trust' && k.gate === gate && k.passed === true).length === 1) : null,
+      explanationDigest: selfEligible ? digest({ checks: selfEligible.checks, components: selfEligible.components,
+        ordering: selfEligible.ordering, evidence: selfEligible.evidence, sources: selfEligible.sources }) : null };
   } finally {
     const withdrawal = await agent.interact(scenario, 'withdraw-after-observation', 'marketplace.listing.withdraw');
     if (![200, 201].includes(withdrawal.status)) throw new Error('listing_cleanup_unavailable');

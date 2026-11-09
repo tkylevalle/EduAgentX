@@ -4,11 +4,10 @@ const path = require('node:path');
 const { createHash } = require('node:crypto');
 const { manifest, manifestHash } = require('./manifest');
 const { digest } = require('./identity');
-const { golden, goldenHash } = require('./marketplace');
+const { golden, goldenHash } = require('./golden-v2');
 const { summarizeInvariants, safety } = require('./invariants');
 const STATUSES = ['CONFORMANT', 'MISMATCH', 'BLOCKED', 'UNMEASURED', 'HARNESS_ERROR'];
 const BLOCKERS = Object.freeze([
-  'marketplace_lifecycle_origin_unavailable', 'signed_environment_evidence_labels_missing',
   'marketplace_high_fanout_unmeasured', 'skill_gap_superseded_deprecated_policy', 'separate_grading_kpi_red',
 ]);
 const safeText = v => typeof v === 'string' && /^[\x20-\x7e]{1,256}$/.test(v) &&
@@ -25,7 +24,17 @@ function safeScenario(r) {
       .filter(k => m[k] !== undefined).map(k => [k, safeText(m[k])]))),
     observed: { status: safeCode(r.observed?.status), criticalRuleIds: Array.isArray(r.observed?.criticalRuleIds) ? r.observed.criticalRuleIds.map(safeCode) : null,
       safetyDetected: typeof r.observed?.safetyDetected === 'boolean' ? r.observed.safetyDetected : null,
-      credentialCount: number(r.observed?.credentialCount) },
+      credentialCount: number(r.observed?.credentialCount),
+      ...Object.fromEntries(['registrationStatus', 'trainingStatus', 'terminalReason', 'reexaminationStatus',
+        'certificationDecision', 'credentialVerified'].map(k => [k, safeCode(r.observed?.[k])])),
+      failureReasons: (r.observed?.failureReasons || []).map(safeCode),
+      configurationVersion: number(r.observed?.configurationVersion), originalCredentialCount: number(r.observed?.originalCredentialCount),
+      remediationRequired: typeof r.observed?.remediationRequired === 'boolean' ? r.observed.remediationRequired : null,
+      authoritativeExecution: r.observed?.authoritativeExecution === true },
+    oracle: r.oracle ? { version: safeText(r.oracle.version), status: safeCode(r.oracle.status), expectedHash: safeCode(r.oracle.expectedHash),
+      missing: (r.oracle.missing || []).map(safeCode), mismatches: (r.oracle.mismatches || []).map(safeCode) } : null,
+    reconciliation: r.reconciliation ? { status: safeCode(r.reconciliation.status), measuredAt: safeText(r.reconciliation.measuredAt),
+      commands: number(r.reconciliation.commands) } : null,
     duplicates: Object.fromEntries(['examinations', 'credentials', 'matches', 'laneAppearances'].map(k => [k, number(r.duplicates?.[k])])),
     marketplace: r.marketplace ? safeMarket(r.marketplace) : null,
   };
@@ -36,6 +45,9 @@ function safeMarket(m) {
     durationMs: number(m.durationMs), observedCandidates: number(m.observedCandidates),
     observationDurationMs: number(m.observationDurationMs),
     blockedCodes: (m.blockedCodes || []).map(safeCode), matchCount: number(m.matchCount), laneDuplicates: number(m.laneDuplicates),
+    selfLane: safeText(m.selfLane), policyVersion: safeCode(m.policyVersion), environment: safeCode(m.environment), evidenceMode: safeCode(m.evidenceMode),
+    selfReasonCount: number(m.selfReasonCount), allTrustChecksPassed: typeof m.allTrustChecksPassed === 'boolean' ? m.allTrustChecksPassed : null,
+    explanationDigest: safeCode(m.explanationDigest),
     replayEqual: typeof m.replayEqual === 'boolean' ? m.replayEqual : null };
 }
 function latencyStats(values) {
@@ -61,7 +73,8 @@ function validateAccounting(selected, results, mode) {
   }
 }
 function buildReport({ mode, selected, results = [], environment = {}, source = {}, startedAt, finishedAt = new Date().toISOString(),
-  latencies = [], blockers = [], notRun = [], runErrors = [], reproduction = 'python3 scripts/run-sprint5.py --mode developer' }) {
+  latencies = [], blockers = [], notRun = [], runErrors = [], goldenEvidence,
+  reproduction = 'python3 scripts/run-sprint5.py --mode developer' }) {
   validateAccounting(selected, results, mode);
   const safe = results.map(safeScenario), counts = Object.fromEntries(STATUSES.map(s => [s, safe.filter(r => r.status === s).length]));
   counts.UNMEASURED += selected.length - safe.length;
@@ -79,14 +92,16 @@ function buildReport({ mode, selected, results = [], environment = {}, source = 
       (s.expected.marketplace === 'not_applicable' || (countMeasured(d.matches) && countMeasured(d.laneAppearances)));
   });
   const safetyMeasurementsComplete = safetyCases.every(s => s.measured);
+  const finalReconciliationComplete = selected.every(s => byId.get(s.id)?.reconciliation?.status === 'CONFORMANT');
   const marketplace = safe.map(r => r.marketplace).filter(Boolean);
-  const marketLatency = latencyStats(marketplace.map(m => m.durationMs));
+  const externalGoldenComplete = require('./golden-evidence').complete(goldenEvidence, source) === true;
+  const marketLatency = externalGoldenComplete ? latencyStats(goldenEvidence.results.map(m => m.durationMs)) : latencyStats(marketplace.map(m => m.durationMs));
   const declaredCases = new Set(golden.cases.map(c => c.id));
-  const marketComplete = new Set(marketplace.filter(m => m.status === 'CONFORMANT' && declaredCases.has(m.caseId)).map(m => m.caseId)).size >= 100 &&
+  const marketComplete = externalGoldenComplete || (new Set(marketplace.filter(m => m.status === 'CONFORMANT' && declaredCases.has(m.caseId)).map(m => m.caseId)).size >= 100 &&
     new Set(marketplace.map(m => m.requestId).filter(Boolean)).size >= 100 &&
     marketplace.length >= 100 && marketplace.every(m => m.status === 'CONFORMANT' && m.requestId && m.resultId && m.idempotencyKey &&
       m.observedCandidates >= 1000 && m.matchCount === 1 && m.laneDuplicates === 0 && m.replayEqual === true) &&
-    marketLatency.p95Ms !== null && marketLatency.p95Ms <= 30000;
+    marketLatency.p95Ms !== null && marketLatency.p95Ms <= 30000);
   const sha256 = value => typeof value === 'string' && /^sha256:[0-9a-f]{64}$/.test(value);
   const provenanceComplete = /^[0-9a-f]{40}$/.test(source.gitSha || '') && typeof source.dirty === 'boolean' && sha256(source.fingerprint) &&
     sha256(environment.configHash) && sha256(environment.imageHash) && safeText(environment.project) && safeText(environment.node) &&
@@ -94,7 +109,7 @@ function buildReport({ mode, selected, results = [], environment = {}, source = 
     Date.parse(finishedAt) >= Date.parse(startedAt) && Number.isInteger(environment.responseDeadlineMinutes) && environment.responseDeadlineMinutes > 0;
   const complete = mode === 'formal' && environment.seam === 'public_compose' && selected.length === 1000 && safe.length === 1000 && counts.UNMEASURED === 0 &&
     counts.BLOCKED === 0 && counts.HARNESS_ERROR === 0 && invariants.complete && marketComplete && duplicateMeasurementsComplete &&
-    safetyMeasurementsComplete && provenanceComplete && environment.responseDeadlineMinutes === 60 &&
+    safetyMeasurementsComplete && finalReconciliationComplete && provenanceComplete && environment.responseDeadlineMinutes === 60 &&
     notRun.length === 0 && blockers.length === 0 && runErrors.length === 0;
   const rate = mode === 'formal' && safe.length === 1000 ? counts.CONFORMANT / 1000 : null;
   const falsePasses = safetyCases.filter(s => s.falsePass).length;
@@ -113,23 +128,28 @@ function buildReport({ mode, selected, results = [], environment = {}, source = 
     dataset: { version: manifest.version, seed: manifest.seed, hash: manifestHash, formalPlanned: 1000, selected: selected.length,
       profileDistribution, formalProfileDistribution: Object.fromEntries(Object.keys(manifest.categories).map(c => [c, 200])) },
     startedAt, finishedAt, executed: safe.length, counts, observedExactRate: selected.length ? counts.CONFORMANT / selected.length : null,
+    selectedSampleThresholds: { scope: mode === 'formal' ? 'formal' : 'NON_FORMAL_SELECTED_SAMPLE',
+      floor90: selected.length && counts.CONFORMANT / selected.length >= .9 ? 'MET' : 'MISSED',
+      target95: selected.length && counts.CONFORMANT / selected.length >= .95 ? 'MET' : 'MISSED' },
     lifecycleConformant: safe.filter(r => r.lifecycleStatus === 'CONFORMANT').length,
     formalExactOutcomeRate: rate, acceptanceFloor: { threshold: .9, result: rate === null ? 'NOT_RUN' : rate >= .9 ? 'MET' : 'MISSED' },
     target95: { threshold: .95, result: rate === null ? 'NOT_RUN' : rate >= .95 ? 'MET' : 'MISSED' },
     requiredMeasurementsComplete: complete, measurementCompleteness: { duplicates: duplicateMeasurementsComplete,
-      mandatorySafety: safetyMeasurementsComplete, provenance: Boolean(provenanceComplete) }, invariants, duplicates,
+      finalReconciliation: finalReconciliationComplete, mandatorySafety: safetyMeasurementsComplete, provenance: Boolean(provenanceComplete) }, invariants, duplicates,
     mandatorySafetyCases: safetyCases.length, mandatorySafetyMeasured: safetyCases.filter(s => s.measured).length,
     mandatorySafetyFalsePasses: falsePasses,
-    marketplace: { datasetHash: goldenHash, plannedCases: 100, minimumAgents: 1000, minimumRequests: 100,
+    marketplace: { datasetHash: externalGoldenComplete ? goldenEvidence.datasetHash : goldenHash, plannedCases: 100, minimumAgents: 1000, minimumRequests: 100,
+      externalGolden: { complete: externalGoldenComplete, datasetHash: externalGoldenComplete ? goldenEvidence.datasetHash : null,
+        cases: externalGoldenComplete ? goldenEvidence.executedCases : 0, agents: externalGoldenComplete ? goldenEvidence.measuredAgents : 0 },
       observations: marketplace.length, conformant: marketplace.filter(m => m.status === 'CONFORMANT').length,
       blocked: marketplace.filter(m => m.status === 'BLOCKED').length,
-      declaredCasesObserved: new Set(marketplace.filter(m => declaredCases.has(m.caseId)).map(m => m.caseId)).size,
+      declaredCasesObserved: externalGoldenComplete ? 100 : new Set(marketplace.filter(m => declaredCases.has(m.caseId)).map(m => m.caseId)).size,
       declaredCasesBlocked: new Set(marketplace.filter(m => declaredCases.has(m.caseId) && m.status === 'BLOCKED').map(m => m.caseId)).size,
-      unmeasuredGoldenCases: 100 - new Set(marketplace.filter(m => declaredCases.has(m.caseId)).map(m => m.caseId)).size,
+      unmeasuredGoldenCases: externalGoldenComplete ? 0 : 100 - new Set(marketplace.filter(m => declaredCases.has(m.caseId)).map(m => m.caseId)).size,
       requiredGatesComplete: marketComplete, latency: marketLatency, latencyScope: 'fresh_match_command_including_client_pacing_excluding_replay', floorMs: 30000, targetMs: 10000 },
     latency: { ...latencyStats(latencies.map(l => l.durationMs)), scope: 'all_public_calls_including_client_authentication_pacing_and_retries' }, failuresByReason: reasons,
     runErrors: runErrors.map(e => ({ status: STATUSES.includes(e.status) ? e.status : 'HARNESS_ERROR', reason: safeCode(e.reason) })),
-    notRun: notRun.map(safeCode), knownLimitations: [...BLOCKERS], knownBlockers: [...new Set(blockers.map(safeCode))],
+    notRun: notRun.map(safeCode), knownLimitations: BLOCKERS.filter(b => !externalGoldenComplete || b !== 'marketplace_high_fanout_unmeasured'), knownBlockers: [...new Set(blockers.map(safeCode))],
     technicalChecks: technical, formalAcceptance: mode !== 'formal' ? 'NOT_RUN' : technical,
     releaseGate: 'NOT_EVALUATED', reproduction, results: safe };
 }

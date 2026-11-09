@@ -116,18 +116,29 @@ async function execute({ kind, env = process.env, directory = env.E2E_OUTPUT_DIR
   let details = {}, status = 'PASS', reason = null;
   try {
     const pkg = await setupPackage({ admin, reviewers: [1, 2].map(i => make(env[`REVIEWER_${i}_CLIENT_ID`], env[`REVIEWER_${i}_CLIENT_SECRET`])) });
-    const orchestrator = createOrchestrator({ admin, actor: env.ADMIN_CLIENT_ID, pkg, stressConcurrency: kind === 'stress' ? 8 : 1 });
+    const orchestrator = createOrchestrator({ admin, actor: env.ADMIN_CLIENT_ID, pkg, stressConcurrency: kind === 'stress' ? 8 : 1, authoritativeExecution: true });
     if (kind === 'faults') details = await faultScenarios({ orchestrator, admin, clientFor, env, checks, mappings });
-    else for (const s of [manifest.scenarios[0], ...(kind === 'stress' ? [manifest.scenarios.find(s => s.category === 'remediable')] : [])]) {
-      const ctx = await orchestrator.prepare(s, clientFor(s));
-      if (!ctx.result.finishedAt && kind === 'default-duration') assert(checks, 'default_sixty_minute_admission',
-        Date.parse(ctx.current.attempt.deadlineAt) - Date.parse(ctx.current.attempt.startedAt) === 3600000);
-      await orchestrator.observe(ctx);
-      assert(checks, `${s.category}_core_lifecycle`, ctx.result.lifecycleStatus === 'CONFORMANT');
-      await orchestrator.market(ctx, [s.learnerId]);
-      assert(checks, `${s.category}_no_observed_duplicates`, Object.values(ctx.result.duplicates).every(n => n === 0));
-      assert(checks, `${s.category}_no_failed_invariant`, !ctx.result.checks.some(c => c.passed === false));
-      results.push(safeScenario(ctx.result));
+    else {
+      const cohort = [], contexts = [];
+      for (const s of [manifest.scenarios[0], ...(kind === 'stress' ? [manifest.scenarios.find(s => s.category === 'remediable')] : [])]) {
+        const ctx = await orchestrator.prepare(s, clientFor(s));
+        if (ctx.result.finishedAt) { results.push(safeScenario(ctx.result)); throw new SuiteError(ctx.result.status, ctx.result.reason); }
+        if (!ctx.result.finishedAt && kind === 'default-duration') assert(checks, 'default_sixty_minute_admission',
+          Date.parse(ctx.current.attempt.deadlineAt) - Date.parse(ctx.current.attempt.startedAt) === 3600000);
+        contexts.push(ctx);
+        await orchestrator.observe(ctx);
+        assert(checks, `${s.category}_core_lifecycle`, ctx.result.lifecycleStatus === 'CONFORMANT');
+        // Earlier passing credentials remain projected after listing withdrawal.
+        // They are expected exclusions in the next learner's point-in-time view.
+        cohort.push(s.learnerId);
+        await orchestrator.market(ctx, cohort);
+        results.push(safeScenario(ctx.result));
+        assert(checks, `${s.category}_no_observed_duplicates`, Object.values(ctx.result.duplicates).every(n => n === 0));
+        assert(checks, `${s.category}_no_failed_invariant`, !ctx.result.checks.some(c => c.passed === false));
+      }
+      for (const ctx of contexts) await orchestrator.reconcile(ctx);
+      assert(checks, 'final_inventory_reconciled', contexts.every(ctx => ctx.result.reconciliation?.status === 'CONFORMANT'));
+      results.splice(0, results.length, ...contexts.map(ctx => safeScenario(ctx.result)));
     }
   } catch (error) { status = error instanceof SuiteError && error.status === 'BLOCKED' ? 'BLOCKED' : 'FAIL'; reason = error instanceof SuiteError ? error.reason : 'phase2_execution_error'; }
   if (sourceIdentity().fingerprint !== source.fingerprint) { status = 'FAIL'; reason = 'source_changed_during_run'; }

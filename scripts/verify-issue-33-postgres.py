@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Supporting PostgreSQL checks in four NEW disposable databases; not black-box evidence."""
+"""Supporting PostgreSQL checks in five NEW disposable databases; not black-box evidence."""
 import json
 import os
 from pathlib import Path
@@ -47,13 +47,15 @@ def main():
             ('certification-service', 'CERTIFICATION_TEST_DATABASE_URL', 'certification_engine'),
             ('marketplace-service', 'MARKETPLACE_TEST_DATABASE_URL', 'marketplace_service'),
             ('skill-gap-service', 'SKILL_GAP_TEST_DATABASE_URL', None),
+            ('training-service', 'TRAINING_TEST_DATABASE_URL', 'training_service'),
         ]:
             database = 'issue33_' + service.replace('-', '_')
             call(['docker', 'exec', name, 'psql', '-U', 'postgres', '-v', 'ON_ERROR_STOP=1', '-c', f'CREATE DATABASE {database}'])
             if schema:
                 call(['docker', 'exec', name, 'psql', '-U', 'postgres', '-d', database, '-v', 'ON_ERROR_STOP=1', '-c', f'CREATE SCHEMA {schema}'])
             env[variable] = f'postgres://postgres:{password}@127.0.0.1:{port}/{database}'
-            result = call(['node', '--test', '--test-reporter=tap', f'services/{service}/integration/postgres.test.js'], check=False, timeout=180)
+            files = [f'services/{service}/integration/' + ('provenance-postgres.test.js' if service == 'training-service' else 'postgres.test.js')]
+            result = call(['node', '--test', '--test-reporter=tap', *files], check=False, timeout=180)
             text = result.stdout + '\n' + result.stderr
 
             def count(key):
@@ -76,7 +78,7 @@ def main():
               'scope': 'Real PostgreSQL store/route checks; fixture authorities are not formal acceptance.',
               'sourceGitSha': call(['git', 'rev-parse', 'HEAD']).stdout.strip(), 'checks': checks, 'cleanup': cleanup,
               'status': 'FAIL' if not cleanup or any(c['status'] == 'FAIL' for c in checks) else
-                        'PASS' if len(checks) == 4 and all(c['status'] == 'PASS' for c in checks) else 'BLOCKED'}
+                        'PASS' if len(checks) == 5 and all(c['status'] == 'PASS' for c in checks) else 'BLOCKED'}
     (out / 'report.json').write_text(json.dumps(report, indent=2) + '\n')
     print(f'PostgreSQL verification: {report["status"]}; {out}')
     return 0 if report['status'] == 'PASS' else 1 if report['status'] == 'FAIL' else 2

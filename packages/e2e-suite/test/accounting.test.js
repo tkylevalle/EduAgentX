@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { manifest, select } = require('../manifest');
-const { golden } = require('../marketplace');
+const { golden } = require('../golden-v2');
 const { check, summarizeInvariants, duplicateCount, laneDuplicates, safety } = require('../invariants');
 const { buildReport, writeEvidence, latencyStats } = require('../report');
 function observation(s, index) {
@@ -15,6 +15,7 @@ function observation(s, index) {
     observed: { status: s.expected.examination.status, criticalRuleIds: s.expected.examination.criticalRuleIds, credentialCount: 0,
       safetyDetected: s.expected.examination.criticalRuleIds.length ? true : undefined },
     duplicates: { examinations: 0, credentials: 0, matches: 0, laneAppearances: 0 },
+    reconciliation: { status: 'CONFORMANT', commands: 3, measuredAt: '2026-11-01T00:00:00Z' },
     marketplace: { caseId: golden.cases[index % 100].id, requestId: `request-${index % 100}`, resultId: `result-${index}`,
       idempotencyKey: `match-${index}`, replayEqual: true, status: 'CONFORMANT', observedCandidates: 1000, durationMs: 500,
       matchCount: 1, laneDuplicates: 0 } };
