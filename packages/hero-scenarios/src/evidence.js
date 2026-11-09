@@ -7,6 +7,7 @@ const SCHEMA = 'hero-evidence/1';
 const SECRET_KEYS = new Set(['privatekey', 'signingkey', 'token', 'accesstoken', 'refreshtoken', 'password',
   'secret', 'clientsecret', 'apikey', 'rawanswer', 'expectedanswer', 'graderrationale', 'prompt']);
 const JWS_SHAPE = /^[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}$/;
+const PRIVATE_KEY_SHAPE = /-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----/;
 
 const filled = (value) => (typeof value === 'string' ? value.trim().length > 0 : value !== null && value !== undefined);
 
@@ -42,10 +43,10 @@ function findSecrets(value, path = 'record') {
   if (Array.isArray(value)) value.forEach((item, i) => found.push(...findSecrets(item, `${path}[${i}]`)));
   else if (value && typeof value === 'object') {
     for (const [key, child] of Object.entries(value)) {
-      if (SECRET_KEYS.has(key.toLowerCase())) found.push(`${path}.${key}`);
+      if (SECRET_KEYS.has(key.toLowerCase().replace(/[^a-z0-9]/g, ''))) found.push(`${path}.${key}`);
       else found.push(...findSecrets(child, `${path}.${key}`));
     }
-  } else if (typeof value === 'string' && (JWS_SHAPE.test(value) || /^Bearer\s/i.test(value))) {
+  } else if (typeof value === 'string' && (JWS_SHAPE.test(value) || /^Bearer\s/i.test(value) || PRIVATE_KEY_SHAPE.test(value))) {
     found.push(path);
   }
   return found;
@@ -102,7 +103,7 @@ function verifyEvidenceRecord(record, scenario) {
   if (!Array.isArray(record.checks) || record.checks.length === 0) fail('checks must be a non-empty list');
   else if (!record.checks.every((check) => filled(check && check.name) && typeof check.passed === 'boolean')) fail('every check needs a name and a passed flag');
   if (!filled(record.outcome)) fail('outcome is missing');
-  if (!record.artifacts || typeof record.artifacts !== 'object') fail('artifacts must be an object');
+  if (!record.artifacts || typeof record.artifacts !== 'object' || Array.isArray(record.artifacts)) fail('artifacts must be an object');
 
   if (record.incident !== null && record.incident !== undefined) {
     const fault = scenario.injectedFault;
@@ -132,8 +133,13 @@ function verifyEvidenceSet(scenario, records) {
   records.forEach((record, i) => {
     const result = verifyEvidenceRecord(record, scenario);
     result.errors.forEach((message) => errors.push(`record ${i}: ${message}`));
+    if (Array.isArray(record?.checks) && record.checks.some((check) => check?.passed === false)) {
+      errors.push(`record ${i}: failed checks cannot establish scenario acceptance`);
+    }
   });
-  const covered = new Set(records.flatMap((record) => Object.keys((record && record.artifacts) || {})));
+  const covered = new Set(records.flatMap((record) => Object.entries(record?.artifacts || {})
+    .filter(([, value]) => filled(value) && (typeof value !== 'object' || Array.isArray(value) || Object.keys(value).length > 0))
+    .map(([key]) => key)));
   const missing = scenario.evidenceRequired.filter((key) => !covered.has(key));
   if (missing.length) errors.push(`missing evidence artifacts: ${missing.join(', ')}`);
   if (scenario.kind === 'fault' && !records.some((record) => record && record.incident)) errors.push('no record carries the Assurance Incident');

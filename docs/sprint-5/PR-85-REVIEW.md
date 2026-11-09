@@ -2,6 +2,8 @@
 
 Review date 9 November 2026. PR head `99233b10c825ac37cb2f9b2927a3685589a104da`. Tested with merged main `a2db4a4` including PR 84 and the database-init serialization fix. Integration is a local review branch, `review/issue34-hero-stack-evidence`.
 
+Follow-up for the combined merge into main. The two P1 findings below are fixed on this branch with regression coverage. Required artifacts must contain a value, failed checks cannot establish scenario acceptance, and PEM private-key formats are rejected independently of field names. Punctuated secret field names are normalized before checking. The original findings are retained as the history of the reviewed PR revision. Catalog defaults are explicitly adapted by the execution configuration as described below.
+
 The catalog declares all nine demonstrations and six fault declarations. Its 48 existing tests pass. The PR description correctly leaves real execution and the Invariant-risk matrix incomplete. Review findings below should be resolved before using these helpers to accept a final Evidence Pack.
 
 ## Findings

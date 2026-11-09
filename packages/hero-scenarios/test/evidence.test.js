@@ -131,3 +131,45 @@ test('a record for a different scenario is rejected', () => {
   const rec = record(byId('near-matches'));
   assert.match(verifyEvidenceRecord(rec, byId('unsupported-domain-refusal')).errors.join(' '), /scenarioId/);
 });
+
+test('null, undefined, blank and empty-object artifacts cannot satisfy required evidence', () => {
+  const scenario = byId('clean-lifecycle-matching');
+  for (const missing of [null, undefined, '', '   ', {}]) {
+    const artifacts = { ...artifactsFor(scenario), credential: missing };
+    const result = verifyEvidenceSet(scenario, [record(scenario, { artifacts })]);
+    assert.equal(result.valid, false);
+    assert.match(result.errors.join(' '), /missing evidence artifacts: credential/);
+  }
+});
+
+test('failed observations remain readable but cannot establish successful scenario acceptance', () => {
+  const scenario = byId('near-matches');
+  const rec = record(scenario, { outcome: 'failed', checks: [{ name: 'actual mismatch', passed: false }] });
+  assert.equal(verifyEvidenceRecord(rec, scenario).valid, true);
+  assert.match(verifyEvidenceSet(scenario, [rec]).errors.join(' '), /failed checks/);
+});
+
+test('a claimed passed outcome with a failed check is rejected for acceptance', () => {
+  const scenario = byId('clean-lifecycle-matching');
+  const rec = record(scenario, { outcome: 'passed', checks: [{ name: 'credential not issued', passed: false }] });
+  assert.equal(verifyEvidenceSet(scenario, [rec]).valid, false);
+});
+
+test('PEM private keys are rejected under arbitrary nested field names', () => {
+  const scenario = byId('credential-tampering');
+  for (const kind of ['PRIVATE KEY', 'RSA PRIVATE KEY', 'EC PRIVATE KEY', 'OPENSSH PRIVATE KEY', 'ENCRYPTED PRIVATE KEY']) {
+    const rec = record(scenario, { artifacts: { ...artifactsFor(scenario), archive: [{ material: `prefix -----BEGIN ${kind}----- dummy -----END ${kind}-----` }] } });
+    assert.match(verifyEvidenceRecord(rec, scenario).errors.join(' '), /secret or raw credential/);
+  }
+});
+
+test('punctuated secret field names are rejected and public identifiers remain allowed', () => {
+  assert.deepEqual(findSecrets({ private_key: 'dummy', access_token: 'dummy', 'api-key': 'dummy' }),
+    ['record.private_key', 'record.access_token', 'record.api-key']);
+  assert.deepEqual(findSecrets({ keyId: 'https://eduagentx.example/issuer#key', publicKey: 'public-material' }), []);
+});
+
+test('artifact arrays do not replace the artifact-name mapping', () => {
+  const scenario = byId('near-matches');
+  assert.match(verifyEvidenceRecord(record(scenario, { artifacts: [] }), scenario).errors.join(' '), /artifacts must be an object/);
+});
