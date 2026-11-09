@@ -431,6 +431,34 @@ test('a revoked credential never returns to active', async (t) => {
 });
 
 // #31: keep #30's eligibility routes unchanged; matching is a separate contract.
+// Supporting AGE-GATE coverage outside Issue33's formal fresh-cohort matrix.
+// Real service route/gate; fixed clock and injected owner-source fixtures.
+// This is NOT lifecycle-origin or composed acceptance evidence.
+test('age gate: exactly one day is eligible; one millisecond over is never Eligible and has an honest Near Match gap', async (t) => {
+  const ctx = await boot(t);
+  const created = await ctx.create('age-boundary', requestBody({ maxCredentialAgeDays: 1 }));
+  const id = created.body.request.id;
+  for (const [agent, offset] of [['age-boundary', 0], ['age-over', 1]]) {
+    const event = issued(agent);
+    event.credential.validFrom = new Date(Date.parse(NOW) - 86400000 - offset).toISOString();
+    await ctx.ingest(event); await ctx.publish(agent);
+  }
+  await ctx.open(id);
+  const response = await ctx.call('POST', `/internal/capability-requests/${id}/matches`, { idempotencyKey: 'age-gate' });
+  assert.equal(response.status, 201);
+  const m = response.body.matchResult;
+  assert.deepEqual(m.eligibleMatches.map(c => c.agentLearnerKey), ['age-boundary']);
+  assert.equal(m.nearMatches.length, 1);
+  const over = m.nearMatches[0];
+  assert.equal(over.agentLearnerKey, 'age-over'); assert.equal(over.eligible, false);
+  assert.equal(over.lane, 'Not Eligible');
+  assert.deepEqual(over.gaps.map(g => g.code), ['CREDENTIAL_TOO_OLD']);
+  assert.ok(over.checks.some(c => c.gate === 'age' && c.tag === 'request' && c.passed === false));
+  assert.ok(over.checks.filter(c => c.tag === 'trust').every(c => c.passed === true));
+  const retry = await ctx.call('POST', `/internal/capability-requests/${id}/matches`, { idempotencyKey: 'age-gate' });
+  assert.deepEqual(retry.body.matchResult, m);
+});
+
 test('matching persists a replayable, private-content-free result with two honest lanes', async (t) => {
   const ctx = await boot(t); const id = await ctx.ready(['agent-a']);
   const near = issued('agent-near'); near.credential = { ...near.credential, overallPercent: 84, evidenceMode: 'replay', rawAnswers: 'PRIVATE' };

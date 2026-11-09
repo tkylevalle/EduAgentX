@@ -102,6 +102,7 @@ function fixture(scenario, { lostSafety = false, unsafePass = false, systemAbort
         credential: { credentialSubject: { configurationFingerprint: fingerprint }, evidence: { examinationId: a.attemptId } } } });
     }
     if (route === '/v1/credentials/verify') return ok({ overall: 'VALID' });
+    if (route.endsWith('/eligibility-checks')) return ok({ eligible: [], excluded: [{ agentLearnerKey: scenario.learnerId }] });
     if (route.endsWith('/open')) return ok({});
     if (route.endsWith('/matches')) return ok({ matchResult: { resultId: 'match-one', policyVersion: 'MATCH-POLICY-1.0.0', totalEligible: 0, totalNearMatches: 0,
       eligibleMatches: [], nearMatches: [], exclusions: [{ agentLearnerKey: scenario.learnerId, reasons: [{ code: 'LIFECYCLE_ORIGIN_UNCHECKABLE' }] }] } }, 200);

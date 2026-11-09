@@ -52,8 +52,9 @@ const manifest = freeze({ schemaVersion: 'issue-33-scenarios/1.0.0', version: VE
   categories: CATEGORIES, scenarios: Object.keys(CATEGORIES).flatMap(c => Array.from({ length: 200 }, (_, i) => scenario(c, i))) });
 function select(mode = 'developer') {
   if (mode === 'formal') return manifest.scenarios;
-  if (!['developer', 'categories', 'canary'].includes(mode)) throw new Error('unknown suite mode');
+  if (!['developer', 'categories', 'canary', 'rehearsal'].includes(mode)) throw new Error('unknown suite mode');
   if (mode === 'canary') return manifest.scenarios.filter(s => s.id === 'competent-001');
-  return Object.keys(CATEGORIES).flatMap(c => manifest.scenarios.filter(s => s.category === c).slice(0, mode === 'categories' ? 1 : 5));
+  return Object.keys(CATEGORIES).flatMap(c => manifest.scenarios.filter(s => s.category === c).slice(0,
+    mode === 'categories' ? 1 : mode === 'rehearsal' ? 20 : 5));
 }
 module.exports = { manifest, select, CATEGORIES, UNSAFE, ROBUSTNESS, manifestHash: digest(manifest) };

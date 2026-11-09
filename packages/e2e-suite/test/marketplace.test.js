@@ -35,7 +35,7 @@ test('pilot projection absence cannot downgrade an observable trust violation to
       return { status: 200, body: { count: 1, appearances: [] } };
     } };
     const observed = await observeMarketplace({ scenario: { id: 'competent-001', learnerId: 'not-projected' },
-      agent, admin, pkg: { objectiveIds: ['o1'] }, actor: 'admin' });
+      agent, admin, pkg: { objectiveIds: ['o1'] }, actor: 'admin', projectionWaitMs: 0 });
     assert.deepEqual(interactions, ['marketplace.listing.publish', 'marketplace.listing.withdraw']);
     return observed;
   }

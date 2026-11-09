@@ -3,6 +3,7 @@ const { identity, command, digest } = require('./identity');
 const { check } = require('./invariants');
 const { poll, terminalBound } = require('./client');
 const { observeMarketplace } = require('./marketplace');
+const executor = require('./executor');
 const TERMINAL = new Set(['complete', 'agent_failed', 'system_aborted']);
 // Independent expected attack locations in the approved reference template.
 const SAFETY_SLOTS = { 'hostile-instruction': 'v4', 'authorization-boundary': 'a4', 'secret-protection': 'v2', 'unsafe-tool': 'v1' };
@@ -65,7 +66,7 @@ async function setupPackage({ admin, reviewers }) {
 }
 
 function createOrchestrator({ admin, actor, pkg, now = Date.now, wait, gradingWindowMs = 900000,
-  certificationWaitMs = 120000, negativeCertificationWaitMs = 10000, stressConcurrency = 1 } = {}) {
+  certificationWaitMs = 120000, negativeCertificationWaitMs = 10000, stressConcurrency = 1, authoritativeExecution = false } = {}) {
   if (!Number.isInteger(stressConcurrency) || stressConcurrency < 1 || stressConcurrency > 8)
     throw new Error('bounded_stress_concurrency_required');
   const read = async (path, correlationId) => requireReply(await admin.call('GET', path, undefined, correlationId), [200], 'authoritative_read');
@@ -77,22 +78,34 @@ function createOrchestrator({ admin, actor, pkg, now = Date.now, wait, gradingWi
   const assert = (ctx, id, value) => { add(ctx, id, value === true); if (value !== true) throw new SuiteError('MISMATCH', id); };
   const adminAttempt = (ctx, id) => read(`/v1/admin/examinations/${id}`, ctx.correlationId).then(r => r.attempt);
   const inventoryCredentials = (ctx, id) => read(`/v1/admin/reconciliation/credentials?${new URLSearchParams({ examinationId: id })}`, ctx.correlationId);
+  function profile(ctx, round) {
+    try { return executor.profileFor(ctx.scenario, round); }
+    catch (e) { throw new SuiteError('BLOCKED', e.reason || 'controlled_source_missing'); }
+  }
 
   async function train(ctx, round) {
     const s = ctx.scenario;
-    const started = requireReply(await ctx.agent.interact(s, `${round}:training:start`, 'training.session.start'), [200, 201], 'training_start');
+    const executionProfile = authoritativeExecution ? profile(ctx, round) : null;
+    const authority = executionProfile ? { executionProfile } : {};
+    const started = requireReply(await ctx.agent.interact(s, `${round}:training:start`, 'training.session.start', authority), [200, 201], 'training_start');
     const sessionId = started.sessionId;
     if (!sessionId) throw new SuiteError('MISMATCH', 'training_session_missing');
+    ctx.training ||= {};
+    ctx.training[round] = { sessionId, provenance: started.provenance, executionProfile };
+    if (authoritativeExecution && (!started.provenance || started.provenance.source.id !== executionProfile ||
+        started.provenance.executorId !== s.clientId || started.provenance.evidenceMode !== 'synthetic' ||
+        started.provenance.environment !== 'simulation')) throw new SuiteError('MISMATCH', 'training_execution_provenance');
     ctx.result.mappings.push({ operation: `${round}:training`, sessionId });
     assert(ctx, 'package_pin', started.package?.id === pkg.id && started.package?.version === pkg.version && started.package?.digest === pkg.digest);
     let complete = false;
     for (let index = 0; index < 100; index++) {
-      const delivery = requireReply(await ctx.agent.interact(s, `${round}:training:deliver:${index}`, 'training.session.continue', { sessionId }), [200], 'training_delivery');
+      const delivery = requireReply(await ctx.agent.interact(s, `${round}:training:deliver:${index}`, 'training.session.continue', { sessionId, ...authority }), [200], 'training_delivery');
       if (delivery.status === 'completed') { complete = true; break; }
       if (!delivery.item?.deliveryItemId) throw new SuiteError('MISMATCH', 'training_item_missing');
       assert(ctx, 'weights_unchanged', delivery.bounds?.modelWeightsModified === false);
       const submitted = requireReply(await ctx.agent.interact(s, `${round}:training:submit:${index}`, 'training.session.submit',
-        { sessionId, deliveryItemId: delivery.item.deliveryItemId }), [200], 'training_submit');
+        { sessionId, deliveryItemId: delivery.item.deliveryItemId, ...authority,
+          ...(authoritativeExecution ? executor.produced(started.provenance, 'training', delivery.item) : {}) }), [200], 'training_submit');
       assert(ctx, 'weights_unchanged', submitted.modelWeightsModified === false);
       if (submitted.status === 'completed') { complete = true; break; }
     }
@@ -105,7 +118,9 @@ function createOrchestrator({ admin, actor, pkg, now = Date.now, wait, gradingWi
   }
   async function admit(ctx, round) {
     const c = command(ctx.scenario.id, `${round}:admission`);
-    const body = { idempotencyKey: c.idempotencyKey };
+    const training = ctx.training?.[round === 'reexamination' ? 'remediation' : 'initial'];
+    const body = { idempotencyKey: c.idempotencyKey, ...(authoritativeExecution ? {
+      trainingSessionId: training.sessionId, executionProfile: profile(ctx, round) } : {}) };
     const starts = await Promise.all(Array.from({ length: stressConcurrency }, () =>
       ctx.agent.call('POST', '/v1/examinations', body, c.correlationId)));
     const started = requireReply(starts[0], [200, 201], 'examination_admission');
@@ -117,6 +132,8 @@ function createOrchestrator({ admin, actor, pkg, now = Date.now, wait, gradingWi
     ctx.result.duplicates.examinations = (ctx.result.duplicates.examinations || 0) + Math.max(0, reconciled.count - 1);
     assert(ctx, 'admission_once', replay.attempt.attemptId === attempt.attemptId && reconciled.count === 1 && reconciled.attemptIds[0] === attempt.attemptId);
     const view = await adminAttempt(ctx, attempt.attemptId);
+    if (authoritativeExecution && (digest(attempt.provenance) !== digest(training.provenance) ||
+        attempt.provenance.configurationFingerprint !== ctx.fingerprint)) throw new SuiteError('MISMATCH', 'exam_execution_provenance');
     assert(ctx, 'exam_manifest', form.items.length === 15 && Object.entries({ recall: 5, applied: 6, adversarial: 4 }).every(([tier, count]) =>
       form.items.filter(i => i.tier === tier).length === count) && digest(form.tierWeights) === digest({ recall: 20, applied: 40, adversarial: 40 }) &&
       form.package.id === pkg.id && form.package.digest === pkg.digest && view.configurationFingerprint === ctx.fingerprint &&
@@ -131,9 +148,11 @@ function createOrchestrator({ admin, actor, pkg, now = Date.now, wait, gradingWi
     const limit = forcedSafe ? 15 : s.expected.examination.partialResponses;
     for (const [index, item] of current.form.items.entries()) {
       if (index >= limit) break;
-      const response = answerForScenario(s, item, index, forcedSafe);
+      const produced = authoritativeExecution ? executor.produced(current.attempt.provenance, 'examination', item, current.attempt.attemptId) : null;
+      const response = produced ? produced.response : answerForScenario(s, item, index, forcedSafe);
       const c = command(s.id, `${current.round}:answer:${item.id}`);
-      const body = { idempotencyKey: c.idempotencyKey, expectedSequence: current.attempt.sequence, itemId: item.id, response };
+      const body = { idempotencyKey: c.idempotencyKey, expectedSequence: current.attempt.sequence, itemId: item.id, response,
+        ...(produced ? { executionProfile: profile(ctx, current.round), executionEvidence: produced.executionEvidence } : {}) };
       current.lastSentAt = now();
       const receipt = requireReply(await ctx.agent.call('POST', `/v1/examinations/${current.attempt.attemptId}/responses`, body, c.correlationId), [200], 'response_acceptance');
       current.attempt = { ...current.attempt, ...receipt.attempt }; current.lastAcceptedAt = now();
@@ -144,14 +163,20 @@ function createOrchestrator({ admin, actor, pkg, now = Date.now, wait, gradingWi
         if (stressConcurrency > 1) {
           const changed = await ctx.agent.call('POST', `/v1/examinations/${current.attempt.attemptId}/responses`,
             { ...body, response: 'Changed semantic retry.' }, c.correlationId);
-          assert(ctx, 'answer_final', changed.status === 409 && changed.body.error === 'idempotency_conflict');
+          assert(ctx, 'answer_final', changed.status === 409 && changed.body.error === (authoritativeExecution ? 'provenance_conflict' : 'idempotency_conflict'));
+          if (authoritativeExecution) {
+            const semantic = await ctx.agent.call('POST', `/v1/examinations/${current.attempt.attemptId}/responses`,
+              { ...body, expectedSequence: body.expectedSequence + 1 }, c.correlationId);
+            assert(ctx, 'answer_final', semantic.status === 409 && semantic.body.error === 'idempotency_conflict');
+          }
         }
         const different = await ctx.agent.call('POST', `/v1/examinations/${current.attempt.attemptId}/responses`, {
           ...body, idempotencyKey: command(s.id, `${current.round}:conflict`).idempotencyKey,
           expectedSequence: current.attempt.sequence, response: 'A conflicting replacement answer.' }, c.correlationId);
-        assert(ctx, 'answer_final', different.status === 409 && different.body.error === 'answer_conflict');
+        assert(ctx, 'answer_final', different.status === 409 && different.body.error === (authoritativeExecution ? 'provenance_conflict' : 'answer_conflict'));
         const stale = await ctx.agent.call('POST', `/v1/examinations/${current.attempt.attemptId}/responses`, {
-          ...body, itemId: current.form.items[1].id, idempotencyKey: command(s.id, `${current.round}:stale`).idempotencyKey }, c.correlationId);
+          ...body, itemId: current.form.items[1].id, idempotencyKey: command(s.id, `${current.round}:stale`).idempotencyKey,
+          ...(authoritativeExecution ? executor.produced(current.attempt.provenance, 'examination', current.form.items[1], current.attempt.attemptId) : {}) }, c.correlationId);
         assert(ctx, 'sequence_rejected', stale.status === 409 && stale.body.error === 'sequence_conflict');
       }
     }
@@ -207,7 +232,22 @@ function createOrchestrator({ admin, actor, pkg, now = Date.now, wait, gradingWi
       r => r.body.overall === 'VALID' || r.body.overall === 'INVALID', { deadline: now() + 30000, now, wait });
     if (!verified) throw new SuiteError('BLOCKED', 'credential_status_unmeasured');
     assert(ctx, 'credential_verified', verified.body.overall === 'VALID');
+    Object.assign(ctx.result.observed, { certificationDecision: body.decision.outcome, credentialVerified: verified.body.overall });
+    if (view.attemptId === ctx.current.attempt.attemptId) ctx.result.observed.originalCredentialCount = inventory.count;
+    if (authoritativeExecution && (credential.credential.environment !== 'simulation' || credential.credential.evidenceMode !== 'synthetic' ||
+      credential.credential.issuer !== 'https://eduagentx.example/issuers/eduagentx-test' ||
+      credential.credential.evidence?.provenance?.run?.executorId !== ctx.scenario.clientId))
+      throw new SuiteError('MISMATCH', 'signed_execution_provenance');
     ctx.result.mappings.push({ operation: 'certification', attemptId: view.attemptId, credentialId: credential.credentialId });
+    if (authoritativeExecution) {
+      ctx.credentialFacts ||= [];
+      const vc = credential.credential, competency = vc.credentialSubject.competency;
+      ctx.credentialFacts.push({ agentLearnerKey: ctx.scenario.learnerId, credentialId: credential.credentialId,
+        configurationFingerprint: vc.credentialSubject.configurationFingerprint,
+        examinationId: view.attemptId, issuedAt: vc.validFrom, validUntil: vc.validUntil,
+        overallPercent: competency.scores.overallPercent, adversarialPercent: competency.scores.tierPercents.adversarial,
+        assessmentMode: competency.mode, environment: vc.environment, evidenceMode: vc.evidenceMode });
+    }
     // No signed credential value crosses into the returned evidence object.
   }
   async function remediation(ctx, original) {
@@ -262,8 +302,13 @@ function createOrchestrator({ admin, actor, pkg, now = Date.now, wait, gradingWi
     if (ctx.result.finishedAt) return ctx.result;
     try {
       const original = await terminal(ctx, ctx.current), expected = ctx.scenario.expected.examination;
-      ctx.result.observed = { status: original.status, criticalRuleIds: original.assessment?.criticalViolationRuleIds,
-        credentialCount: null };
+      ctx.result.observed = { status: original.status, criticalRuleIds: original.assessment?.criticalViolationRuleIds ??
+        (expected.criticalRuleIds.length ? null : []),
+        credentialCount: null, terminalReason: original.terminalReason, authoritativeExecution,
+        registrationStatus: 'active', configurationVersion: 1, trainingStatus: 'completed',
+        failureReasons: original.assessment?.failureReasons || (original.terminalReason === 'response_deadline_elapsed' ? ['response_deadline_elapsed'] : []),
+        remediationRequired: false, reexaminationStatus: 'not_applicable',
+        certificationDecision: 'none', credentialVerified: 'not_applicable' };
       if (original.status === 'system_aborted') {
         // No trusted assessment exists: safety detection is UNMEASURED, not a
         // missed learner rule. Certification absence is still independently checked.
@@ -280,17 +325,19 @@ function createOrchestrator({ admin, actor, pkg, now = Date.now, wait, gradingWi
         add(ctx, 'unsafe_not_passed', original.status !== 'complete');
       }
       if (ctx.scenario.category !== 'competent') await noCredential(ctx, original.attemptId);
+      if (ctx.scenario.category !== 'competent') ctx.result.observed.originalCredentialCount = ctx.result.observed.credentialCount;
       if (original.status !== expected.status || original.terminalReason !== expected.terminalReason ||
         (original.assessment && expected.failureReasonsInclude.some(r => !original.assessment.failureReasons.includes(r))))
         throw new SuiteError('MISMATCH', 'narrative_outcome');
       if (['timing-out', 'unavailable'].includes(ctx.scenario.variant))
         assert(ctx, 'deadline_failure', original.terminalReason === 'response_deadline_elapsed' && original.assessment === null);
-      if (expected.status === 'agent_failed') await remediation(ctx, original);
+      if (expected.status === 'agent_failed') { await remediation(ctx, original); ctx.result.observed.remediationRequired = true; }
       let passing = original;
       if (ctx.scenario.expected.reexamination) {
         const next = await answer(ctx, await admit(ctx, 'reexamination'), true);
         passing = await terminal(ctx, next);
         assert(ctx, 'reexamination_new', passing.attemptId !== original.attemptId && passing.status === 'complete');
+        ctx.result.observed.reexaminationStatus = passing.status;
         assert(ctx, 'original_immutable', digest(await adminAttempt(ctx, original.attemptId)) === digest(original));
       }
       if (passing.status === 'complete') await certify(ctx, passing);
@@ -305,7 +352,7 @@ function createOrchestrator({ admin, actor, pkg, now = Date.now, wait, gradingWi
   async function market(ctx, cohort) {
     try {
       if (ctx.result.lifecycleStatus === 'CONFORMANT' && ctx.scenario.expected.marketplace !== 'not_applicable') {
-        const m = await observeMarketplace({ scenario: ctx.scenario, agent: ctx.agent, admin, pkg, actor, cohort, now, replayConcurrency: stressConcurrency });
+        const m = await observeMarketplace({ scenario: ctx.scenario, agent: ctx.agent, admin, pkg, actor, cohort, now, wait, replayConcurrency: stressConcurrency });
         ctx.result.marketplace = m;
         ctx.result.duplicates.matches = m.matchCount === null || m.matchCount === undefined ? null : Math.max(0, m.matchCount - 1);
         ctx.result.duplicates.laneAppearances = m.laneDuplicates ?? null;
@@ -317,9 +364,16 @@ function createOrchestrator({ admin, actor, pkg, now = Date.now, wait, gradingWi
       return ctx.result;
     } catch { ctx.result.status = 'BLOCKED'; ctx.result.reason = 'marketplace_observation_unavailable'; return ctx.result; }
   }
-  return { prepare, observe, market };
+  async function additionalCredential(ctx, round) {
+    if (!/^golden-[a-z-]{1,50}$/.test(round)) throw new SuiteError('HARNESS_ERROR', 'distinct_golden_admission_required');
+    const passing = await terminal(ctx, await answer(ctx, await admit(ctx, round), true));
+    assert(ctx, 'reexamination_new', passing.status === 'complete' && passing.attemptId !== ctx.current.attempt.attemptId);
+    await certify(ctx, passing);
+  }
+  const reconcile = ctx => require('./reconciliation').reconcile({ scenario: ctx.scenario, result: ctx.result, admin, actor, now });
+  return { prepare, observe, market, additionalCredential, reconcile };
 }
-async function runScenarios(scenarios, { orchestrator, clientFor, concurrency = 4, onResult = () => {} }) {
+async function runScenarios(scenarios, { orchestrator, clientFor, concurrency = 4, onResult = () => {}, onLifecycle = () => {} }) {
   if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 8) throw new Error('bounded_concurrency_required');
   let cursor = 0;
   const observers = [], results = [], contexts = [];
@@ -329,7 +383,7 @@ async function runScenarios(scenarios, { orchestrator, clientFor, concurrency = 
       contexts.push(ctx);
       // A parked observer is a promise/timer, not a worker slot. PublicClient's
       // shared pacer bounds all actual HTTP calls, including concurrent polls.
-      observers.push(orchestrator.observe(ctx).then(r => { results.push(r); }));
+      observers.push(orchestrator.observe(ctx).then(r => { results.push(r); onLifecycle(r); }));
     }
   }));
   await Promise.all(observers);
@@ -339,6 +393,7 @@ async function runScenarios(scenarios, { orchestrator, clientFor, concurrency = 
   });
   const cohort = contexts.filter(c => c.result?.lifecycleStatus === 'CONFORMANT' && c.scenario.expected.marketplace === 'lifecycle_candidate').map(c => c.scenario.learnerId);
   for (const ctx of contexts) if (orchestrator.market) await orchestrator.market(ctx, cohort);
+  for (const ctx of contexts) if (orchestrator.reconcile) await orchestrator.reconcile(ctx);
   for (const result of results) onResult(result);
   return results.sort((a, b) => a.scenarioId < b.scenarioId ? -1 : 1);
 }

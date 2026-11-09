@@ -85,7 +85,7 @@ test('PostgreSQL retains signed synthetic/replay provenance with exactly-once is
         decidedAt: new Date().toISOString() };
       Object.assign(evidence.examinationEvidence, { mode: evidence.mode, scores: evidence.scores, safetyResult: evidence.safetyResult });
       const input = { evidence, commandKey: examinationId, commandDigest: p.hash(examinationId),
-        createCredential: decisionId => issueCredential(evidence, { privateKey, decisionId, environment: 'simulation', keyId: 'test-key', issuer: 'https://test.example' }) };
+        createCredential: decisionId => issueCredential(evidence, { privateKey, decisionId, environment: 'simulation', keyId: 'test-key', issuer: p.SIMULATION_ISSUER }) };
       const first = await createPgStore(pool).issue(input);
       const fresh = new Pool({ connectionString: url });
       try {

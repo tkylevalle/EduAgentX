@@ -23,11 +23,12 @@ function run(name, files) {
   console.log(JSON.stringify(result));
 }
 run('suite', readTests('packages/e2e-suite/test'));
-for (const service of ['api-gateway', 'examination-engine', 'certification-service', 'marketplace-service'])
+run('execution-provenance', readTests('packages/execution-provenance/test'));
+for (const service of ['api-gateway', 'examination-engine', 'certification-service', 'marketplace-service', 'training-service'])
   run(service, readTests(`services/${service}/test`));
 for (const [service, variable] of [['examination-engine', 'EXAMINATION_TEST_DATABASE_URL'],
-  ['certification-service', 'CERTIFICATION_TEST_DATABASE_URL'], ['marketplace-service', 'MARKETPLACE_TEST_DATABASE_URL'], ['skill-gap-service', 'SKILL_GAP_TEST_DATABASE_URL']]) {
-  if (process.env[variable]) run(`${service}-postgres`, [`services/${service}/integration/postgres.test.js`]);
+  ['certification-service', 'CERTIFICATION_TEST_DATABASE_URL'], ['marketplace-service', 'MARKETPLACE_TEST_DATABASE_URL'], ['skill-gap-service', 'SKILL_GAP_TEST_DATABASE_URL'], ['training-service', 'TRAINING_TEST_DATABASE_URL']]) {
+  if (process.env[variable]) run(`${service}-postgres`, [`services/${service}/integration/${service === 'training-service' ? 'provenance-postgres.test.js' : 'postgres.test.js'}`]);
   else checks.push({ name: `${service}-postgres`, status: 'NOT_RUN', reason: 'disposable_database_not_configured' });
 }
 const report = { schemaVersion: 'issue-33-focused-verification/1.0.0', startedAt, finishedAt: new Date().toISOString(),
