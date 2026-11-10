@@ -53,6 +53,9 @@ const MARKETPLACE_INTERACTIONS = Object.freeze({
 // Who may change Capability Requests and run checks, and who may only read them.
 const MARKETPLACE_WRITERS = Object.freeze(['admin', 'demo_operator']);
 const MARKETPLACE_READERS = Object.freeze([...MARKETPLACE_WRITERS, 'viewer', 'evaluator', 'governance_operator']);
+// Heavy evaluation rechecks the complete candidate inventory. MATCH-POLICY's
+// approved p95 floor is 30s (10s target); unrelated forwarding stays at 5s.
+const MARKETPLACE_EVALUATION_TIMEOUT_MS = 30000;
 
 function createApp({
   agentRegistryUrl = process.env.AGENT_REGISTRY_URL || 'http://agent-registry:4001',
@@ -627,7 +630,7 @@ function createApp({
 
   // One forwarding route. Unknown body fields are refused before anything is
   // sent; marketplace-service validates the rest and stores the actor.
-  const marketplaceRoute = (method, buildPath, allowedFields) => async (req, res) => {
+  const marketplaceRoute = (method, buildPath, allowedFields, timeoutMs) => async (req, res) => {
     let body;
     if (method === 'POST') {
       body = req.body;
@@ -642,7 +645,8 @@ function createApp({
     }
     if (!marketplaceServiceUrl || !marketplaceInternalKey) return marketplaceUnavailable(req, res);
     await proxyJson(req, res, `${marketplaceServiceUrl}${buildPath(req)}`,
-      { method, ...(body === undefined ? {} : { body }), headers: marketplaceHeaders(req) });
+      { method, ...(body === undefined ? {} : { body }), headers: marketplaceHeaders(req),
+        ...(timeoutMs === undefined ? {} : { timeoutMs }) });
   };
   const requestPath = (req, suffix = '') =>
     `/internal/capability-requests/${encodeURIComponent(req.params.id)}${suffix}`;
@@ -656,9 +660,9 @@ function createApp({
   app.post('/v1/marketplace/capability-requests/:id/close', requireRole(...MARKETPLACE_WRITERS),
     marketplaceRoute('POST', (req) => requestPath(req, '/close'), []));
   app.post('/v1/marketplace/capability-requests/:id/eligibility-checks', requireRole(...MARKETPLACE_WRITERS),
-    marketplaceRoute('POST', (req) => requestPath(req, '/eligibility-checks'), ['idempotencyKey']));
+    marketplaceRoute('POST', (req) => requestPath(req, '/eligibility-checks'), ['idempotencyKey'], MARKETPLACE_EVALUATION_TIMEOUT_MS));
   app.post('/v1/marketplace/capability-requests/:id/matches', requireRole(...MARKETPLACE_WRITERS),
-    marketplaceRoute('POST', (req) => requestPath(req, '/matches'), ['idempotencyKey']));
+    marketplaceRoute('POST', (req) => requestPath(req, '/matches'), ['idempotencyKey'], MARKETPLACE_EVALUATION_TIMEOUT_MS));
   app.get('/v1/marketplace/match-results/:resultId', requireRole(...MARKETPLACE_READERS),
     marketplaceRoute('GET', (req) => `/internal/match-results/${encodeURIComponent(req.params.resultId)}`));
   app.get('/v1/marketplace/capability-requests', requireRole(...MARKETPLACE_READERS),

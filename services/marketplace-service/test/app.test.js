@@ -71,13 +71,14 @@ function fakeSources() {
   };
 }
 
-async function boot(t, { internalKey = KEY, sourceTimeoutMs = 200 } = {}) {
+async function boot(t, { internalKey = KEY, sourceTimeoutMs = 200, authorityConcurrency } = {}) {
   const ctx = { store: createMemoryStore(), sources: fakeSources() };
   let ids = 0;
-  const app = createApp({ store: ctx.store, internalKey, sources: ctx.sources, clock: () => NOW, sourceTimeoutMs,
+  const app = createApp({ store: ctx.store, internalKey, sources: ctx.sources, clock: () => NOW, sourceTimeoutMs, authorityConcurrency,
     newId: () => `00000000-0000-4000-8000-${String(++ids).padStart(12, '0')}` });
   const server = http.createServer(app);
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  ctx.url = `http://127.0.0.1:${server.address().port}`;
   t.after(() => new Promise((resolve) => server.close(resolve)));
   ctx.call = (method, path, body, actor = OPERATOR, headers = { 'x-internal-service-key': KEY, 'x-actor-subject': actor }) =>
     send(server, method, path, body, headers);
@@ -117,6 +118,86 @@ function send(server, method, path, body, headers) {
 
 const keysOf = (list) => list.map((item) => item.agentLearnerKey);
 const codesOf = (item) => item.reasons.map((reason) => reason.code);
+
+test('an aborted HTTP caller and overlapping same-key retry commit exactly one match result', async t => {
+  const ctx = await boot(t, { authorityConcurrency: 1, sourceTimeoutMs: 2000 });
+  const id = await ctx.ready(['agent-a']);
+  let entered, release;
+  const started = new Promise(resolve => { entered = resolve; });
+  const paused = new Promise(resolve => { release = resolve; });
+  ctx.sources.state.beforeVerify = async () => { entered(); await paused; };
+  let secondLookup, reads = 0;
+  const overlap = new Promise(resolve => { secondLookup = resolve; });
+  const originalRead = ctx.store.readMatchByKey.bind(ctx.store);
+  ctx.store.readMatchByKey = async (...args) => {
+    const prior = await originalRead(...args);
+    if (++reads === 2) { assert.ok(!prior); secondLookup(); }
+    return prior;
+  };
+  const controller = new AbortController(), body = { idempotencyKey: 'overlapping-retry' };
+  const first = fetch(`${ctx.url}/internal/capability-requests/${id}/matches`, {
+    method: 'POST', body: JSON.stringify(body), signal: controller.signal,
+    headers: { 'content-type': 'application/json', 'x-internal-service-key': KEY, 'x-actor-subject': OPERATOR },
+  }).catch(error => error.name);
+  await started;
+  controller.abort(); assert.equal(await first, 'AbortError');
+  const retry = ctx.call('POST', `/internal/capability-requests/${id}/matches`, body);
+  await overlap; // The second server lookup has run while the first job is paused.
+  release();
+  const response = await retry; assert.ok([200,201].includes(response.status));
+  const inventory = await ctx.call('GET', `/internal/reconciliation/matches?${new URLSearchParams({ actor: OPERATOR, idempotencyKey: body.idempotencyKey })}`,
+    undefined, OPERATOR, { 'x-internal-service-key': KEY, 'x-actor-subject': OPERATOR, 'x-actor-role': 'admin' });
+  assert.equal(inventory.status, 200); assert.equal(inventory.body.count, 1);
+  assert.deepEqual(inventory.body.resultIds, [response.body.matchResult.resultId]);
+  assert.equal(ctx.sources.state.calls, 2);
+});
+
+test('both evaluation routes dispatch every trust branch and refuse caller-supplied concurrency', async t => {
+  const ctx = await boot(t, { authorityConcurrency: 1 });
+  const id = await ctx.ready(['agent-a', 'agent-b', 'agent-c']);
+  const calls = {};
+  for (const name of ['verification', 'registry', 'package', 'lifecycle']) {
+    const method = Object.keys(ctx.sources[name])[0], original = ctx.sources[name][method];
+    calls[name] = 0;
+    ctx.sources[name][method] = async (...args) => { calls[name]++; return original(...args); };
+  }
+  for (const route of ['eligibility-checks', 'matches']) {
+    const response = await ctx.call('POST', `/internal/capability-requests/${id}/${route}`,
+      { idempotencyKey: route });
+    assert.equal(response.status, 201);
+    const refused = await ctx.call('POST', `/internal/capability-requests/${id}/${route}`,
+      { idempotencyKey: 'caller-setting', authorityConcurrency: 1000 });
+    assert.equal(refused.status, 400);
+  }
+  assert.deepEqual(calls, { verification: 6, registry: 6, package: 6, lifecycle: 6 });
+});
+
+test('bounded slow/aborted sources fail closed in both lanes without poisoning queued candidates', async t => {
+  const ctx = await boot(t, { authorityConcurrency: 1, sourceTimeoutMs: 30 });
+  const id = await ctx.ready(['agent-a', 'agent-b', 'agent-c']);
+  ctx.sources.state.hangFor.add('cred-agent-a');
+  const original = ctx.sources.registry.getCurrentFingerprint;
+  ctx.sources.registry.getCurrentFingerprint = async key => {
+    if (key === 'agent-b') throw new DOMException('aborted', 'AbortError');
+    return original(key);
+  };
+  const r = await ctx.call('POST', `/internal/capability-requests/${id}/matches`, { idempotencyKey: 'bounded-failures' });
+  assert.equal(r.status, 201);
+  assert.deepEqual(keysOf(r.body.matchResult.eligibleMatches), ['agent-c']);
+  assert.equal(r.body.matchResult.nearMatches.length, 0);
+  assert.deepEqual(keysOf(r.body.matchResult.exclusions).sort(), ['agent-a', 'agent-b']);
+});
+
+test('invalid server concurrency leaves startup unhealthy and all internal routes closed', async t => {
+  const { start } = require('../index');
+  const server = start({ PORT: '0', MARKETPLACE_AUTHORITY_CONCURRENCY: 'Infinity' });
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  await new Promise(resolve => server.listening ? resolve() : server.once('listening', resolve));
+  const health = await send(server, 'GET', '/health', undefined, {});
+  assert.equal(health.status, 503);
+  assert.ok(health.body.problems.includes('invalid:MARKETPLACE_AUTHORITY_CONCURRENCY'));
+  assert.equal((await send(server, 'GET', '/internal/capability-requests', undefined, {})).status, 503);
+});
 
 // --- authentication
 
