@@ -27,7 +27,8 @@ test('versioned executable 100-case revision keeps the approved family allocatio
  assert.equal(scenarios.length,1000);assert.equal(new Set(scenarios.map(s=>s.clientId)).size,1000);
  const formal=require('../manifest').manifest.scenarios;
  assert.ok(!scenarios.some(s=>formal.some(f=>f.clientId===s.clientId)));
- assert.equal(developerCases().length,19);assert.equal(new Set(developerCases().map(c=>c.family)).size,6);
+ assert.equal(developerCases().length,20);assert.equal(new Set(developerCases().map(c=>c.family)).size,6);
+ assert.ok(developerCases().some(c=>c.id==='golden-v2-limits-002'));
  assert.ok(!/require\(['"].*(?:services|matching|eligibility)/.test(fs.readFileSync(require.resolve('../golden-oracle'),'utf8')));
 });
 test('unsupported-domain check uses the current public validation envelope without accepting another refusal',()=>{
@@ -64,6 +65,35 @@ test('suspension and revocation predict the current verifier adapter codes exact
   actual.exclusions[0].reasons.push({code},{code:'SIGNATURE_INVALID'});
   assert.equal(compare(actual,prediction).status,'MISMATCH');
  }
+});
+
+test('trust exclusions retain independently specified simultaneous request failures without entering either lane',()=>{
+ const request={...golden.cases[0].request,requiredObjectiveIds:['missing-one','missing-two'],minOverallPercent:95,
+  minAdversarialPercent:87,maxCredentialAgeDays:1,allowedAssessmentModes:['fallback'],requiredEnvironment:'live'};
+ const rows=[{...ledger()[0],status:'revoked',discoverable:false,fingerprintCurrent:false}];
+ const prediction=expected(request,rows,'2026-11-11T00:00:00.000Z');
+ assert.equal(prediction.totalEligible,0);assert.equal(prediction.totalNearMatches,0);
+ assert.deepEqual(prediction.exclusions[0].reasons,['SCHEMA_INVALID','STATUS_REVOKED','NOT_DISCOVERABLE',
+  'FINGERPRINT_MISMATCH','ENVIRONMENT_MISMATCH','OBJECTIVE_MISSING','SCORE_OVERALL_BELOW',
+  'SCORE_ADVERSARIAL_BELOW','CREDENTIAL_TOO_OLD','MODE_NOT_ALLOWED']);
+});
+
+test('combined revoked/below-threshold production exclusion matches literal contract reasons, not a production-derived oracle',()=>{
+ // Production is the system under test only. Both expected reason lists are
+ // independently anchored to the published every-gate explanation contract.
+ const {matchCandidates}=require('../../../services/marketplace-service/matching');
+ const request={...golden.cases.find(c=>c.id==='golden-v2-limits-002').request,title:'combined contract case'};
+ const at='2026-11-10T00:00:00.000Z',row={...ledger()[0],status:'revoked'};
+ const candidate={agentLearnerKey:row.agentLearnerKey,credentialId:row.credentialId,validFrom:row.issuedAt,
+  validUntil:row.validUntil,overallPercent:94.4,adversarialPercent:86,assessmentMode:'standard',environment:'simulation',
+  evidenceMode:'synthetic',configurationFingerprint:'sha256:test',package:{id:'test',version:'1',digest:'sha256:package'}};
+ const actual=matchCandidates(request,[{record:{agentLearnerKey:row.agentLearnerKey,credentialId:row.credentialId,candidate},
+  authoritative:{lifecycleOrigin:true,discoverable:true,verification:{signature:'valid',schema:'invalid',status:'revoked'},
+   registry:{currentFingerprint:'sha256:test'},package:{digest:'sha256:package',domain:request.domain,objectiveIds: facts.objectiveIds}}}],at);
+ const literal=['SCHEMA_INVALID','STATUS_REVOKED','SCORE_OVERALL_BELOW'];
+ assert.deepEqual(actual.exclusions[0].reasons.map(r=>r.code),literal);
+ assert.deepEqual(expected(request,[row],at).exclusions[0].reasons,literal);
+ assert.equal(compare(actual,expected(request,[row],at)).status,'CONFORMANT');
 });
 test('every family has independent expectations and a changed component, safety gate, lane or order is detected',()=>{
  for(const s of golden.cases){const l=ledger();if(s.action==='suspend')l[0].status='suspended';

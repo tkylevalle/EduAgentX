@@ -28,3 +28,30 @@ test('late duplicates, a forbidden credential and unavailable final inventory ca
  if(options.lateDuplicate)assert.equal(r.duplicates.examinations,1);
  }
 });
+
+test('final sweep reconciles an attempted command without a returned result ID',async()=>{
+ const f=fixture();delete f.result.marketplace.resultId;
+ f.result.status='BLOCKED';f.result.reason='matching_unavailable';
+ const r=await reconcile(f);
+ assert.equal(r.reconciliation.commands,5);assert.equal(r.reconciliation.status,'CONFORMANT');
+ assert.equal(r.marketplace.reconciliation.state,'committed_without_reply');
+ assert.equal(r.duplicates.matches,0);assert.equal(r.status,'BLOCKED'); // Missing outcome/explanations are not invented.
+});
+
+test('unavailable match inventory clears earlier duplicate zeros and cannot be counted as measured',async()=>{
+ const f=fixture(),read=f.admin.call;
+ f.result.duplicates.matches=0;f.result.duplicates.laneAppearances=0;
+ f.admin.call=async(method,route)=>route.includes('/matches?')?{status:503}:read(method,route);
+ const r=await reconcile(f);
+ assert.equal(r.reconciliation.status,'BLOCKED');assert.equal(r.duplicates.matches,null);
+ assert.equal(r.duplicates.laneAppearances,null);
+});
+
+test('every attempted match is reconciled even when a different final inventory fails or violates an invariant',async()=>{
+ for(const options of [{lateDuplicate:true},{unavailable:true},{forbidden:true}]) {
+  const f=fixture(options);await reconcile(f);
+  assert.ok(f.calls.some(route=>route.includes('/matches?')));
+  assert.ok(f.calls[0].includes('/matches?'));
+  if(options.unavailable)assert.equal(f.result.duplicates.matches,null);
+ }
+});

@@ -24,6 +24,7 @@ function createJournal(directory,{source={},kind='lifecycle'}={}){
     recordedAt:new Date().toISOString(),scenario:row});return true;
   },
   writeCase(result){if(closed)return false;append({schemaVersion:'issue-33-progress/1.0.0',scope:'PROVISIONAL_NOT_ACCEPTANCE_EVIDENCE',phase:'golden-case',recordedAt:new Date().toISOString(),marketplace:safeMarket(result)});return true;},
+  writeCommand(result){if(closed)return false;append({schemaVersion:'issue-33-progress/1.0.0',scope:'PROVISIONAL_NOT_ACCEPTANCE_EVIDENCE',phase:'market-command',recordedAt:new Date().toISOString(),marketplace:safeMarket(result)});return true;},
   close(){if(!closed){fs.closeSync(fd);closed=true;}}
  };
 }
