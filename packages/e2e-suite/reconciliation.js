@@ -1,8 +1,9 @@
 'use strict';
 // End-of-run public/admin reconciliation, separate from per-command replay checks.
 const { command } = require('./identity');
-const { laneDuplicates, check } = require('./invariants');
-async function reconcile({ scenario, result, admin, actor, now = Date.now }) {
+const { check } = require('./invariants');
+const { reconcileMatch } = require('./match-inventory');
+async function reconcile({ scenario, result, admin, actor, now = Date.now, wait, settleMs }) {
   const put = (id, passed) => {
     const prior = result.checks.find(c => c.id === id);
     if (prior) prior.passed = prior.passed === false ? false : passed;
@@ -17,6 +18,18 @@ async function reconcile({ scenario, result, admin, actor, now = Date.now }) {
   };
   let commands = 0, examinations = 0, credentials = 0;
   try {
+    if (result.marketplace?.idempotencyKey) {
+      const m=result.marketplace;
+      const inventory=await reconcileMatch({admin,actor,idempotencyKey:m.idempotencyKey,resultId:m.resultId,
+        correlationId:m.correlationId,now,wait,settleMs});
+      m.reconciliation=inventory;
+      m.matchCount=inventory.count; m.laneDuplicates=inventory.laneDuplicates;
+      result.duplicates.matches=inventory.duplicates;
+      result.duplicates.laneAppearances=inventory.laneDuplicates;
+      if (inventory.status==='BLOCKED') throw new Error('final_reconciliation_unavailable');
+      put('match_once',inventory.count===1&&inventory.status==='CONFORMANT');
+      put('lane_unique',result.duplicates.laneAppearances===0);commands++;
+    }
     const admissions = result.mappings.filter(m => m.operation.endsWith(':admission'));
     result.observed ||= {};
     if (!admissions.length) throw new Error('final_reconciliation_unavailable');
@@ -35,18 +48,11 @@ async function reconcile({ scenario, result, admin, actor, now = Date.now }) {
       else if (m.operation === 'initial:admission' && scenario.expected?.certification?.original === 'required') throw new Error('final_reconciliation_unavailable');
       else put('no_credential',c.count===0);
     }
-    if (result.marketplace?.resultId) {
-      const m=result.marketplace;
-      const inventory=await read(`/v1/admin/reconciliation/matches?${new URLSearchParams({actor,idempotencyKey:m.idempotencyKey})}`);
-      if (!Array.isArray(inventory.resultIds) || inventory.resultIds.length !== inventory.count || !Array.isArray(inventory.appearances)) throw new Error('final_reconciliation_unavailable');
-      result.duplicates.matches=Math.max(0,inventory.count-1);
-      result.duplicates.laneAppearances=laneDuplicates(inventory.appearances||[]);
-      put('match_once',inventory.count===1&&inventory.resultIds?.[0]===m.resultId);
-      put('lane_unique',result.duplicates.laneAppearances===0);commands++;
-    }
     result.reconciliation={status:'CONFORMANT',measuredAt:new Date(now()).toISOString(),commands};
   } catch(e) {
     const status=e.measuredFailure?'MISMATCH':'BLOCKED';
+    if (!e.measuredFailure) for (const group of ['examinations','credentials'])
+      if (result.duplicates[group] === 0) result.duplicates[group] = null;
     result.reconciliation={status,measuredAt:new Date(now()).toISOString(),commands};
     if(!['MISMATCH','HARNESS_ERROR'].includes(result.status)){result.status=status;result.reason=e.measuredFailure?'final_reconciliation_mismatch':'final_reconciliation_unavailable';}
   }

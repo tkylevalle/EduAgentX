@@ -17,7 +17,6 @@ function expected(request, ledger, at) {
     if (c.discoverable !== true) reasons.push('NOT_DISCOVERABLE');
     if (c.fingerprintCurrent === false) reasons.push('FINGERPRINT_MISMATCH');
     if (request.requiredEnvironment !== facts.environment) reasons.push('ENVIRONMENT_MISMATCH');
-    if (reasons.length) return { ...c, lane: 'excluded', reasons };
     const age = (Date.parse(at)-Date.parse(c.issuedAt))/DAY;
     if (age < 0 || Date.parse(at) >= Date.parse(c.validUntil)) throw new Error('fresh_credential_precondition');
     const missing = request.requiredObjectiveIds.filter(o=>!facts.objectiveIds.includes(o));
@@ -30,6 +29,11 @@ function expected(request, ledger, at) {
     if (advGap) gapCodes.push('SCORE_ADVERSARIAL_BELOW');
     if (ageGap) gapCodes.push('CREDENTIAL_TOO_OLD');
     if (modeGap) gapCodes.push('MODE_NOT_ALLOWED');
+    // Hard trust failure excludes BOTH lanes, but the public contract reports
+    // every failed gate, including simultaneous request shortfalls. Do not
+    // truncate its explanation at the first category of failure. A missing
+    // objective contributes one exclusion reason (multiple detailed gaps below).
+    if (reasons.length) return { ...c, lane: 'excluded', reasons: [...reasons, ...new Set(gapCodes)] };
     const gaps = [...missing].sort(codeOrder).map(objectiveId=>({code:'OBJECTIVE_MISSING',objectiveId}));
     if(totalGap)gaps.push({code:'SCORE_OVERALL_BELOW',actual:facts.overallPercent,required:request.minOverallPercent});
     if(advGap)gaps.push({code:'SCORE_ADVERSARIAL_BELOW',actual:facts.adversarialPercent,required:request.minAdversarialPercent});

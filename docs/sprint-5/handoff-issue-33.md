@@ -207,10 +207,10 @@ The formal manifest is available but do not launch its execution until the pilot
 has been reviewed. The CLI requires a separate `--formal-approved` opt-in. Phase
 1 still reports the unfinished full golden/load/fault measurements NOT_RUN.
 
-The PostgreSQL verifier creates one new disposable container, four separate
+The PostgreSQL verifier creates one new disposable container, five separate
 databases and temporary random credentials. Its fixtures test storage contracts,
 not lifecycle provenance. It removes only that named container/test data.
-Alternatively the focused JS verifier runs the four integration suites when
+Alternatively the focused JS verifier runs the five integration suites when
 their `*_TEST_DATABASE_URL` variables refer to fresh disposable databases.
 Absent variables are recorded NOT_RUN; skips never count as passing.
 
@@ -252,3 +252,110 @@ acceptance, real grading-outage/System-Aborted and post-deadline grading fault
 runs, second-machine reproduction, and independent human release review are not
 implied by Phase 1. Consult the actual reports for executed counts and failures.
 No threshold, trust gate or original assurance outcome has been weakened.
+
+## Targeted Marketplace remediation after Formal Run 1 (10 November 2026)
+
+This section supersedes the Phase 1 blocker list above. #84 supplies actual
+lifecycle origin and signed synthetic/simulation provenance; those checks must
+remain mandatory. Formal Run 1 is permanently **BLOCKED**: 1000/1000 lifecycle
+narratives conformed, but only 600 complete outcomes conformed. Its 180 missing
+match replies and 220 retained origin-uncheckable results are disjoint. See
+`issue-33-final-test-report-deltas.md` for the immutable run references.
+
+Marketplace now uses a single application-wide FIFO candidate queue shared by
+eligibility and matching requests, including overlapping retries. Server-only
+`MARKETPLACE_AUTHORITY_CONCURRENCY` defaults to **16**, accepts integers 1..32,
+and leaves readiness closed on invalid configuration. Each candidate starts its
+four source branches only after dispatch; queue waiting does not spend the
+unchanged **2000ms** source deadline. Verification still performs both signature/
+schema and current-status reads: **5N HTTP reads per fresh N-candidate request**.
+There is no cross-request cache, new batch API, package coalescing, SQL rewrite,
+trust-policy change or ranking change. Results retain deterministic input order.
+
+A separate disposable diagnostic built 400 real public lifecycle learners and
+performed three fresh requests at each size 10/50/100/250/400. All 15 committed
+results matched the independent oracle; all 12150 authority HTTP reads succeeded.
+At 400, all three callers received Gateway 504 although correct results committed
+and were observed roughly 9.0–11.3s after authority dispatch began. Source deadlines
+and container resources were unchanged. These are diagnostic samples, not a formal
+latency verdict. Evidence: `artifacts/issue-33/eduagentx-issue33-20261110t150424z-38953/`.
+
+Only **POST eligibility-checks / matches** now receive the Gateway's fixed finite
+**30000ms** forwarding budget. Other routes retain the generic **5000ms** default.
+Only those two heavy #33 operations use a **35000ms** client timeout; other #33
+calls retain **10000ms**. Callers cannot set either policy. The approved latency
+metric remains p95 <=30000ms (Floor), with <=10000ms reported separately (Target).
+Extending a transport budget never turns the Target into the Floor or makes an
+uncheckable candidate eligible.
+
+Every attempted logical match key is retained before an accepted reply is known.
+Answer-free attempt evidence contains request ID, key, correlation ID, monotonic
+attempt ordinal, status, latency, normalized error and optional result ID. Final
+admin reconciliation covers keys without returned IDs too. It distinguishes no
+commit observed at the bounded cutoff, one matching result, observed late commit,
+commit with lost reply, duplicate results, result mismatch and unavailable inventory.
+Unavailable/malformed inventory keeps counts **null**, never measured zero. A late
+commit establishes inventory, not unobserved ranking/explanation conformance.
+Command checkpoints have their own `market-command` phase; they cannot inflate
+`golden-case` counts. Golden evidence includes sanitized `commands.jsonl` and its
+artifact digest. Retrying the same key is not a new logical command.
+
+Validation commands (each owns private projects, keys, volumes and evidence):
+
+```sh
+node scripts/run-unit-tests.js
+node scripts/verify-issue-33.js
+python3 -m unittest discover -s scripts -p 'test_sprint1_*.py'
+python3 -m unittest discover -s scripts -p 'test_sprint5_*.py'
+python3 scripts/verify-issue-33-postgres.py
+python3 scripts/run-sprint5.py --mode golden --formal-approved --golden-v2-approved
+python3 scripts/run-sprint5.py --mode rehearsal --rehearsal-approved
+git diff --check
+```
+
+Despite the inherited CLI flag name, standalone `--mode golden` is targeted
+Marketplace evidence, **not** the formal 1000-profile suite. Rehearsal selects 100
+frozen scenarios and uses real 60-minute response deadlines. Formal Run 2 requires
+separate explicit approval and a distinct fresh evidence directory; do not start
+it automatically or combine it with Run 1. Latest measured validation results and
+remaining limitations belong in the Final Test Report delta note.
+
+The first targeted 1000-agent run exposed a harness oracle error at
+`golden-v2-limits-002`: revoked credentials also below the request score threshold
+must report **both** trust and request reasons. `docs/contracts/marketplace.md`
+requires every gate to run and every failure to be reported. The independent
+oracle now preserves those combined reasons while excluding the candidate from
+both lanes. It still imports no production evaluator. Literal contract tests and
+a separate production-as-system-under-test comparison cover the combination.
+No matrix, threshold, ranking rule or production gate was changed. Developer
+golden selection now has **20 cases**, adding this exact Near Match/lane-limit
+case to the previous 19; the frozen formal matrix remains 100 cases.
+
+Final match inventory is inspected before other inventory groups, so an unrelated
+admission/credential read failure cannot skip an attempted match key. Unavailable
+final inventories do not retain stale measured-zero counts. Cleanup failure keeps
+its command/result/attempt metadata and blocks the observation; an existing safety
+mismatch or harness error is never downgraded. Unexpected post-dispatch errors
+retain the key without arbitrary exception text. The aborted-caller regression
+now waits for the second SERVER lookup before releasing the first paused job.
+
+### Readiness verified 11 November 2026 (Dubai)
+
+The completed standalone golden rerun at
+`artifacts/issue-33/eduagentx-issue33-20261110t192122z-77168/golden/` is PASS:
+1000 real learners, 100/100 cases CONFORMANT, 100 Capability Requests, all 105
+logical Match commands reconciled once, zero Match/lane duplicates. Latency was
+p50 17.531s, p95 22.591s, maximum 25.670s: the 30s Floor is MET and the separate
+10s Target is MISSED. Its four artifact digests verify. The earlier targeted
+92-case run remains FAIL, and Formal Run 1 remains BLOCKED.
+
+The existing real-duration 100-scenario rehearsal remains healthy evidence for
+the unchanged runtime/configuration files; later harness-only changes have their
+own current-source golden, smoke, fault-accounting and unit checks. No completed
+validation was restarted on resumption. See `issue-33-final-test-report-deltas.md`
+for exact source fingerprints, fresh regression counts and limitations.
+
+Do not rerun these completed validations or start Formal Run 2 automatically.
+Overall Issue33 acceptance still needs the distinct complete formal execution
+on the final clean commits, after explicit approval. Runtime evidence stays
+ignored; the university Test Plan is unchanged.

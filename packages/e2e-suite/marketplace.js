@@ -106,16 +106,18 @@ async function observeMarketplace({ scenario, agent, admin, pkg, actor, cohort =
   const c = command(scenario.id, 'market-match'), root = '/v1/marketplace';
   const publish = await agent.interact(scenario, 'publish', 'marketplace.listing.publish');
   if (![200, 201].includes(publish.status)) return { status: 'BLOCKED', reason: 'listing_unavailable' };
+  let observation, commandEvidence, started;
+  const finish = value => (observation = value);
   try {
     const request = { domain: 'ai-agent-safety-secure-tool-use', title: identity(scenario.id, 'market-request'),
       requiredObjectiveIds: pkg.objectiveIds, minOverallPercent: 80, minAdversarialPercent: 70,
       maxCredentialAgeDays: 365, allowedAssessmentModes: ['standard'], requiredEnvironment: 'simulation' };
     const made = await admin.call('POST', `${root}/capability-requests`, {
       idempotencyKey: command(scenario.id, 'market-create').idempotencyKey, request }, c.correlationId);
-    if (![200, 201].includes(made.status)) return { status: 'BLOCKED', reason: 'request_unavailable' };
+    if (![200, 201].includes(made.status)) return finish({ status: 'BLOCKED', reason: 'request_unavailable' });
     const requestId = made.body.request.id;
     const opened = await admin.call('POST', `${root}/capability-requests/${requestId}/open`, { version: 1 }, c.correlationId);
-    if (opened.status !== 200) return { status: 'BLOCKED', reason: 'request_open_unavailable' };
+    if (opened.status !== 200) return finish({ status: 'BLOCKED', reason: 'request_open_unavailable' });
     // Publication is asynchronous. A match command is an immutable snapshot:
     // never spend its stable idempotency key on a not-yet-projected cohort.
     let probe = 0;
@@ -123,14 +125,25 @@ async function observeMarketplace({ scenario, agent, admin, pkg, actor, cohort =
       idempotencyKey: command(scenario.id, `market-projection:${probe++}`).idempotencyKey }, c.correlationId),
     r => [200, 201].includes(r.status) && [...(r.body?.eligible || []), ...(r.body?.excluded || [])]
       .some(a => a.agentLearnerKey === scenario.learnerId), { deadline: now() + projectionWaitMs, now, wait });
-    const started = now();
+    started = now();
+    // Retain the logical key before dispatch, including unexpected observation
+    // errors or a later cleanup failure. Neither proves that no result committed.
+    commandEvidence = { requestId, idempotencyKey: c.idempotencyKey, correlationId: c.correlationId,
+      durationMs: null, commandAttempts: [] };
     const matched = await admin.call('POST', `${root}/capability-requests/${requestId}/matches`, { idempotencyKey: c.idempotencyKey }, c.correlationId);
     const matchingDurationMs = now() - started;
-    if (![200, 201].includes(matched.status)) return { status: 'BLOCKED', reason: 'matching_unavailable', requestId };
+    commandEvidence.durationMs = matchingDurationMs;
+    commandEvidence.commandAttempts = [...(matched.commandAttempts || [])];
+    if (![200, 201].includes(matched.status)) return finish({ status: 'BLOCKED', reason: 'matching_unavailable', ...commandEvidence });
     const result = matched.body.matchResult;
+    if (!result?.resultId || !['eligibleMatches','nearMatches','exclusions'].every(k => Array.isArray(result[k])))
+      return finish({ status: 'BLOCKED', reason: 'matching_response_invalid', ...commandEvidence });
+    commandEvidence.resultId = result.resultId;
     const replay = await admin.call('POST', `${root}/capability-requests/${requestId}/matches`, { idempotencyKey: c.idempotencyKey }, c.correlationId);
+    commandEvidence.commandAttempts.push(...(replay.commandAttempts || []));
     const retries = await Promise.all(Array.from({ length: replayConcurrency }, () =>
       admin.call('POST', `${root}/capability-requests/${requestId}/matches`, { idempotencyKey: c.idempotencyKey }, c.correlationId)));
+    commandEvidence.commandAttempts.push(...retries.flatMap(r => r.commandAttempts || []));
     const inventory = await admin.call('GET', `/v1/admin/reconciliation/matches?${new URLSearchParams({ actor, idempotencyKey: c.idempotencyKey })}`, undefined, c.correlationId);
     const self = [...result.eligibleMatches, ...result.nearMatches, ...result.exclusions].some(a => a.agentLearnerKey === scenario.learnerId);
     const selfEligible = result.eligibleMatches.find(a => a.agentLearnerKey === scenario.learnerId);
@@ -147,7 +160,8 @@ async function observeMarketplace({ scenario, agent, admin, pkg, actor, cohort =
       assessment = { status: 'MISMATCH', reason: 'concurrent_match_replay' };
     // Missing projection is a blocker only after observable safety/replay checks.
     // It must never conceal an invalid inclusion elsewhere in the same result.
-    return { ...assessment, ...(!self && assessment.status !== 'MISMATCH' ? { status: 'BLOCKED', reason: 'credential_projection_not_observed' } : {}),
+    return finish({ ...assessment, ...(!self && assessment.status !== 'MISMATCH' ? { status: 'BLOCKED', reason: 'credential_projection_not_observed' } : {}),
+      ...commandEvidence,
       caseId: 'pilot-lifecycle-entry', requestId, resultId: result.resultId, idempotencyKey: c.idempotencyKey,
       durationMs: matchingDurationMs, observationDurationMs: now() - started,
       observedCandidates: result.totalEligible + result.totalNearMatches + result.exclusions.length,
@@ -161,10 +175,20 @@ async function observeMarketplace({ scenario, agent, admin, pkg, actor, cohort =
       allTrustChecksPassed: selfEligible ? TRUST_CHECKS.every(gate => selfEligible.checks
         .filter(k => k.tag === 'trust' && k.gate === gate && k.passed === true).length === 1) : null,
       explanationDigest: selfEligible ? digest({ checks: selfEligible.checks, components: selfEligible.components,
-        ordering: selfEligible.ordering, evidence: selfEligible.evidence, sources: selfEligible.sources }) : null };
+        ordering: selfEligible.ordering, evidence: selfEligible.evidence, sources: selfEligible.sources }) : null });
+  } catch {
+    return finish({ status: 'HARNESS_ERROR', reason: 'marketplace_observation_error', ...commandEvidence,
+      ...(started === undefined ? {} : { observationDurationMs: now() - started }) });
   } finally {
-    const withdrawal = await agent.interact(scenario, 'withdraw-after-observation', 'marketplace.listing.withdraw');
-    if (![200, 201].includes(withdrawal.status)) throw new Error('listing_cleanup_unavailable');
+    let withdrawal;
+    try { withdrawal = await agent.interact(scenario, 'withdraw-after-observation', 'marketplace.listing.withdraw'); }
+    catch { withdrawal = { status: 0 }; }
+    if (![200, 201].includes(withdrawal.status)) {
+      observation.cleanupStatus = 'BLOCKED';
+      if (!['MISMATCH','HARNESS_ERROR'].includes(observation.status)) {
+        observation.status = 'BLOCKED'; observation.reason = 'listing_cleanup_unavailable';
+      }
+    }
   }
 }
 module.exports = { golden, goldenHash: digest(golden), ALLOCATION, assessGolden, observeMarketplace };

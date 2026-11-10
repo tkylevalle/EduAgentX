@@ -36,6 +36,15 @@ test('90% floor and 95% target are distinct and never rounded up at boundaries',
     assert.equal(r.acceptanceFloor.result, floor); assert.equal(r.target95.result, target); assert.equal(r.technicalChecks, status);
   }
 });
+
+test('Marketplace 30s latency floor and 10s target are separate and ambiguous replies block measurement', () => {
+  const input=formal();input.results.forEach(r=>r.marketplace.durationMs=20000);
+  const measured=buildReport(input);
+  assert.equal(measured.marketplace.latencyFloorResult,'MET');assert.equal(measured.marketplace.latencyTargetResult,'MISSED');
+  input.results[0].status='BLOCKED';input.results[0].marketplace.status='BLOCKED';
+  const blocked=buildReport(input);
+  assert.equal(blocked.marketplace.latencyFloorResult,'BLOCKED');assert.notEqual(blocked.technicalChecks,'PASS');
+});
 test('one invariant or safety breach overrides 99.9% aggregate conformance', () => {
   const input = formal(999);
   input.results[0].checks[0].passed = false;

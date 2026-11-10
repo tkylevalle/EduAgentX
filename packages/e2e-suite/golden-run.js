@@ -10,12 +10,13 @@ const { setupPackage, createOrchestrator, registrationPayload, SuiteError, requi
 const { command, digest } = require('./identity');
 const { laneDuplicates } = require('./invariants');
 const { sourceIdentity } = require('./run');
-const { latencyStats } = require('./report');
+const { latencyStats, safeMarket } = require('./report');
+const { reconcileMatch } = require('./match-inventory');
 const { createJournal } = require('./checkpoint');
 const root = '/v1/marketplace';
 const developerCases = () => golden.cases.filter(c => (c.family === 'eligible' && c.index < 4) ||
   (['gaps','trust'].includes(c.family) && c.index < 5) || (c.family === 'history' && c.index < 3) ||
-  (['ranking','limits'].includes(c.family) && c.index === 0));
+  (c.family === 'ranking' && c.index === 0) || (c.family === 'limits' && c.index < 2));
 function ensure(value, reason) { if (!value) throw new SuiteError('MISMATCH', reason); }
 function validateFacts(f) {
   return f && f.overallPercent === facts.overallPercent && f.adversarialPercent === facts.adversarialPercent &&
@@ -37,7 +38,25 @@ async function execute({ mode = 'golden-developer', env = process.env } = {}) {
   const clientFor = s => {const row=roster.find(r=>r.clientId===s.clientId);if(!row)throw new Error('identity_missing');return make(row.clientId,row.clientSecret);};
   let status = 'PASS', reason = null, setupCount = 0, cohortFinishedAt = null;
   const correlation = command('golden-v2','setup').correlationId;
-  const call = async(method, route, body, statuses=[200]) => requireReply(await admin.call(method,route,body,correlation),statuses,'golden_public_operation');
+  const call = async(method, route, body, statuses=[200]) => {
+    const matching = method==='POST' && route.endsWith('/matches');
+    let tracked;
+    if (matching) {
+      tracked=matchCommands.find(c=>c.idempotencyKey===body.idempotencyKey);
+      if (!tracked) {
+        tracked={requestId:route.split('/')[4],idempotencyKey:body.idempotencyKey,
+          correlationId:command(body.idempotencyKey,'transport').correlationId,commandAttempts:[]};
+        matchCommands.push(tracked); // Register before dispatch, including ambiguous replies.
+      }
+    }
+    const reply=await admin.call(method,route,body,tracked?.correlationId||correlation);
+    if (tracked) {
+      tracked.commandAttempts.push(...(reply.commandAttempts||[]));
+      tracked.resultId ||= reply.body?.matchResult?.resultId;
+      journal.writeCommand({...tracked,status:'UNMEASURED',caseId:'match-command-transport'});
+    }
+    return requireReply(reply,statuses,'golden_public_operation');
+  };
   try {
     const pkg=await setupPackage({admin,reviewers:[1,2].map(i=>make(env[`REVIEWER_${i}_CLIENT_ID`],env[`REVIEWER_${i}_CLIENT_SECRET`]))});
     const orchestrator=createOrchestrator({admin,actor:env.ADMIN_CLIENT_ID,pkg,authoritativeExecution:true});
@@ -104,7 +123,6 @@ async function execute({ mode = 'golden-developer', env = process.env } = {}) {
           const secondKey=command(spec.id,'fresh-after-change').idempotencyKey;
           const secondInventory=await call('GET',`/v1/admin/reconciliation/matches?${new URLSearchParams({actor:env.ADMIN_CLIENT_ID,idempotencyKey:secondKey})}`);
           ensure(secondInventory.count===1&&laneDuplicates(secondInventory.appearances)===0,'golden_fresh_command_duplicates');
-          matchCommands.push({idempotencyKey:secondKey,resultId:fresh2.matchResult.resultId});
         }
         const retry=await call('POST',`${root}/capability-requests/${requestId}/matches`,{idempotencyKey:commandKey},[200]);
         const historical=await call('GET',`${root}/match-results/${result.resultId}`);
@@ -112,7 +130,6 @@ async function execute({ mode = 'golden-developer', env = process.env } = {}) {
         const inventory=await call('GET',`/v1/admin/reconciliation/matches?${new URLSearchParams({actor:env.ADMIN_CLIENT_ID,idempotencyKey:commandKey})}`);
         const duplicates=Math.max(0,inventory.count-1),lanes=laneDuplicates(inventory.appearances);
         ensure(inventory.count===1&&duplicates===0&&lanes===0,'golden_duplicates');
-        matchCommands.push({idempotencyKey:commandKey,resultId:result.resultId});
         records.push({caseId:spec.id,family:spec.family,status:assessment.status,reason:assessment.reason||assessment.errors.join(':')||null,
           blockedCodes:assessment.blockedCodes||[],
           requestId,resultId:result.resultId,idempotencyKey:commandKey,durationMs,observedCandidates:ledger.length,
@@ -133,33 +150,50 @@ async function execute({ mode = 'golden-developer', env = process.env } = {}) {
     const denied=await admin.call('POST',`${root}/capability-requests`,{idempotencyKey:command('golden-v2','unsupported').idempotencyKey,
       request:{...golden.cases[0].request,title:'unsupported',domain:'unsupported-domain'}},correlation);
     ensure(unsupportedRefusal(denied),'golden_unsupported_domain');
-    for(const c of matchCommands){
-      const inventory=await call('GET',`/v1/admin/reconciliation/matches?${new URLSearchParams({actor:env.ADMIN_CLIENT_ID,idempotencyKey:c.idempotencyKey})}`);
-      ensure(inventory.count===1&&inventory.resultIds?.[0]===c.resultId&&Array.isArray(inventory.appearances)&&
-        laneDuplicates(inventory.appearances)===0,'golden_final_match_reconciliation');
-    }
     for(const ctx of contexts){
       await orchestrator.reconcile(ctx);
       ensure(ctx.result.reconciliation?.status==='CONFORMANT','golden_final_reconciliation');
     }
   }catch(e){status=e instanceof SuiteError&&e.status==='BLOCKED'?'BLOCKED':'FAIL';reason=e instanceof SuiteError?e.reason:'golden_execution_error';}
+  // Reconcile every dispatched key, even if execution stopped before retaining
+  // a result ID. Do not replace an earlier FAIL with unavailable evidence.
+  for (const c of matchCommands) {
+    c.reconciliation=await reconcileMatch({admin,actor:env.ADMIN_CLIENT_ID,...c});
+    if(c.reconciliation.status!=='CONFORMANT') {
+      if(c.reconciliation.status==='MISMATCH'){status='FAIL';reason='golden_final_match_reconciliation';}
+      else if(status!=='FAIL'){status='BLOCKED';reason='golden_final_inventory_unavailable';}
+    }
+  }
   if(sourceIdentity().fingerprint!==source.fingerprint){status='FAIL';reason='source_changed_during_run';}
   journal.close();
+  const latency=latencyStats(records.map(r=>r.durationMs));
+  const floorResult=latency.p95Ms===null?'UNMEASURED':latency.p95Ms<=30000?'MET':'MISSED';
+  const targetResult=latency.p95Ms===null?'UNMEASURED':latency.p95Ms<=10000?'MET':'MISSED';
+  if(status==='PASS'&&floorResult!=='MET'){status='FAIL';reason='golden_latency_floor';}
   const report={schemaVersion:'issue-33-golden-execution/2.0.0',mode,label:'NOT FORMAL ISSUE #33 ACCEPTANCE',source,
     datasetHash:goldenHash,cohortHash,startedAt,finishedAt:new Date().toISOString(),status,reason,
     plannedCases:specs.length,executedCases:records.length,plannedAgents:selected.length,measuredAgents:setupCount,
     timings: { cohortSetupMs: cohortFinishedAt ? Date.parse(cohortFinishedAt)-Date.parse(startedAt) : null,
       caseExecutionMs: cohortFinishedAt ? Date.now()-Date.parse(cohortFinishedAt) : null },
     finalReconciliationComplete:status==='PASS'&&contexts.length===selected.length&&contexts.every(c=>c.result.reconciliation?.status==='CONFORMANT'),
-    reconciledMatchCommands: status==='PASS'?matchCommands.length:null, matchDuplicateCount:status==='PASS'?0:null,
+    attemptedMatchCommands:matchCommands.length,
+    reconciledMatchCommands:matchCommands.filter(c=>c.reconciliation.status!=='BLOCKED').length,
+    matchDuplicateCount:matchCommands.every(c=>c.reconciliation.duplicates!==null)
+      ?matchCommands.reduce((sum,c)=>sum+c.reconciliation.duplicates,0):null,
+    laneDuplicateCount:matchCommands.every(c=>c.reconciliation.laneDuplicates!==null)
+      ?matchCommands.reduce((sum,c)=>sum+c.reconciliation.laneDuplicates,0):null,
+    matchCommands:matchCommands.map(c=>safeMarket({...c,status:c.reconciliation.status})),
     formalGoldenRequirementsMeasured:mode==='golden'&&status==='PASS'&&records.length===100&&setupCount>=1000,
-    uniqueCapabilityRequests:new Set(records.map(r=>r.requestId)).size,latency:latencyStats(records.map(r=>r.durationMs)),results:records,
+    uniqueCapabilityRequests:new Set(records.map(r=>r.requestId)).size,latency,
+    latencyPolicy:{metric:'p95',floorMs:30000,floorResult,targetMs:10000,targetResult,
+      scope:'fresh_match_command_including_client_pacing_and_retries_excluding_replay'},results:records,
     formal1000:'NOT_RUN',limitations:golden.additionalCoverage,
     environment:{project:env.E2E_PROJECT,configHash:env.E2E_CONFIG_HASH,imageHash:env.E2E_IMAGE_HASH,seam:'public_compose'}};
   const directory=env.E2E_OUTPUT_DIR;fs.mkdirSync(directory,{recursive:true});
   fs.writeFileSync(path.join(directory,'report.json'),JSON.stringify(report,null,2)+'\n',{flag:'wx'});
   fs.writeFileSync(path.join(directory,'marketplace.jsonl'),records.map(r=>JSON.stringify(r)).join('\n')+'\n');
-  const artifacts=Object.fromEntries(['report.json','marketplace.jsonl','progress.jsonl'].map(n=>[n,createHash('sha256').update(fs.readFileSync(path.join(directory,n))).digest('hex')]));
+  fs.writeFileSync(path.join(directory,'commands.jsonl'),report.matchCommands.map(r=>JSON.stringify(r)).join('\n')+'\n');
+  const artifacts=Object.fromEntries(['report.json','marketplace.jsonl','commands.jsonl','progress.jsonl'].map(n=>[n,createHash('sha256').update(fs.readFileSync(path.join(directory,n))).digest('hex')]));
   fs.writeFileSync(path.join(directory,'artifact-manifest.json'),JSON.stringify({schemaVersion:'1.0.0',artifacts},null,2)+'\n');
   return report;
 }

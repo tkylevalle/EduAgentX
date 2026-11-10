@@ -43,3 +43,47 @@ test('pilot projection absence cannot downgrade an observable trust violation to
   const unsafe = base(); unsafe.eligibleMatches.push({ agentLearnerKey: 'untrusted-other', eligible: true, checks: [] });
   assert.equal((await observe(unsafe)).status, 'MISMATCH');
 });
+
+test('failed or malformed match replies retain their logical command for final reconciliation', async () => {
+  for(const status of [504,200]) {
+    const agent={interact:async()=>({status:201})};
+    const admin={call:async(_method,route)=>route==='/v1/marketplace/capability-requests'
+      ?{status:201,body:{request:{id:'request'}}}:route.endsWith('/open')?{status:200}:
+      route.endsWith('/matches')?{status,body:{error:'upstream_timeout'},commandAttempts:[{attempt:1,httpStatus:status}]}:{status:200,body:{eligible:[],excluded:[]}}};
+    const r=await observeMarketplace({scenario:{id:'competent-001',learnerId:'learner'},agent,admin,
+      pkg:{objectiveIds:['o1']},actor:'admin',projectionWaitMs:0});
+    assert.equal(r.status,'BLOCKED');assert.ok(r.idempotencyKey);assert.ok(r.correlationId);
+    assert.equal(r.requestId,'request');assert.equal(r.commandAttempts.length,1);assert.ok(Number.isFinite(r.durationMs));
+  }
+});
+
+test('withdrawal failure retains an attempted match and never downgrades an observed safety mismatch', async () => {
+ for(const unsafe of [false,true]) {
+  const result=base();
+  if(unsafe)result.eligibleMatches.push({agentLearnerKey:'unsafe-other',eligible:true,checks:[]});
+  const agent={interact:async(_s,op)=>({status:op==='withdraw-after-observation'?503:201})};
+  const admin={call:async(_method,route)=>route==='/v1/marketplace/capability-requests'
+    ?{status:201,body:{request:{id:'request'}}}:route.endsWith('/open')?{status:200}:
+    route.endsWith('/matches')?{status:200,body:{matchResult:result},commandAttempts:[{attempt:1,httpStatus:200}]}:
+    {status:200,body:{count:1,appearances:[],eligible:[],excluded:[]}}};
+  const r=await observeMarketplace({scenario:{id:'competent-001',learnerId:'learner'},agent,admin,
+    pkg:{objectiveIds:['o1']},actor:'admin',projectionWaitMs:0});
+  assert.equal(r.status,unsafe?'MISMATCH':'BLOCKED');assert.equal(r.cleanupStatus,'BLOCKED');
+  assert.ok(r.idempotencyKey);assert.equal(r.resultId,'r');assert.equal(r.commandAttempts.length,3);
+  if(!unsafe)assert.equal(r.reason,'listing_cleanup_unavailable');
+ }
+});
+
+test('an unexpected post-dispatch observation error retains the logical key without retaining private exception text', async () => {
+ const agent={interact:async()=>({status:201})};
+ const admin={call:async(_method,route)=>{
+  if(route==='/v1/marketplace/capability-requests')return{status:201,body:{request:{id:'request'}}};
+  if(route.endsWith('/open'))return{status:200};
+  if(route.endsWith('/matches'))throw Error('PRIVATE_DIAGNOSTIC_TEXT');
+  return{status:200,body:{eligible:[],excluded:[]}};
+ }};
+ const r=await observeMarketplace({scenario:{id:'competent-001',learnerId:'learner'},agent,admin,
+   pkg:{objectiveIds:['o1']},actor:'admin',projectionWaitMs:0});
+ assert.equal(r.status,'HARNESS_ERROR');assert.ok(r.idempotencyKey);assert.equal(r.requestId,'request');
+ assert.ok(!JSON.stringify(r).includes('PRIVATE_DIAGNOSTIC_TEXT'));
+});

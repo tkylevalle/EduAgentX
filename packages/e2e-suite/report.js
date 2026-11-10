@@ -42,6 +42,14 @@ function safeScenario(r) {
 function safeMarket(m) {
   return { caseId: safeCode(m.caseId), status: STATUSES.includes(m.status) ? m.status : 'UNMEASURED', reason: safeCode(m.reason),
     requestId: safeText(m.requestId), resultId: safeText(m.resultId), idempotencyKey: safeText(m.idempotencyKey),
+    correlationId: safeText(m.correlationId),
+    cleanupStatus: safeCode(m.cleanupStatus),
+    commandAttempts: (m.commandAttempts || []).map(a => ({ capabilityRequestId: safeText(a.capabilityRequestId),
+      idempotencyKey: safeText(a.idempotencyKey), correlationId: safeText(a.correlationId), attempt: number(a.attempt),
+      httpStatus: number(a.httpStatus), durationMs: number(a.durationMs), error: safeCode(a.error), resultId: safeText(a.resultId) })),
+    reconciliation: m.reconciliation ? { state: safeCode(m.reconciliation.state), status: safeCode(m.reconciliation.status),
+      count: number(m.reconciliation.count), duplicates: number(m.reconciliation.duplicates),
+      laneDuplicates: number(m.reconciliation.laneDuplicates), resultIds: (m.reconciliation.resultIds || []).map(safeText) } : null,
     durationMs: number(m.durationMs), observedCandidates: number(m.observedCandidates),
     observationDurationMs: number(m.observationDurationMs),
     blockedCodes: (m.blockedCodes || []).map(safeCode), matchCount: number(m.matchCount), laneDuplicates: number(m.laneDuplicates),
@@ -146,7 +154,11 @@ function buildReport({ mode, selected, results = [], environment = {}, source = 
       declaredCasesObserved: externalGoldenComplete ? 100 : new Set(marketplace.filter(m => declaredCases.has(m.caseId)).map(m => m.caseId)).size,
       declaredCasesBlocked: new Set(marketplace.filter(m => declaredCases.has(m.caseId) && m.status === 'BLOCKED').map(m => m.caseId)).size,
       unmeasuredGoldenCases: externalGoldenComplete ? 0 : 100 - new Set(marketplace.filter(m => declaredCases.has(m.caseId)).map(m => m.caseId)).size,
-      requiredGatesComplete: marketComplete, latency: marketLatency, latencyScope: 'fresh_match_command_including_client_pacing_excluding_replay', floorMs: 30000, targetMs: 10000 },
+      requiredGatesComplete: marketComplete, latency: marketLatency, latencyScope: 'fresh_match_command_including_client_pacing_excluding_replay', floorMs: 30000, targetMs: 10000,
+      latencyFloorResult: marketLatency.p95Ms === null ? 'UNMEASURED' :
+        !externalGoldenComplete && marketplace.some(m=>m.status!=='CONFORMANT') ? 'BLOCKED' : marketLatency.p95Ms<=30000?'MET':'MISSED',
+      latencyTargetResult: marketLatency.p95Ms === null ? 'UNMEASURED' :
+        !externalGoldenComplete && marketplace.some(m=>m.status!=='CONFORMANT') ? 'BLOCKED' : marketLatency.p95Ms<=10000?'MET':'MISSED' },
     latency: { ...latencyStats(latencies.map(l => l.durationMs)), scope: 'all_public_calls_including_client_authentication_pacing_and_retries' }, failuresByReason: reasons,
     runErrors: runErrors.map(e => ({ status: STATUSES.includes(e.status) ? e.status : 'HARNESS_ERROR', reason: safeCode(e.reason) })),
     notRun: notRun.map(safeCode), knownLimitations: BLOCKERS.filter(b => !externalGoldenComplete || b !== 'marketplace_high_fanout_unmeasured'), knownBlockers: [...new Set(blockers.map(safeCode))],

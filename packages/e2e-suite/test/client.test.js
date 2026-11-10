@@ -51,6 +51,22 @@ test('deadline observers do not hold every preparation worker', async () => {
   const results = await runScenarios([{ id: 'a' }, { id: 'b' }, { id: 'c' }], { orchestrator, clientFor: () => ({}), concurrency: 1 });
   assert.equal(results.length, 3); assert.equal(prepared, 3);
 });
+
+test('only heavy Marketplace evaluations receive the finite 35s client budget and attempt ordinals span replays', async () => {
+  const client = new PublicClient({ gatewayUrl: 'http://unused.invalid', clientId: 'test', clientSecret: 'test' });
+  const seen = [];
+  client.client.request = async (_m, route, options) => {
+    seen.push({ route, timeoutMs: options.timeoutMs }); return { status: 200, body: {} };
+  };
+  const route = '/v1/marketplace/capability-requests/request/matches';
+  const first = await client.call('POST', route, { idempotencyKey: 'same' });
+  const replay = await client.call('POST', route, { idempotencyKey: 'same' });
+  await client.call('POST', route.replace('matches','eligibility-checks'), { idempotencyKey: 'check' });
+  await client.call('POST', '/v1/marketplace/capability-requests', {});
+  await client.call('GET', route); await client.call('POST', '/v1/examinations', {});
+  assert.deepEqual(seen.map(s => s.timeoutMs), [35000,35000,35000,10000,10000,10000]);
+  assert.equal(first.commandAttempts[0].attempt, 1); assert.equal(replay.commandAttempts[0].attempt, 2);
+});
 test('independent fingerprint binds normalized declared configuration, not learner identity', () => {
   const a = registrationPayload(select('canary')[0]);
   assert.equal(expectedFingerprint(a), expectedFingerprint({ ...a, agentLearnerKey: 'another-learner' }));
