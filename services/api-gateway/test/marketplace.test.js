@@ -179,11 +179,12 @@ test('an unreachable Marketplace is a 502, not a success', async (t) => {
 });
 
 async function startGateway(t, overrides = {}) {
-  const marketplace = await startMarketplaceStub();
+  const { stubDelayMs = 0, ...appOverrides } = overrides;
+  const marketplace = await startMarketplaceStub(stubDelayMs);
   const gateway = http.createServer(createApp({
     marketplaceServiceUrl: `http://127.0.0.1:${marketplace.server.address().port}`,
     marketplaceInternalKey: MARKETPLACE_KEY,
-    ...overrides,
+    ...appOverrides,
   }));
   await listen(gateway);
   t.after(() => gateway.close());
@@ -192,17 +193,41 @@ async function startGateway(t, overrides = {}) {
 }
 
 // Records every request and answers 201 to writes, 200 to reads.
-async function startMarketplaceStub() {
+async function startMarketplaceStub(delayMs = 0) {
   const stub = { requests: [] };
   stub.server = http.createServer(async (req, res) => {
     const body = req.method === 'POST' ? await readJson(req) : undefined;
     stub.requests.push({ method: req.method, url: req.url, headers: req.headers, body });
+    if (delayMs) await new Promise(resolve => setTimeout(resolve, delayMs));
     res.writeHead(req.method === 'POST' ? 201 : 200, { 'content-type': 'application/json' });
     res.end(JSON.stringify({ apiVersion: 'v1', outcome: 'ok' }));
   });
   await listen(stub.server);
   return stub;
 }
+
+test('heavy Marketplace evaluations survive five seconds while ordinary forwarding still expires', async t => {
+  const { gateway } = await startGateway(t, { stubDelayMs: 6000 });
+  const token = await tokenFor(gateway, 'admin'), headers = { authorization: `Bearer ${token}` };
+  const [match, check, ordinary] = await Promise.all([
+    request(gateway, 'POST', `/v1/marketplace/capability-requests/${REQUEST_ID}/matches`, { idempotencyKey: 'slow-match' }, headers),
+    request(gateway, 'POST', `/v1/marketplace/capability-requests/${REQUEST_ID}/eligibility-checks`, { idempotencyKey: 'slow-check' }, headers),
+    request(gateway, 'GET', '/v1/marketplace/capability-requests', undefined, headers),
+  ]);
+  assert.equal(match.status, 201); assert.equal(check.status, 201);
+  assert.equal(ordinary.status, 504); assert.equal(ordinary.body.error, 'upstream_timeout');
+});
+
+test('callers cannot change the Marketplace evaluation budget or authority concurrency', async t => {
+  const { gateway, marketplace } = await startGateway(t);
+  const token = await tokenFor(gateway, 'admin');
+  for (const field of ['timeoutMs','authorityConcurrency','MARKETPLACE_AUTHORITY_CONCURRENCY']) {
+    const reply = await request(gateway, 'POST', `/v1/marketplace/capability-requests/${REQUEST_ID}/matches`,
+      { idempotencyKey: 'override', [field]: 999999 }, { authorization: `Bearer ${token}` });
+    assert.equal(reply.status, 400);
+  }
+  assert.equal(marketplace.requests.length, 0);
+});
 
 function message(interactionType, data = {}) {
   return createLifecycleMessage({

@@ -19,6 +19,7 @@ const { createPgStore, withRetry, isUniqueViolation } = require('./store');
 const { askSource, createRegistrySource, createPackageSource, createVerificationSource,
   createLifecycleSource } = require('./clients');
 const { DEFAULT_STREAM, createCredentialConsumer, createRedisClient } = require('./stream-consumer');
+const { DEFAULT_CONCURRENCY, concurrency, createAuthorityDispatch } = require('./authority-dispatch');
 
 const SERVICE_NAME = 'marketplace-service';
 const API_VERSION = 'v1';
@@ -44,10 +45,12 @@ const matchesSecret = (a, b) => {
 function createApp({
   pool, store = pool ? createPgStore(pool) : undefined, internalKey = process.env.MARKETPLACE_INTERNAL_KEY,
   sources, clock = () => new Date().toISOString(), newId = randomUUID, sourceTimeoutMs = 2000,
+  authorityConcurrency = DEFAULT_CONCURRENCY,
   // Startup problems (missing config, schema not applied yet). Any problem means 503, never a guess.
   readiness = () => [], healthDetails = () => ({}),
 } = {}) {
   if (!store || !sources || SOURCE_NAMES.some((name) => !sources[name])) throw new Error('store and all four sources required');
+  const dispatchAuthorities = createAuthorityDispatch(authorityConcurrency);
   const app = express();
   app.use((req, res, next) => {
     req.correlationId = req.header('x-correlation-id') || randomUUID();
@@ -242,7 +245,7 @@ function createApp({
 
     // 2. Ask the owning services with no transaction or lock held, so slow
     // sources never block a close, a new version or another check.
-    const answers = await Promise.all(records.map((record) => gatherAnswers(record, req.correlationId)));
+    const answers = await dispatchAuthorities(records, (record) => gatherAnswers(record, req.correlationId));
 
     // 3. One short transaction under the request lock: confirm the request is
     // still open on the same version, read listings fresh, then store the evidence.
@@ -292,7 +295,7 @@ function createApp({
     // A corrupted/unsupported stored request must never widen matching.
     const valid = validateRequestVersion(version.content);
     const records = valid.ok ? await store.listProjection() : [];
-    const answers = await Promise.all(records.map((r) => gatherAnswers(r, req.correlationId)));
+    const answers = await dispatchAuthorities(records, (record) => gatherAnswers(record, req.correlationId));
     return withRetry(store, `request:${id}`, async (tx) => {
       const again = await tx.findMatchByKey(req.actor, idempotencyKey);
       if (again) return replayOf(again);
@@ -418,7 +421,12 @@ function checkView({ check, results }) {
 const REQUIRED_CONFIG = ['DATABASE_URL', 'MARKETPLACE_INTERNAL_KEY', 'CURRICULUM_INTERNAL_KEY'];
 const SCHEMA_RETRY_MS = 5000;
 
-const configProblems = (env) => REQUIRED_CONFIG.filter((name) => !env[name]).map((name) => `missing:${name}`);
+const configProblems = (env) => {
+  const problems = REQUIRED_CONFIG.filter((name) => !env[name]).map((name) => `missing:${name}`);
+  try { concurrency(env.MARKETPLACE_AUTHORITY_CONCURRENCY); }
+  catch { problems.push('invalid:MARKETPLACE_AUTHORITY_CONCURRENCY'); }
+  return problems;
+};
 
 // Stands in when DATABASE_URL is missing: every call fails, so nothing can pass as healthy.
 const unavailableStore = () => new Proxy({}, { get: () => async () => { throw new Error('database_not_configured'); } });
@@ -440,6 +448,10 @@ function start(env = process.env) {
       internalKey: env.MARKETPLACE_INTERNAL_KEY }),
   };
   const server = createApp({ store, sources, internalKey: env.MARKETPLACE_INTERNAL_KEY,
+    // Invalid configuration leaves readiness closed; the fallback is never used
+    // to serve a request while the configuration problem remains present.
+    authorityConcurrency: state.problems.includes('invalid:MARKETPLACE_AUTHORITY_CONCURRENCY')
+      ? DEFAULT_CONCURRENCY : concurrency(env.MARKETPLACE_AUTHORITY_CONCURRENCY),
     readiness: () => [...state.problems, ...(state.schemaReady ? [] : ['schema_not_applied'])],
     healthDetails: () => ({ eventFeed: state.eventFeed }) }).listen(env.PORT || 4012);
 
