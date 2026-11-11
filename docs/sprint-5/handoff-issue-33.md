@@ -1,9 +1,15 @@
 # Issue 33 Phase 1: deterministic public lifecycle evaluation
 
+**Current status, 11 November 2026: ISSUE #33 ACCEPTANCE PASS — READY FOR PR.**
+Formal Run 2 combined acceptance is the final authoritative technical result;
+see the final section and `issue-33-final-test-report-deltas.md`. Earlier Phase 1,
+Phase 2 and readiness statements below describe their historical snapshots and
+are superseded for current status, without changing any retained run verdict.
+
 Primary: Salman Akram. Base: `1a90ae5e8f14f93cd17f6ca3b53cce27d99bd8e0`.
 Branch: `salman/issue-33-e2e-suite`. Phase 1 was committed and pushed as
-`02e7dd7cc2ac9726d0c8f79d63d133d0cb929926`. Phase 2 changes remain uncommitted;
-see [the Phase 2 handoff](handoff-issue-33-phase2.md).
+`02e7dd7cc2ac9726d0c8f79d63d133d0cb929926`. At this original handoff, Phase 2
+changes were uncommitted; see [the Phase 2 handoff](handoff-issue-33-phase2.md).
 
 ## Scope and evidence boundary
 
@@ -339,7 +345,7 @@ mismatch or harness error is never downgraded. Unexpected post-dispatch errors
 retain the key without arbitrary exception text. The aborted-caller regression
 now waits for the second SERVER lookup before releasing the first paused job.
 
-### Readiness verified 11 November 2026 (Dubai)
+### Readiness verified 11 November 2026 (Dubai), before Formal Run 2
 
 The completed standalone golden rerun at
 `artifacts/issue-33/eduagentx-issue33-20261110t192122z-77168/golden/` is PASS:
@@ -359,3 +365,75 @@ Do not rerun these completed validations or start Formal Run 2 automatically.
 Overall Issue33 acceptance still needs the distinct complete formal execution
 on the final clean commits, after explicit approval. Runtime evidence stays
 ignored; the university Test Plan is unchanged.
+
+## Formal Run 2 final handoff — 11 November 2026
+
+**ISSUE #33 ACCEPTANCE PASS — READY FOR PR.** Completed evidence is local-only at
+`artifacts/issue-33/eduagentx-issue33-20261110t235931z-95043/`.
+Use `acceptance/report.json` and its manifest for the final combined verdict:
+`technicalChecks=PASS`, `formalAcceptance=PASS`, `coreReady=true` in `phases.json`,
+`formal1000=EXECUTED`, required measurements complete, no run errors or blockers.
+All executed phases bind to clean source
+`9071a6e44c70f2d3ea6945249101e81c30e25733`, fingerprint
+`sha256:226f4688630f7c45a9b3a9ca350cc54c2d67e7add57d8fa4fe633030a17395c5`.
+
+- Exactly 1000 distinct public black-box scenarios: 200/category, all lifecycle
+  and complete expected narratives CONFORMANT. Robustness remains one category
+  with 50 each malformed/inconsistent/timing-out/unavailable. Exact outcome rate
+  is 100%; the >=90% Floor and separate >=95% Target are both MET.
+- All 18000 declared mandatory invariant checks pass independently, with zero
+  failed/unmeasured: Registration 3000; Curriculum/Training 3000; Examination
+  4800; Certification 1400; Marketplace 1200; Remediation/Skill Gap 2000;
+  cross-cutting safety 2600. Another 200 supporting no-credential checks pass
+  without double-counting the declared totals.
+- 200/200 mandatory-safety cases measured, zero false passes. Zero Examination
+  or credential duplicates over all 1000 scenarios; zero Match/lane duplicates
+  over 400 applicable lifecycle Marketplace observations. Final reconciliation
+  is complete. The 200 deliberate remediation retakes are new attempts.
+- 400/400 lifecycle Marketplace observations CONFORMANT, none blocked; p50
+  5.752s, p95 6.151s, maximum 6.760s.
+- Full golden-v2: 100/100 cases CONFORMANT, 1000 real lifecycle-origin learners,
+  100 unique case Capability Requests. Case allocation is unchanged at
+  20/20/20/15/15/10. Independent oracle/replay evidence validates membership,
+  exclusions, scores, ranking, explanations, history and representative lanes.
+  All 105 logical Match commands reconcile once, including five deliberate
+  fresh history commands; zero Match/lane duplicates.
+- Full-cohort fresh-command p50 13.564s, p95 14.699s, maximum 16.506s. The <=30s
+  p95 acceptance Floor is MET; the <=10s optimization Target is MISSED. This
+  target miss is separate from the MET 95% exact-outcome Target.
+- Faults PASS, 40/40 checks: real 900000ms grading retry window with an explicitly
+  accelerated one-minute response deadline; grading outage abort/no credential,
+  partial/unavailable learner deadline failure and trusted grading completion
+  after the response deadline. Formal lifecycle separately used 60-minute
+  response deadlines. No production timing policy was changed.
+
+The original formal subphase remains **BLOCKED/coreReady=true** because four
+external gates were not assembled there: full golden, 1000-candidate load,
+system-abort fault and grading-after-deadline fault. The existing finalizer checks
+the same-source executed golden/fault reports and resolves all four in a new
+**acceptance PASS** report. All 1000 scenario rows remain identical. Do not
+rewrite the formal subphase, confuse its expected exit 2 with scenario failure,
+or treat standalone golden `formal1000=NOT_RUN` as the combined run's status.
+
+The read-only audit verified all 18 manifest-covered artifacts (faults 1,
+formal 7, golden 4, acceptance 6), all report/JSONL accounting and final runner
+status. The complete run's 24 files were preserved byte-for-byte. Formal Run 1's
+12 files still match their preservation hashes: it remains **BLOCKED**, with
+1000 lifecycle conformance, 600 exact complete outcomes and 400 disjoint
+Marketplace blocks (180 matching unavailable, 220 origin integration); golden
+NOT_RUN. The successful later run does not relabel this history.
+
+Remaining limitations are documented, not hidden: the 10s golden target miss,
+separate Red grading KPI, Skill Gap Superseded/Deprecated mismatch, naturally
+aged/tied-cohort additional coverage, explicit concurrent Certification issuance
+not measurable through a public command, arbitrary overlapping-request SLOs and
+independent reproduction/release approval. The finalizer also leaves combined
+general public-call latency unpopulated; the actual 116542-call sample remains
+in `formal/latency.json`. Required Marketplace latency is fully measured.
+
+Only this handoff and the final-report delta note were edited for closure
+preparation. No phase was rerun or generated evidence changed; runtime artifacts
+and audit working files remain ignored and uncommitted. The university Test Plan
+is untouched. This is technical acceptance, with `releaseGate=NOT_EVALUATED`;
+PR review, merge and issue closure remain team actions. No new run is required
+to establish these recorded Issue #33 acceptance results.

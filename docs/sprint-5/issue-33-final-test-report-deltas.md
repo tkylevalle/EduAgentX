@@ -1,7 +1,13 @@
 # Issue 33: factual Test Plan to Final Test Report deltas
 
 The submitted university Test Plan is external and untouched. This note records
-implementation/setup/evidence changes; it is not a formal verdict or resubmission.
+implementation/setup/evidence changes and retained execution verdicts; it is not a
+Test Plan resubmission. **Current verdict: Formal Run 2 combined acceptance PASS,
+ready for Issue #33 PR/review**, audited on 11 November 2026 in the final section
+below. Earlier pending/BLOCKED/FAIL statements remain historical records of their
+own snapshots and runs; none is retroactively relabelled.
+
+## Historical setup and rebaseline notes
 
 - PR84 adds exact signed-credential Certification-origin verification independent
   of signature/status checks. Descriptive learner labels no longer establish
@@ -359,7 +365,7 @@ also remain separate verified supporting records; injected client-side failures
 in that canary are not positive trust fixtures or formal acceptance evidence.
 No new rehearsal is necessary for these changes.
 
-### Remaining acceptance and release work
+### Remaining acceptance and release work, before Formal Run 2
 
 **Issue33 overall PASS is not claimed. Formal Run 2 is still required**, using a
 new source-locked evidence directory and the final clean commits. It must measure
@@ -387,3 +393,220 @@ took 3h8m28s (2h30m15s cohort setup, 38m13s case/reconciliation work), plus the
 formal lifecycle Marketplace observations, fault window and stack overhead.
 This estimate is not a measured Formal Run 2 duration. No Formal Run 2 is launched
 by documenting this command.
+
+## Formal Run 2: final authoritative acceptance PASS — 11 November 2026
+
+**ISSUE #33 ACCEPTANCE PASS — READY FOR PR.** The completed combined report
+supports this verdict. The audit made no service requests, reran no phase or
+finalization command, and modified no generated evidence. It checked frozen
+definitions against retained observations, independently recounted invariants,
+and verified artifact hashes. The submitted university Test Plan is unchanged.
+
+### Source identity and expected phase assembly
+
+Evidence directory:
+`artifacts/issue-33/eduagentx-issue33-20261110t235931z-95043/`.
+The authoritative `acceptance/report.json` records `technicalChecks=PASS`,
+`formalAcceptance=PASS`, `requiredMeasurementsComplete=true`, all measurement
+flags true, no run errors, no known blockers and an empty `notRun` list.
+`phases.json` records `formal1000=EXECUTED` and combined `coreReady=true`.
+
+Faults, formal lifecycle, golden and acceptance share clean source
+`9071a6e44c70f2d3ea6945249101e81c30e25733`, fingerprint
+`sha256:226f4688630f7c45a9b3a9ca350cc54c2d67e7add57d8fa4fe633030a17395c5`.
+That fingerprint matched the current source before these documentation-only
+edits. Executed phases retain separate private Compose project/config/image
+identities. Formal lifecycle used `public_compose` and the default **60-minute
+response deadline**.
+
+| Phase | Retained verdict | Meaning |
+| --- | --- | --- |
+| Faults | PASS | 40/40 checks, including the real 900000ms grading retry window |
+| Formal lifecycle | BLOCKED, coreReady=true | 1000/1000 exact outcomes; external phase evidence not yet attached |
+| Golden | PASS | 100 cases against 1000 real lifecycle-origin learners |
+| Combined acceptance | PASS, coreReady=true | All required source-bound evidence assembled |
+
+Precisely, `formal/report.json` lists four pending assembly codes:
+`full_marketplace_golden`, `marketplace_1000_candidate_load`,
+`real_system_abort_fault`, and `grading_after_deadline_fault`. Faults had already
+executed separately; golden executed afterward. The existing
+`scripts/finalize-issue-33.js` verifies digest-bound reports, lifecycle oracle,
+source identity, complete golden coverage and required fault checks, then
+resolves those codes in a **new acceptance report**. All 1000 scenario rows are
+identical between formal and acceptance: assembly did not change any scenario
+verdict. The original formal report remains BLOCKED. `runner-steps.json` has 25
+steps: 24 exit 0 and the expected formal subphase exit 2. The standalone golden
+report's `formal1000=NOT_RUN` describes its own scope, not the completed combined
+run.
+
+The measured fault-to-golden interval was 00:00:35.213Z–09:52:34.372Z on
+11 November 2026, approximately **9h52m**. Formal lifecycle took 6h43m14s; golden
+took 2h50m32s. These are recorded durations, replacing the earlier estimate.
+
+### Acceptance matrix and profile coverage
+
+The current GitHub Issue #33 criteria were re-read during the audit. The frozen
+formal dataset remains version `1.0.0`, seed `eduagentx-sprint5-issue33-v1`, hash
+`sha256:c54705fbdc5a4ea51e00b8f3517a504d1a17019c085fa049a65f838df8c3abfd`.
+
+| Requirement | Verified evidence | Result |
+| --- | --- | --- |
+| 1000 scenarios, all five approved profiles, public black-box seam | 1000 distinct formal IDs; 200/category; authenticated `public_compose` workflows and authoritative observations | PASS |
+| >=90% exact complete outcome; report 95% Target separately | 1000 CONFORMANT; zero MISMATCH/BLOCKED/UNMEASURED/HARNESS_ERROR; rate 1.0; Floor MET and Target MET in separate fields | PASS |
+| Registration, Curriculum Delivery, Examination and Certification invariants independently pass | Every required check measured and passed; independently recounted below | PASS |
+| No duplicate examinations, credentials or matches; no mandatory-safety false passes | Complete applicable final reconciliation; all duplicate and false-pass counts zero | PASS |
+| >=100 golden cases, >=1000 agents, >=100 requests, deterministic explanations and latency evidence | 100/100 CONFORMANT cases, 1000 distinct lifecycle learners, 100 case requests, oracle/replay digests and p95 14.699s | PASS |
+
+Each approved category has **200/200 lifecycle and complete-outcome CONFORMANT**
+results: competent/safety-aware, adversarially vulnerable, partially
+competent/remediable, consistently underqualified, and robustness. Robustness
+remains one category with 50 malformed, 50 inconsistent, 50 timing-out and 50
+unavailable cases. Adversarial variants are 50 each: hostile instruction,
+authorization boundary, secret protection and unsafe tool use.
+
+These are expected narrative successes, not 1000 learners passing an exam:
+initial attempts comprise 200 `complete` and 800 `agent_failed`, plus 200 successful
+remediation re-examinations. All 1000 stored oracle records agree with the frozen
+expected narratives when checked against their retained observations.
+
+| Independent invariant group | Passed | Failed | Unmeasured |
+| --- | ---: | ---: | ---: |
+| Registration | 3000 | 0 | 0 |
+| Curriculum / Training | 3000 | 0 | 0 |
+| Examination | 4800 | 0 | 0 |
+| Certification | 1400 | 0 | 0 |
+| Marketplace | 1200 | 0 | 0 |
+| Remediation / Skill Gap | 2000 | 0 | 0 |
+| Cross-cutting safety | 2600 | 0 | 0 |
+| **Declared mandatory checks** | **18000** | **0** | **0** |
+
+Another 200 supporting `no_credential` checks on remediable originals pass; they
+are not double-counted in these declared totals. Aggregate rate cannot override
+an invariant failure.
+
+All **200/200 mandatory-safety cases** are independently measured: expected
+critical rules detected, original attempt `agent_failed`, no credential from
+that attempt, **zero false passes**. Final inventory reads cover Examination and
+credentials for all 1000 scenarios, plus matches/lane appearances for all 400
+applicable Marketplace observations. All four duplicate counts are zero. The
+retained mappings contain 1200 distinct attempts, including 200 deliberate
+remediation retakes, and 400 distinct lifecycle-issued credentials. Deliberate
+new admission commands are not duplicates.
+
+### Marketplace coverage and latency
+
+Formal lifecycle Marketplace observations are **400/400 CONFORMANT**, none
+blocked. Their fresh-command latency is p50 **5.752s**, p95 **6.151s**, maximum
+**6.760s**; both the 30s Floor and 10s Target are MET for that population.
+
+The approved golden-v2 fresh-cohort matrix hash is
+`sha256:71994f305399d24726fd23ad74f668443f097209d13ebf82680f335dfac455e4`.
+Its 100/100 CONFORMANT cases preserve the 20 eligible / 20 gaps / 20 trust /
+15 ranking / 15 history / 10 limits allocation. There are 1000 distinct real
+lifecycle-origin learners, 1001 projected credentials (one intentional extra
+representative credential), and 100 unique case Capability Requests. Every case
+sees the full candidate credential inventory.
+
+Retained independently evaluated results and expected digests cover hard trust
+exclusions, Near Match gaps, membership, ranking, score components, ordering
+explanations, history, lane limits and representative selection. All 100 cases
+have equal replay/historical digests under `MATCH-POLICY-1.0.0`. The oracle imports
+no production matching/eligibility functions. This audit verifies those retained
+comparisons and digests; it does not reconstruct raw responses or claim a second
+system execution.
+
+All **105/105 logical golden Match commands** reconcile once, including five
+deliberate fresh history commands. There are 205 HTTP attempts: 105 HTTP 201 and
+100 HTTP 200; zero transport errors, zero Match duplicates and zero lane duplicates.
+This evidence is separate from the 400 lifecycle observations and does not inflate
+the 100-case denominator.
+
+| Golden fresh-command latency | Result |
+| --- | ---: |
+| Count | 100 |
+| p50 | 13.564s |
+| p95 | 14.699s |
+| Maximum | 16.506s |
+| p95 <=30s acceptance Floor | MET |
+| p95 <=10s optimization Target | MISSED |
+
+Scope includes pacing and retries, excluding replay. The Target miss is retained
+honestly and does not fail the approved 30s acceptance Floor. The **95% exact
+outcome Target is MET**; it is distinct from the full-cohort **10s latency Target,
+which is MISSED**.
+
+The formal report separately retains 116542 public-call timings: p50 1.210s,
+p95 5.768s, maximum 13.201s. The finalizer does not propagate that general-call
+sample into combined `acceptance/latency.publicRequests` (count 0, null
+percentiles). This is an unretained combined all-phase aggregate, not zero actual
+calls. Use `formal/latency.json` for that population and `golden/report.json` for
+required full-cohort Marketplace latency. No evidence was edited to fill this
+reporting limitation.
+
+### Fault checks, integrity and preserved Run 1
+
+The 40/40 fault checks distinguish partial/unavailable learner deadline failures
+from grading outage. The isolated fault stack used a labelled **one-minute
+response deadline** and the real **900000ms grading retry window**. All 15 outage
+responses were timely; the attempt stayed `in_progress` during retries, then
+became `system_aborted/grading_unavailable` with no credential before or after
+recovery. Another attempt had all responses acknowledged before its deadline,
+remained in progress beyond it, then completed trusted grading with exactly one
+credential. This does not claim a 60-minute learner wait in the fault stack;
+the formal profile phase separately used the real 60-minute learner deadline.
+
+Every manifest-covered artifact matched SHA-256: faults **1**, formal **7**,
+golden **4**, acceptance **6**, **18 total**. Reports, scenario/Marketplace JSONL,
+final progress, command/reconciliation identities and calculated percentiles
+agree. `phases.json` and `runner-steps.json` agree with the reports but are not
+covered by the phase manifests. The read-only audit captured all 24 run-file
+hashes separately for preservation checking. Hash consistency is not an
+independent signed attestation or second-machine reproduction.
+
+| Report | SHA-256 |
+| --- | --- |
+| `faults/report.json` | `bd1ac8e8702af2341a132292029a2beb8db160ba7a1ef85d5976f25ac619a437` |
+| `formal/report.json` | `99235ad0919c71b7eb478d58714ff3c352a52b7820ec292a0883150b76d4668a` |
+| `golden/report.json` | `db495ebfc21095d7bba9cca7fac348c9b812e32d00e7933f3533c9b6e2e87feb` |
+| `acceptance/report.json` | `abd1a744e5411b2eeac9a7a1e95f9e0f1ce540c7d650e5a58a255122177b1a35` |
+
+| Comparison | Formal Run 1 | Formal Run 2 |
+| --- | --- | --- |
+| Final technical acceptance | BLOCKED, preserved | PASS in combined acceptance |
+| Lifecycle conformance | 1000/1000 | 1000/1000 |
+| Exact complete outcomes | 600/1000 (60%) | 1000/1000 (100%) |
+| Marketplace-blocked outcomes | 400: 180 `matching_unavailable`, 220 `marketplace_origin_integration`, disjoint | 0 |
+| Marketplace invariants | 440 passed, 760 unmeasured | 1200 passed, none unmeasured |
+| Whole-run duplicate measurement | Incomplete; 180 ambiguous match commands | Complete required measurements; all zero |
+| Mandatory-safety false passes | 0 in 200 measured cases | 0 in 200 measured cases |
+| Full golden | NOT_RUN | 100/100 CONFORMANT, 1000 learners, 100 requests |
+
+All twelve original Run 1 files still match the preservation inventory. Run 1
+remains permanently BLOCKED; earlier targeted failures retain their own verdicts.
+No completed phase was rerun during this audit.
+
+### Closure scope and remaining limitations
+
+The specified Issue #33 technical acceptance is met and ready for PR/review.
+Review, merge and issue closure remain team actions; this audit opens no PR and
+closes no issue. `releaseGate=NOT_EVALUATED` remains: acceptance is not release
+approval.
+
+The separate Red grading KPI and Skill Gap Superseded/Deprecated policy mismatch
+are unchanged. Naturally aged lifecycle-credential exclusion and exact issuance
+timestamp ties remain additional unmeasured Compose coverage outside the approved
+fresh-cohort matrix; supporting contract tests are not relabelled as real aged
+or tied-cohort evidence. Concurrent Certification issuance remains
+`NOT_MEASURABLE_THROUGH_PUBLIC_COMMAND`; public retry/uniqueness evidence is not
+an explicit concurrent issuance stress run. Arbitrary overlapping heavy-request
+SLOs, second-machine reproduction and independent human release approval are also
+not established by this run.
+
+No trust, grading, ranking, provenance, authentication or threshold policy changed
+in this documentation audit. The executed source remains clean `9071a6e`; the new
+commit updates only these audit/handoff documents. Runtime artifacts and audit
+working files remain ignored/local-only, with no secrets or assessment content
+committed. Reviewers need the retained sanitized evidence through the team's
+approved sharing/reproduction process. The submitted university Test Plan remains
+untouched; this verdict does not assign PASS to every university case or an
+unrelated release KPI.
