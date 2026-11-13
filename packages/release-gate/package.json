@@ -1,0 +1,9 @@
+{
+  "name": "eduagentx-release-gate",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Final release gate for Issue 36: secret scan, source fingerprint and human release records.",
+  "main": "src/index.js",
+  "bin": { "eduagentx-release-gate": "cli.js" },
+  "scripts": { "test": "node --test" }
+}
