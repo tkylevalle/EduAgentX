@@ -1,6 +1,6 @@
 # Security test cases
 
-These extend the test plan. Cases with a test plan reference already exist there. New cases will be written in the CSIT314 template for the test plan amendments in the final test report. Results are not filled in here.
+These extend the test plan. Cases with a test plan reference already exist there. New cases will be written in the CSIT314 template for the test plan amendments in the final test report. Results are in `security-test-results.md`.
 
 | ID | Test | Type | Covers | Test plan case |
 |---|---|---|---|---|
@@ -8,7 +8,7 @@ These extend the test plan. Cases with a test plan reference already exist there
 | TC_SEC_002 | A token for agent A tries to register agent B | Failure | T01 | related to TC_REG_002 |
 | TC_SEC_003 | An expired token and a token with a bad signature are both refused | Failure | T01 | related to TC_GW_002 |
 | TC_SEC_004 | Call an internal service from inside the network without the internal key or with the wrong actor role | Failure | T12, T14 | new |
-| TC_SEC_005 | List the ports published on the host. Only the Gateway and local demonstration pages appear, all on 127.0.0.1 | Success | T14 | new |
+| TC_SEC_005 | List the ports published on the host. Every published port binds to 127.0.0.1 | Success | T14, F-12 | new |
 | TC_SEC_006 | Send 601 requests in 60 seconds. The 601st is refused | Failure | T03 | TC_GW_004 |
 | TC_SEC_007 | Send an oversized or malformed envelope. It is refused and nothing is stored | Failure | T04 | related to TC_REG_002 |
 | TC_SEC_008 | Resend an idempotency key with a changed body. The answer is 409 | Failure | T04 | TC_EXM_003 |
@@ -21,3 +21,4 @@ These extend the test plan. Cases with a test plan reference already exist there
 | TC_SEC_015 | The evidence bundle contains no raw answers, keys or tokens | Success | T11 | TC_EVB_002 |
 | TC_SEC_016 | A POST to a Console route is refused and nothing changes | Failure | T15 | TC_CON_002 |
 | TC_SEC_017 | Set the live call bound low. The live run halts when it is reached | Failure | T22, F-03 | Hero scenario 5 in `docs/sprint-5/hero-scenarios.md` |
+| TC_SEC_018 | Rotate the Certification signing key, as the spec requires. New credentials verify with the new key and the old credential behaves as the key rotation policy says | Success | T09, F-07 | spec test list |
