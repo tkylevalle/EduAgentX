@@ -1,0 +1,185 @@
+{
+  "number": 3,
+  "id": "certification-recovery",
+  "status": "PASS",
+  "startedAt": "2026-11-09T07:58:22.467Z",
+  "finishedAt": "2026-11-09T07:58:43.862Z",
+  "declarationAdjustments": {
+    "learnerIdentity": "synthetic-executor-dev",
+    "package": {
+      "id": "ai-safety-demo-c42a0289",
+      "version": "0.1.5-draft",
+      "digest": "39efb595c0665c33cab1607fda7ad2d67eda87bab37d2ac7190be4f571adc81b"
+    },
+    "keyId": "https://eduagentx.example/issuers/eduagentx-test#test-ed25519-1"
+  },
+  "incidentSource": "runner observation of actual injected fault; see monitoring separately",
+  "record": {
+    "schema": "hero-evidence/1",
+    "scenarioId": "certification-recovery",
+    "runId": "eduagentx-evidence-20261109t075650z-35376",
+    "evidenceMode": "synthetic",
+    "executorMode": "synthetic",
+    "environment": "simulation",
+    "learnerIdentity": "synthetic-executor-dev",
+    "startedAt": "2026-11-09T07:58:22.467Z",
+    "finishedAt": "2026-11-09T07:58:43.861Z",
+    "artifacts": {
+      "passingExamination": {
+        "outcome": "complete",
+        "attempt": {
+          "attemptId": "7b633bfb-4e25-4a71-be80-0170c5c6eec0",
+          "status": "complete",
+          "sequence": 18,
+          "responsesReceived": 15,
+          "responseCollectionComplete": true,
+          "terminalReason": "valid_passing_result",
+          "completedAt": "2026-11-09T07:58:31.474Z",
+          "failedAt": null,
+          "abortedAt": null,
+          "mode": "standard",
+          "startedAt": "2026-11-09T07:58:27.661Z",
+          "deadlineAt": "2026-11-09T08:58:27.661Z",
+          "provenance": {
+            "runId": "dce623d5-6d20-42af-bf9f-dcb5b6cfeb48",
+            "source": {
+              "id": "synthetic:competent:safe-escalation",
+              "digest": "sha256:d20448211962eacb7b8a577d7ffeed40d71c9f9bbdfef67107bf1959682979aa",
+              "version": "1.0.0"
+            },
+            "package": {
+              "id": "ai-safety-demo-c42a0289",
+              "digest": "39efb595c0665c33cab1607fda7ad2d67eda87bab37d2ac7190be4f571adc81b",
+              "version": "0.1.5-draft"
+            },
+            "executorId": "synthetic-executor-dev",
+            "environment": "simulation",
+            "evidenceMode": "synthetic",
+            "policyVersion": "reference-execution/1.0.0",
+            "schemaVersion": "execution-provenance/1.0.0",
+            "agentLearnerKey": "synthetic-executor-dev",
+            "configurationVersion": 1,
+            "configurationFingerprint": "sha256:9f88673f79c485e509396e465140de88c368b84ab964243704e51b1876081e51"
+          }
+        },
+        "answered": [
+          {
+            "itemId": "standard-5e6457603cccfc6f77fa1dbee0942217",
+            "slotId": "r1",
+            "tier": "recall"
+          },
+          {
+            "itemId": "standard-43d04e43901bfacee638df31e5e4201c",
+            "slotId": "r2",
+            "tier": "recall"
+          },
+          {
+            "itemId": "standard-53082a58a619a1eccdc86484b66ade20",
+            "slotId": "r3",
+            "tier": "recall"
+          },
+          {
+            "itemId": "standard-1586e6da0ad90c9885c1f5a5884000ac",
+            "slotId": "r4",
+            "tier": "recall"
+          },
+          {
+            "itemId": "standard-cd0c24833506e9153195b6ae7e21cc72",
+            "slotId": "r5",
+            "tier": "recall"
+          },
+          {
+            "itemId": "standard-411994ff519e9b928826a1a6474f9ff2",
+            "slotId": "a1",
+            "tier": "applied"
+          },
+          {
+            "itemId": "standard-dfca7b7440d4993ab65b62837a2cdeae",
+            "slotId": "a2",
+            "tier": "applied"
+          },
+          {
+            "itemId": "standard-66bbeee1124f0162fb2b71f4ca6151e0",
+            "slotId": "a3",
+            "tier": "applied"
+          },
+          {
+            "itemId": "standard-1a36d6d7cf977ba5d118359204851a4d",
+            "slotId": "a4",
+            "tier": "applied"
+          },
+          {
+            "itemId": "standard-51ac9cde82719f122ef3648acca01d5d",
+            "slotId": "a5",
+            "tier": "applied"
+          },
+          {
+            "itemId": "standard-11d7e47a96f5c80a5962345a5f7340b2",
+            "slotId": "a6",
+            "tier": "applied"
+          },
+          {
+            "itemId": "standard-a28d51c779a3b216799dd47e6227becd",
+            "slotId": "v1",
+            "tier": "adversarial"
+          },
+          {
+            "itemId": "standard-4b6ab7b5b00ea118f2af32f579051aba",
+            "slotId": "v2",
+            "tier": "adversarial"
+          },
+          {
+            "itemId": "standard-6851b06f68a85261031180191a04860b",
+            "slotId": "v3",
+            "tier": "adversarial"
+          },
+          {
+            "itemId": "standard-5e043363e15409c5abf868a0616a14ff",
+            "slotId": "v4",
+            "tier": "adversarial"
+          }
+        ],
+        "correlationId": "exam-run-7e6db3a3-d909-484c-8a7f-b471cf4f90fb"
+      },
+      "interruptionRecord": {
+        "stoppedAt": "2026-11-09T07:58:22.467Z",
+        "placement": "Issuer stopped before examination, held unavailable across completed passing evidence"
+      },
+      "recoveryTimeline": {
+        "restartedAt": "2026-11-09T07:58:39.911Z",
+        "elapsedMs": 1672,
+        "targetMet": true
+      },
+      "credentialCount": 1,
+      "credentialIssuedEvents": [
+        {
+          "eventId": "credential.issued:cc40212d-17f9-48a8-ad60-494e2b35b26e",
+          "credentialId": "cc40212d-17f9-48a8-ad60-494e2b35b26e"
+        }
+      ]
+    },
+    "checks": [
+      {
+        "name": "Unavailable issuer recovers to one credential and one observed issuance event within 120 seconds",
+        "passed": true
+      }
+    ],
+    "incident": {
+      "category": "integration-availability",
+      "severity": "high",
+      "affectedIds": {
+        "runId": "eduagentx-evidence-20261109t075650z-35376"
+      },
+      "cause": "Certification service interrupted mid-decision",
+      "detection": "No credential.issued event for a completed passing attempt after the expected interval",
+      "safeState": "Indeterminate",
+      "retryFallbackActions": "Restart the service and replay the pending decision idempotently from the stored evidence.",
+      "recoveryOutcome": "observed recovery",
+      "detectedAt": "2026-11-09T07:58:22.467Z",
+      "recoveredAt": "2026-11-09T07:58:43.862Z"
+    },
+    "outcome": "passed",
+    "noSecretsIncluded": true,
+    "digest": "9d7c51fb9b9932603d693a8d423dd849a5681104e5258deda1897d590795540d"
+  }
+}
