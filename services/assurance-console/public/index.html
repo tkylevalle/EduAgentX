@@ -307,8 +307,16 @@ function healthColor(h) {
   return {HEALTHY:'green',DEGRADED:'amber',UNHEALTHY:'red',UNKNOWN:'purple'}[h] || 'purple';
 }
 
+// Every string that arrives from the services is escaped once, here, so a value
+// such as an agent identity cannot inject markup into the page through innerHTML.
+const esc = (value) => String(value ?? '').replace(/[&<>"']/g,
+  (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const clean = (value) => (typeof value === 'string' ? esc(value)
+  : Array.isArray(value) ? value.map(clean)
+  : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).map(([k, v]) => [k, clean(v)]))
+  : value);
 async function safeFetch(url) {
-  try { const r = await fetch(url); return r.ok ? r.json() : null; } catch { return null; }
+  try { const r = await fetch(url); return r.ok ? clean(await r.json()) : null; } catch { return null; }
 }
 
 // ── Load overview ──────────────────────────────────────────────────
