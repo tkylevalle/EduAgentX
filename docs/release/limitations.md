@@ -1,6 +1,6 @@
 # Release limitations and positioning
 
-Status: draft for team review, 9 November 2026. The approval record must not
+Status: draft for team review, updated 13 November 2026. The approval record must not
 be written until the team has reviewed and corrected this file.
 
 ## Known limitations
@@ -19,8 +19,10 @@ be written until the team has reviewed and corrected this file.
   independent human trust-boundary review
   ([evidence/review-summary.md](../../evidence/review-summary.md)). The handoff
   drill and the approval record must close the last two.
-- `evidence/sprint-3/gate-result.json` and `evidence/sprint-4/gate-result.json`
-  name no source commit. The sprint pass records must supply one.
+- Sprints 3 and 4 have no measured gate evidence. Their earlier gate results
+  and evidence packs were written by hand, not by a run, and PR #91 removed
+  them. Their pass records must come from real runs of
+  `scripts/sprint3-gate.js` and `scripts/sprint4-gate.js`.
 - The secret scan does not read binary files, and it blocks on text files
   over 2 MB instead of reading them. It cannot find a password written in
   prose.
@@ -60,7 +62,6 @@ target for live usage is 100 to 300 AED. No figure is recorded yet.
 | Date | Work package | Capability Primary | Capability Backup | Source |
 |---|---|---|---|---|
 | Blueprint | Release hardening, second-machine setup and handoff drill | Timothy | Raniya | `docs/blueprint/spec.md` |
-| Issue 36 labels | Same | Neeraj Santosh | Raniya Habachi | GitHub labels |
+| 12 November 2026 | Same | Neeraj Santosh | Raniya Habachi | Raniya Habachi on PR #88: Primary swapped with Timothy |
 
-The issue body still names Timothy as Primary. The team must record which
-assignment is current and when it changed.
+The issue #36 body still names Timothy and should be updated to match.
