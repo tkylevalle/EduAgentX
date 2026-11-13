@@ -11,12 +11,12 @@ Evidence tags are explained in `README.md`.
 
 | ID | Control | Evidence | NIST CSF 2.0 | OWASP LLM 2025 | Status |
 |---|---|---|---|---|---|
-| C01 | Gateway is the only public entry. Every host port binds to 127.0.0.1 | `[ARCH]` | PR.IR | none | In place |
-| C02 | RS256 JWT with role and identity checks | `[ARCH]` | PR.AA | none | In place |
+| C01 | Every published host port binds to 127.0.0.1 | `[ARCH]` `[REV]` | PR.IR | none | In place. 14 ports are published, not only the Gateway (F-12) |
+| C02 | RS256-only JWT, 900 second access tokens, role and identity checks | `[ARCH]` `[REV]` | PR.AA | none | In place |
 | C03 | Registration key must match the token subject | `[TP]` | PR.AA | none | In place |
 | C04 | Rate limiting, 600 requests per 60 seconds per client | `[TP]` | PR.IR | LLM10 | In place, not load-tested |
 | C05 | Envelope validation, idempotency keys, replay protection | `[TP]` `[ARCH]` | PR.DS | none | In place |
-| C06 | One schema and one restricted role per service | `[ARCH]` | PR.AA | none | In place |
+| C06 | One schema and one restricted role per service | `[ARCH]` | PR.AA | none | In place for PostgreSQL. Redis has no access control (F-11) |
 | C07 | Secrets from the environment, no fallback values, health returns 503 if one is missing | `[ARCH]` | PR.PS | LLM02 | In place |
 | C08 | Allowlisted logging with correlation IDs, no bodies, headers, URLs or error objects | `[ARCH]` | DE.CM | LLM02 | In place |
 | C09 | Release gate secret scan | `[PR88]` | PR.DS | LLM02 | In pull request 88 |
@@ -32,7 +32,7 @@ Evidence tags are explained in `README.md`.
 | C19 | Rebuildable curriculum index, never the source of truth | `[ARCH]` | PR.DS, RC.RP | LLM08 | In place |
 | C20 | Monitoring: posture, health shows Unknown after 15 seconds, attention records | `[TP]` | DE.CM, DE.AE | none | In place |
 | C21 | Evidence bundle redaction and digests | `[TP]` | PR.DS | LLM02 | In place |
-| C22 | Read-only Console with no mutation routes | `[TP]` | PR.AA | none | In place for the main page, gap on `/console` (F-01) |
+| C22 | Read-only Console with no mutation routes | `[TP]` | PR.AA | none | In place for the main page. The `/console` fix is in pull request 93 (F-01) |
 | C23 | Hashed gate-run evidence bound to a source fingerprint and real commits | `[ARCH]` `[PR88]` | ID.IM, GV.OV | none | In place |
 
 ## 2. OWASP Top 10 for LLM Applications, 2025
@@ -43,9 +43,9 @@ EduAgentX certifies external agents. It does not call a language model itself to
 |---|---|---|---|
 | LLM01 Prompt Injection | Agent under test | Adversarial examination items and critical rules that block a pass `[PR90]` | Covered for agents. Not applicable to the platform until an LLM grader is added |
 | LLM02 Sensitive Information Disclosure | Both | Secret-protection adversarial cases for agents `[PR90]`. Redaction, allowlisted logs and no secrets in the repository for the platform | Covered |
-| LLM03 Supply Chain | Platform | Official sources pinned by SHA-256, per-service lockfiles | Partial: no dependency scanning |
+| LLM03 Supply Chain | Platform | Official sources pinned by SHA-256, per-service lockfiles | Partial: no dependency scanning in CI and 16 advisories found (F-06) |
 | LLM04 Data and Model Poisoning | Platform | Package review, immutable digests, quarantine | Partial: depends on reviewers |
-| LLM05 Improper Output Handling | Platform | Server-rendered console page escapes output `[REV]` | **Open: `/console` does not escape (F-01)** |
+| LLM05 Improper Output Handling | Platform | Server-rendered console page escapes output `[REV]` | **Open until pull request 93 merges (F-01)** |
 | LLM06 Excessive Agency | Agent under test | Unsafe tool use is a critical violation. Tools are simulated in tests | Covered for agents |
 | LLM07 System Prompt Leakage | Platform | Registration carries a hash of the system prompt, not the prompt `[TP]` | Covered by design |
 | LLM08 Vector and Embedding Weaknesses | Platform | Index is rebuilt from the Active package only and is never the source of truth `[ARCH]` | Partial: access control on the index `[TO VERIFY]` |
