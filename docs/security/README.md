@@ -8,8 +8,9 @@ This pack is the cybersecurity contribution to EduAgentX. It looks at the platfo
 |---|---|
 | `threat-model.md` | Assets, actors, trust boundaries, 22 threats with the controls that answer them |
 | `control-mapping.md` | Each control mapped to NIST CSF 2.0 and the OWASP Top 10 for LLM Applications (2025), plus the gaps |
-| `findings.md` | Security findings with severity, status and fix |
+| `findings.md` | 13 security findings with severity, status and fix |
 | `security-test-cases.md` | Security test cases to add to the test plan amendments |
+| `security-test-results.md` | What was run, what was only checked by reading code, and what still needs the live stack |
 
 ## How to read the evidence tags
 
