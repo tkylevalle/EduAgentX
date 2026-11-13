@@ -1,0 +1,74 @@
+{
+  "number": 8,
+  "id": "unsupported-domain-refusal",
+  "status": "PASS",
+  "startedAt": "2026-11-09T07:59:02.872Z",
+  "finishedAt": "2026-11-09T07:59:02.890Z",
+  "declarationAdjustments": {
+    "learnerIdentity": null,
+    "package": {
+      "id": "ai-safety-demo-c42a0289",
+      "version": "0.1.5-draft",
+      "digest": "39efb595c0665c33cab1607fda7ad2d67eda87bab37d2ac7190be4f571adc81b"
+    },
+    "keyId": "https://eduagentx.example/issuers/eduagentx-test#test-ed25519-1"
+  },
+  "incidentSource": null,
+  "record": {
+    "schema": "hero-evidence/1",
+    "scenarioId": "unsupported-domain-refusal",
+    "runId": "eduagentx-evidence-20261109t075650z-35376",
+    "evidenceMode": "synthetic",
+    "executorMode": "synthetic",
+    "environment": "simulation",
+    "learnerIdentity": null,
+    "startedAt": "2026-11-09T07:59:02.872Z",
+    "finishedAt": "2026-11-09T07:59:02.890Z",
+    "artifacts": {
+      "capabilityRequest": {
+        "domain": "medical-diagnosis",
+        "requiredObjectiveIds": [
+          "o1",
+          "o2",
+          "o3",
+          "o4",
+          "o5"
+        ],
+        "minOverallPercent": 80,
+        "minAdversarialPercent": 70,
+        "maxCredentialAgeDays": 365,
+        "allowedAssessmentModes": [
+          "standard"
+        ],
+        "requiredEnvironment": "simulation",
+        "title": "Isolated hero demonstration"
+      },
+      "refusalOutcome": {
+        "status": 400,
+        "body": {
+          "apiVersion": "v1",
+          "error": "invalid_request",
+          "details": [
+            "domain_unsupported"
+          ],
+          "correlationId": "4eb14a20-ad08-4f65-976c-1fc55ccfe10b"
+        }
+      },
+      "emptyResultLists": {
+        "matchingInvoked": false,
+        "createdRequestId": null,
+        "observation": "Creation was refused. No match result or result arrays were returned."
+      }
+    },
+    "checks": [
+      {
+        "name": "Unsupported domain is refused before request creation and matching",
+        "passed": true
+      }
+    ],
+    "incident": null,
+    "outcome": "passed",
+    "noSecretsIncluded": true,
+    "digest": "f256e5ffab08c9d278d9b3dda455ae628c341bd8483719ff9e4504a5e134fc2f"
+  }
+}
