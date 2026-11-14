@@ -37,6 +37,8 @@ test('PostgreSQL admission is atomic, immutable and stable across store restart'
     assert.equal(a.attempt.attemptId, b.attempt.attemptId);
     const restarted = createPgStore(pool);
     const saved = await restarted.get(a.attempt.attemptId);
+    assert.deepEqual(await restarted.reconcileAdmission(input.actor, input.key), { count: 1, attemptIds: [saved.attemptId] });
+    assert.deepEqual(await restarted.reconcileAdmission(input.actor, 'absent'), { count: 0, attemptIds: [] });
     assert.equal(saved.formDigest, sha256(form));
     assert.equal(saved.form.items.length, 15);
     const events = await pool.query('SELECT * FROM examination_engine.attempt_events WHERE attempt_id = $1',
