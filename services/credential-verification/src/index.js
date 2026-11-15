@@ -31,8 +31,6 @@ function issuedAtOf(jws) {
 function publicKeyFor(jws) {
   let published = null;
   try {
-    // The status-list key signs lists, never credentials.
-    if (isStatusListKid(keyIdOf(jws))) return null;
     published = publicKeyForKid(keyIdOf(jws), issuedAtOf(jws));
   } catch (error) {
     // Broken key configuration: log it and fail closed (the signature check fails).

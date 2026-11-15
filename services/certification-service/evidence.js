@@ -40,12 +40,14 @@ function behaviourOf(assessment, mode) {
 }
 
 // Attestation level (target design 4.2, assurance audit D1): what the
-// credential's configuration fingerprint rests on. L2: the platform ran the
-// agent itself (the synthetic and live learners), so the model, prompts and
-// tools in the fingerprint are what ran. L1: the agent ran elsewhere and
-// called the Gateway, so its fingerprint is what it declared.
+// credential's configuration fingerprint rests on. L2: the subject is an
+// identity the platform runs itself (CERTIFICATION_PLATFORM_SUBJECTS, the
+// live learner), whose model and prompts are fixed in platform code. It rests
+// on that identity's secret staying in the platform, and nothing in the
+// credential lets a verifier check it. L1: anything else; the fingerprint is
+// what the agent declared.
 const ATTESTATION_MEANINGS = Object.freeze({
-  'L2-observed': 'The platform ran this agent itself; the model, prompts and tools in its fingerprint are what ran.',
+  'L2-observed': 'The subject is an identity the platform runs itself; this rests on that identity\'s secret staying in the platform and cannot be checked from the credential.',
   'L1-declared': 'The agent ran outside the platform; its configuration fingerprint is self-declared and not observed.',
 });
 /** @param {string} subjectId @param {string[]} platformSubjects the agent identities the platform itself runs @returns {{ level: string, meaning: string }} */
@@ -55,6 +57,15 @@ function attestationFor(subjectId, platformSubjects) {
 }
 const platformSubjectsFromEnv = () => String(process.env.CERTIFICATION_PLATFORM_SUBJECTS || '').split(',').map((id) => id.trim()).filter(Boolean);
 
+/**
+ * The evidence a credential may be issued from, or a thrown 409/503 error.
+ * @param {object} attempt the Examination Engine's certification evidence projection
+ * @param {object | null} trustedPackage the governing package, or null to skip the package checks
+ * @param {string} issuanceEnvironment simulation or live
+ * @param {string} issuer the issuer the credential will name
+ * @param {string[]} platformSubjects identities the platform runs itself (attestation L2)
+ * @returns {object} the validated evidence
+ */
 function validatedEvidence(attempt, trustedPackage = null, issuanceEnvironment = process.env.CERTIFICATION_ENVIRONMENT, issuer = process.env.CERTIFICATION_ISSUER,
   platformSubjects = platformSubjectsFromEnv()) {
   if (!attempt || attempt.status !== 'complete' || attempt.responseCollectionComplete !== true ||
@@ -200,4 +211,4 @@ function issueCredential(evidence, { privateKey, keyId, issuer = 'https://eduage
   return { credentialId, credential, compactJws: `${signingInput}.${signature}`, keyId, issuedAt };
 }
 
-module.exports = { ATTESTATION_MEANINGS, digest, fail, validatedEvidence, issueCredential };
+module.exports = { digest, fail, validatedEvidence, issueCredential };

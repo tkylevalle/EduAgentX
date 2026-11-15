@@ -164,7 +164,7 @@ test('the credential states whether the platform ran the agent (L2) or the agent
     const credential = signedClaims(response);
     assert.equal(credential.credentialSubject.competency.attestation.level, level);
     assert.deepEqual(credential.credentialSubject.competency.attestation, credential.evidence.attestation);
-    assert.match(credential.evidence.attestation.meaning, level === 'L1-declared' ? /self-declared/ : /platform ran/);
+    assert.match(credential.evidence.attestation.meaning, level === 'L1-declared' ? /self-declared/ : /cannot be checked/);
   }
 });
 

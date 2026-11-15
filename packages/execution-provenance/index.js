@@ -17,6 +17,8 @@ const REPLAY_REVIEW = 'execution-replay-review/1.0.0';
 const REQUIRED_FIXTURE_REVIEWS = 2;
 const SANDBOX_POLICIES = Object.freeze(Object.fromEntries(PANEL.map((entry) => [entry.id, entry.agent])));
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// Attestation levels a credential may state (target design 4.2, assurance audit D1).
+const ATTESTATION_LEVELS = Object.freeze(['L1-declared', 'L2-observed']);
 const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const HASH = /^sha256:[0-9a-f]{64}$/;
 const text = (v) => typeof v === 'string' && v.length > 0 && v.length <= 256;
@@ -272,7 +274,7 @@ function credentialProvenance(vc) {
       !same(competency.behaviour ?? null, vc.evidence?.behaviour ?? null) ||
       // And the attestation level (assurance audit D1): absent on older credentials, else a known level in both copies.
       !same(competency.attestation ?? null, vc.evidence?.attestation ?? null) ||
-      (competency.attestation != null && !['L1-declared', 'L2-observed'].includes(competency.attestation.level)) ||
+      (competency.attestation != null && !ATTESTATION_LEVELS.includes(competency.attestation.level)) ||
       (competency.behaviour != null && (!isPassingBehaviourEvidence(competency.behaviour) ||
         // Every episode belongs to an adversarial item the credential scores.
         !competency.behaviour.episodes.every((episode) => outcomes.some((i) => i.itemId === episode.itemId && i.tier === 'adversarial'))))) return false;
@@ -284,6 +286,6 @@ function credentialProvenance(vc) {
     issuerPermits(vc.environment, vc.issuer);
 }
 
-module.exports = { POLICY, RUN, RECEIPT, COVERAGE, SCHEMA, UUID, SIMULATION_ISSUER, validGrader, episodePolicy, episodeReceipt, validateEpisodeReceipt, replayReviewed, issuerPermits, hash, responseHash, same, pair, fail,
+module.exports = { ATTESTATION_LEVELS, POLICY, RUN, RECEIPT, COVERAGE, SCHEMA, UUID, SIMULATION_ISSUER, validGrader, episodePolicy, episodeReceipt, validateEpisodeReceipt, replayReviewed, issuerPermits, hash, responseHash, same, pair, fail,
   source, sourceMode, validSource, enrollments, authority, validAuthority, bindRun, validRun, matchesAuthority, runAuthority,
   context, generated, receipt, validateReceipt, coverage, validCoverage, validCompletion, validSummary, credentialProvenance };

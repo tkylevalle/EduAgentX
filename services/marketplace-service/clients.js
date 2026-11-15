@@ -148,7 +148,7 @@ function toCandidate(record) {
     // credential states none or states one that does not check out.
     behaviour: behaviourSummary(passed ? competency.behaviour : null),
     // L2: the platform ran the agent; L1: its configuration is self-declared (assurance audit D1).
-    attestationLevel: ['L1-declared', 'L2-observed'].includes(competency.attestation?.level) ? competency.attestation.level : null,
+    attestationLevel: execution.ATTESTATION_LEVELS.includes(competency.attestation?.level) ? competency.attestation.level : null,
     // Read only explicit signed fields; missing origin labels remain uncheckable.
     environment: vc.credentialSchema?.id === execution.SCHEMA && execution.credentialProvenance(vc) ? vc.environment : null,
     evidenceMode: vc.credentialSchema?.id === execution.SCHEMA && execution.credentialProvenance(vc) ? vc.evidenceMode : null,
