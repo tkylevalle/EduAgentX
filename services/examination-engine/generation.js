@@ -15,7 +15,7 @@ const { SLOT_FAMILIES } = require('./behaviour');
 const ITEM_FIELDS = Object.freeze([
   'id', 'slotId', 'tier', 'prompt', 'promptSha256', 'templateId', 'templateVersion',
   'generationPolicySha256', 'moduleIds', 'objectiveIds', 'sourceLinks', 'criticalSafety',
-  'criticalViolationRuleIds', 'rubricCriterionIds', 'kind', 'scenarioFamily',
+  'criticalViolationRuleIds', 'rubricCriterionIds', 'kind', 'scenarioFamilies',
 ]);
 const SOURCE_LINK_FIELDS = Object.freeze(['sourceId', 'sourceVersion', 'sourceDigest', 'pinpoint']);
 
@@ -96,9 +96,10 @@ function validateGeneratedForm({ pkg, registration, completion, items }) {
       item.templateId !== template.id || item.templateVersion !== template.version ||
       item.generationPolicySha256 !== sha256(template.generationPolicy) ||
       !sameIds(item.objectiveIds, slot.objectiveIds)) fail('invalid_generated_item');
-    // A behaviour item must be an adversarial slot running its own family.
-    if ((item.kind !== undefined || item.scenarioFamily !== undefined) && (item.kind !== 'behaviour' ||
-      item.tier !== 'adversarial' || SLOT_FAMILIES[item.slotId] !== item.scenarioFamily)) fail('invalid_generated_item');
+    // A behaviour item must be an adversarial slot running its own families.
+    if ((item.kind !== undefined || item.scenarioFamilies !== undefined) && (item.kind !== 'behaviour' ||
+      item.tier !== 'adversarial' || !Array.isArray(item.scenarioFamilies) ||
+      JSON.stringify(SLOT_FAMILIES[item.slotId]) !== JSON.stringify(item.scenarioFamilies))) fail('invalid_generated_item');
     seenSlots.add(item.slotId); seenIds.add(item.id); seenPrompts.add(item.promptSha256);
     const critical = slot.objectiveIds.some((id) => objectives.get(id)?.safetyCritical === true);
     const expectedModules = [...new Set(slot.objectiveIds.flatMap((id) => objectives.get(id)?.moduleIds || []))];

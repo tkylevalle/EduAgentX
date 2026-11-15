@@ -3,7 +3,7 @@
 const execution = require('../../packages/execution-provenance');
 const { sha256 } = require('../curriculum-engine/model');
 const { checkAssessment } = require('./assessment');
-const { actionsResponse, isAction } = require('./behaviour');
+const { actionsResponse, episodesOf, isAction } = require('./behaviour');
 const KEY = /^[\x20-\x7e]{1,256}$/;
 const REASONS = ['infrastructure_failure', 'governance_changed', 'grading_unavailable'];
 const terminalTypes = { attempt_completed: 'complete', agent_failed: 'agent_failed', system_aborted: 'system_aborted' };
@@ -86,7 +86,7 @@ function derive(attempt, events, responses) {
       const row = responses.find((r) => r.itemId === event.payload?.itemId);
       const answeredItem = attempt.form.items.find((item) => item.id === row?.itemId);
       // A behaviour item's response is the Engine's record of its steps.
-      if (answeredItem?.kind === 'behaviour' && row.response !== actionsResponse(steps.get(row.itemId) || [])) throw fail('invalid_event_history');
+      if (answeredItem?.kind === 'behaviour' && row.response !== actionsResponse(episodesOf(steps.get(row.itemId) || []))) throw fail('invalid_event_history');
       if (grade || !row || answered.has(row.itemId) || !answeredItem ||
         time >= Date.parse(attempt.deadlineAt) || row.seq !== event.seq || Date.parse(row.acceptedAt) !== time ||
         row.responseDigest !== event.payload.responseDigest || sha256(row.response) !== row.responseDigest)

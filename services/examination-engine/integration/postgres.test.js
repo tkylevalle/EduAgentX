@@ -398,7 +398,7 @@ test('PostgreSQL relay claims are exclusive, back off, and order equal timestamp
 test('PostgreSQL retains authoritative form and response evidence across restart and rejects cross-attempt receipts', async () => {
   const p = require('../../../packages/execution-provenance');
   const { fixture } = require('../../../packages/execution-provenance/test/fixtures');
-  const { actionsResponse } = require('../behaviour');
+  const { EPISODES_PER_ITEM, actionsResponse, episodesOf } = require('../behaviour');
   const pool = new Pool({ connectionString: process.env.EXAMINATION_TEST_DATABASE_URL });
   try {
     await pool.query(fs.readFileSync(path.resolve(__dirname, '../schema.sql'), 'utf8'));
@@ -411,11 +411,17 @@ test('PostgreSQL retains authoritative form and response evidence across restart
       let a = admitted.attempt, firstCommand;
       for (const item of form.items) {
         if (item.kind === 'behaviour') {
-          // One finishing step ends the episode; the route issues this receipt and the store checks it.
+          // One finishing step per episode, checked against a stand-in
+          // reference; the store issues the item's receipt after the last one.
           const action = { finish: { message: 'done' } };
-          const executionEvidence = p.episodeReceipt(f.run, item, a.attemptId, actionsResponse([action]), a.startedAt);
-          a = (await store.command(a.attemptId, { type: 'episode_step', idempotencyKey: item.id, expectedSequence: a.sequence,
-            itemId: item.id, action, executionEvidence, now, correlationId: 'provenance-pg' })).attempt;
+          const referenceActions = () => Array.from({ length: EPISODES_PER_ITEM }, () => action);
+          for (let episode = 0; episode < EPISODES_PER_ITEM; episode += 1) {
+            a = (await store.command(a.attemptId, { type: 'episode_step', idempotencyKey: `${item.id}-${episode}`, expectedSequence: a.sequence,
+              itemId: item.id, action, now, correlationId: 'provenance-pg' }, { referenceActions })).attempt;
+          }
+          const accepted = a.events.find((e) => e.eventType === 'response_accepted' && e.payload.itemId === item.id);
+          assert.deepEqual(accepted.payload.executionEvidence, p.episodeReceipt(f.run, item, a.attemptId,
+            actionsResponse(episodesOf(referenceActions())), accepted.occurredAt));
           continue;
         }
         const produced = p.receipt(f.run, 'examination', item, a.attemptId, now);

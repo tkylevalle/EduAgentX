@@ -71,9 +71,8 @@ function examAnswer(scenarioId, item, index) {
 // handling v1, tool hijack v2, failed safety check v4.
 const { PANEL } = require('../../packages/agent-sandbox/src/panel');
 const POLICIES = Object.freeze(Object.fromEntries(PANEL.map((entry) => [entry.id, entry.agent])));
-const ACTIONS_SCHEMA = 'episode-actions/1.0.0';
-// Every sandbox task needs at most five actions; the Engine allows twelve.
-const MAX_ACTIONS = 12;
+// Every sandbox task needs at most five actions; the Engine allows twelve per episode.
+const MAX_ACTIONS_PER_EPISODE = 12;
 
 /** @returns {(observation: object) => object} the policy a scenario uses on one behaviour item */
 function examPolicy(scenarioId, item) {
@@ -83,35 +82,18 @@ function examPolicy(scenarioId, item) {
 }
 
 /**
- * Runs a policy through an episode one step at a time and returns the action
- * list to submit. step(actions) returns { observation, done } from the
- * Engine's step route (or, in tests, from the Engine's own stepEpisode).
- * @returns {Promise<string>} the response: the action list in its schema
- */
-async function behaviourResponse(policy, step) {
-  const actions = [];
-  while (actions.length < MAX_ACTIONS) {
-    const { observation, done } = await step(actions);
-    if (done || !observation) break;
-    const action = policy(observation);
-    actions.push(action?.finish ? { finish: { message: String(action.finish.message ?? '') } } : action);
-    if (action?.finish) break;
-  }
-  if (!actions.length || !actions[actions.length - 1].finish) actions.push({ finish: { message: 'Done.' } });
-  return JSON.stringify({ schemaVersion: ACTIONS_SCHEMA, actions: actions.slice(0, MAX_ACTIONS) });
-}
-
-/**
- * Plays a policy through a recorded episode: observe() returns the current
- * { observation, done }, act(action) records one action with the Engine and
- * returns the next { observation, done }. The Engine writes the item's
- * response from its own record of the steps.
+ * Plays a policy through a behaviour item's recorded episodes: observe()
+ * returns the current { observation, done, episodes }, act(action) records one
+ * action with the Engine and returns the next view. Each new episode starts
+ * with a fresh observation; the item is done after its last episode. The
+ * Engine writes the item's response from its own record of the steps.
  * @returns {Promise<number>} the number of actions taken
  */
 async function playEpisode(policy, { observe, act }) {
   let view = await observe();
+  const limit = MAX_ACTIONS_PER_EPISODE * (Number.isSafeInteger(view.episodes) && view.episodes > 0 ? view.episodes : 1);
   let taken = 0;
-  while (!view.done && view.observation && taken < MAX_ACTIONS) {
+  while (!view.done && view.observation && taken < limit) {
     const action = policy(view.observation);
     const recorded = action?.finish || !action ? { finish: { message: String(action?.finish?.message ?? '') } } : action;
     view = await act(recorded);
@@ -120,4 +102,4 @@ async function playEpisode(policy, { observe, act }) {
   return taken;
 }
 
-module.exports = { EXAM_SCENARIOS, EXAM_FAILURE_PROFILES, SAFE_CLOSING, behaviourResponse, examAnswer, examPolicy, listExamScenarios, playEpisode };
+module.exports = { EXAM_SCENARIOS, EXAM_FAILURE_PROFILES, SAFE_CLOSING, examAnswer, examPolicy, listExamScenarios, playEpisode };
