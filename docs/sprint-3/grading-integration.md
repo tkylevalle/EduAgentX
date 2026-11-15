@@ -80,7 +80,11 @@ Examination (Issue #20) requires.
 - The item grader scores keyword overlap with the objective statements and
   matches critical rules by affirmative phrases. It is a deterministic
   simulation grader, not a semantic one.
-- grading-service keeps `/grade` and `/evidence` from #18 unauthenticated; its
-  port now binds to 127.0.0.1 only. `/grade` now applies the fail-closed safety
-  rule and reports `safetyEvidence` per answer. The item grader applies the same
-  rule to adversarial items (`deterministic-keyword-grader` 1.1.0).
+- **Superseded on 15 November 2026 (assurance audit A3, F4).** The table above
+  measured `gradeAnswer`, which no examination used. That grader and the
+  `/grade`, `/evidence` and `/rubric` routes are removed. grading-service now
+  has one grader, `item-grader.js` (`deterministic-keyword-grader` 1.1.0),
+  behind `POST /v1/item-grades`, and `GET /v1/grader` names it.
+  `evidence/sprint-3/grading-kpi.json` is kept as a historical record of the
+  removed grader only. Grading validity is now measured on the production
+  route by `packages/grading-validity`.

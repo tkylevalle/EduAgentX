@@ -393,7 +393,7 @@ function renderAgents(list) {
         <div class="timeline">
           <div class="tl-item"><div class="tl-dot green"></div><div class="tl-title">Registration</div><div class="tl-meta">Agent registered on platform</div></div>
           <div class="tl-item"><div class="tl-dot ${a.assurancePosture !== 'INDETERMINATE' ? 'green' : ''}"></div><div class="tl-title">Curriculum Delivery</div><div class="tl-meta">Package delivered via training service</div></div>
-          <div class="tl-item"><div class="tl-dot ${['VERIFIED','REVOKED'].includes(a.assurancePosture) ? 'green' : 'amber'}"></div><div class="tl-title">Examination</div><div class="tl-meta">Graded against locked rubric v1.0.0</div></div>
+          <div class="tl-item"><div class="tl-dot ${['VERIFIED','REVOKED'].includes(a.assurancePosture) ? 'green' : 'amber'}"></div><div class="tl-title">Examination</div><div class="tl-meta">Graded under the package's pinned rubric</div></div>
           <div class="tl-item"><div class="tl-dot ${a.assurancePosture === 'VERIFIED' ? 'green' : a.assurancePosture === 'REVOKED' ? 'red' : 'amber'}"></div>
             <div class="tl-title">Certification — ${a.assurancePosture}</div>
             <div class="tl-meta">${a.certificationId ? 'Credential: ' + a.certificationId : 'No credential issued'}</div>
@@ -420,9 +420,9 @@ function filterAgents() {
 
 // ── Governance ─────────────────────────────────────────────────────
 async function loadGovernance() {
-  const [pkgs, rubric] = await Promise.all([
+  const [pkgs, graderReply] = await Promise.all([
     safeFetch(`${VALID}/packages`),
-    safeFetch(`${GRADE}/rubric`),
+    safeFetch(`${GRADE}/v1/grader`),
   ]);
 
   const pkgTable = document.getElementById('packageTable');
@@ -438,16 +438,13 @@ async function loadGovernance() {
     pkgTable.innerHTML = '<tr><td colspan="5" style="color:var(--muted);">No packages found</td></tr>';
   }
 
+  // Pass thresholds and critical rules belong to each package, not to the
+  // grading service, so this panel shows only the grader's identity.
   const rubricEl = document.getElementById('rubricView');
-  if (rubric) {
-    rubricEl.innerHTML = `
-      <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr)">
-        <div class="kpi-item"><div class="kpi-domain">Overall Pass</div><div class="kpi-val met">${(rubric.overall_pass_threshold*100).toFixed(0)}%</div></div>
-        <div class="kpi-item"><div class="kpi-domain">Adversarial Pass</div><div class="kpi-val met">${(rubric.adversarial_pass_threshold*100).toFixed(0)}%</div></div>
-        <div class="kpi-item"><div class="kpi-domain">Critical Violations</div><div class="kpi-val met">Max ${rubric.critical_violation_limit}</div></div>
-      </div>
-      <p style="font-size:11px;color:var(--muted);margin-top:12px;">Rubric v${rubric.version} — locked at runtime, cannot be overridden.</p>`;
-  }
+  const grader = graderReply?.grader;
+  rubricEl.innerHTML = `
+    <p style="font-size:12px;">Grader: ${grader ? `<code>${esc(grader.id)} ${esc(grader.version)}</code>` : 'unavailable'}</p>
+    <p style="font-size:11px;color:var(--muted);margin-top:8px;">Pass thresholds and critical rules come from the exam template and rubric pinned by each Domain Assurance Package. Every attempt records the versions it was graded under.</p>`;
 }
 
 // ── Evidence ───────────────────────────────────────────────────────

@@ -35,6 +35,18 @@ function gradingRequest(attempt, pkg) {
   };
 }
 
+// The assessment for one grader reply, or null when the reply is not exactly
+// one valid result per item. Shared with packages/grading-validity, so the
+// validity measurement uses the Engine's own request and pass rule.
+function assessGraderReply({ attempt, pkg, request, replyBody }) {
+  const checked = validateGraderReply(replyBody, request.items.map((item) => item.itemId),
+    request.rubric.criticalViolationRuleIds);
+  if (!checked) return null;
+  return assess({ form: attempt.form, objectives: pkg.objectives, policy: pkg.examTemplate,
+    grader: checked.grader, results: checked.results,
+    malformedItemIds: request.items.filter((item) => isMalformedResponse(item.response)).map((item) => item.itemId) });
+}
+
 function withinRetryWindow(attempt, now, windowMs) {
   const lastAccepted = Math.max(...attempt.responses.map((row) => Date.parse(row.acceptedAt)));
   return Date.parse(now) < lastAccepted + windowMs;
@@ -83,12 +95,8 @@ function createGradingRunner({ store, sources, gradeItems, clock = () => new Dat
     }
     const request = gradingRequest(attempt, pkg);
     const { reply, unavailable } = await requestGrades(attempt, request, correlationId);
-    const checked = reply?.ok ? validateGraderReply(reply.body, request.items.map((item) => item.itemId),
-      request.rubric.criticalViolationRuleIds) : null;
-    if (unavailable || !checked) return abort(attempt, 'grading_unavailable', correlationId);
-    const assessment = assess({ form: attempt.form, objectives: pkg.objectives, policy: pkg.examTemplate,
-      grader: checked.grader, results: checked.results,
-      malformedItemIds: request.items.filter((item) => isMalformedResponse(item.response)).map((item) => item.itemId) });
+    const assessment = reply?.ok ? assessGraderReply({ attempt, pkg, request, replyBody: reply.body }) : null;
+    if (unavailable || !assessment) return abort(attempt, 'grading_unavailable', correlationId);
     return record(attempt, { type: 'finalize', eventId: `grade:${attempt.attemptId}`, formDigest: attempt.formDigest,
       rubricDigest: attempt.form.rubric.digest, responseSetDigest: attempt.responseSetDigest,
       result: { schemaVersion: RESULT_SCHEMA, valid: true, passed: assessment.passed }, assessment },
@@ -114,4 +122,4 @@ function createGradingRunner({ store, sources, gradeItems, clock = () => new Dat
   return { grade, sweep };
 }
 
-module.exports = { DEFAULT_RETRY_WINDOW_MS, createGradingRunner };
+module.exports = { DEFAULT_RETRY_WINDOW_MS, assessGraderReply, createGradingRunner, gradingRequest };
