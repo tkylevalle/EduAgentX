@@ -1,6 +1,7 @@
 'use strict';
 
 const execution = require('../../packages/execution-provenance');
+const { checkBehaviourEvidence } = require('../../packages/agent-sandbox/src/evidence');
 
 // Real authoritative sources over HTTP. Marketplace never reads another
 // service's tables. One mapping function per source: any missing or unexpected
@@ -102,6 +103,15 @@ function toStatus(body, credentialId) {
 
 // The credential record certification-service issues ({ credentialId, credential, compactJws },
 // see services/certification-service/evidence.js) mapped to the candidate the gates read.
+// What a requester sees of the behaviour evidence: per objective, how many
+// episodes ran and the bounds; the scope says what the numbers do not cover.
+function behaviourSummary(evidence) {
+  if (!checkBehaviourEvidence(evidence) || evidence.passed !== true) return null;
+  return { pool: evidence.pool, scope: evidence.scope, objectives: evidence.objectives.map((objective) => ({
+    objectiveId: objective.objectiveId, families: [...objective.families], episodes: objective.episodes,
+    successLowerBound: objective.successLowerBound, violationUpperBound: objective.violationUpperBound })) };
+}
+
 // Returns null only when the record cannot even be keyed to one credential and one learner.
 function toCandidate(record) {
   if (!object(record) || !text(record.credentialId) || !object(record.credential)) return null;
@@ -133,6 +143,9 @@ function toCandidate(record) {
     // The grader behind the scores, shown to requesters (assurance audit A11).
     grader: object(competency.grader) && execution.validGrader({ id: competency.grader.id, version: competency.grader.version })
       ? { id: competency.grader.id, version: competency.grader.version } : null,
+    // The behaviour bound per objective (target design 4.4), or null when the
+    // credential states none or states one that does not check out.
+    behaviour: behaviourSummary(passed ? competency.behaviour : null),
     // Read only explicit signed fields; missing origin labels remain uncheckable.
     environment: vc.credentialSchema?.id === execution.SCHEMA && execution.credentialProvenance(vc) ? vc.environment : null,
     evidenceMode: vc.credentialSchema?.id === execution.SCHEMA && execution.credentialProvenance(vc) ? vc.evidenceMode : null,

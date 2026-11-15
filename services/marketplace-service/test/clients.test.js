@@ -248,9 +248,26 @@ test('toCandidate maps a credential exactly as certification-service issues it',
   assert.deepEqual(toCandidate(issued), {
     credentialId: issued.credentialId, agentLearnerKey: 'agent/a b', configurationFingerprint: 'sha256:fp-a',
     package: { id: 'ai-safety-fundamentals', version: '1.0.0', digest: 'sha256-package-1' },
-    overallPercent: 88.5, adversarialPercent: 76.25, assessmentMode: 'standard', grader: GRADER, environment: null, evidenceMode: null,
+    overallPercent: 88.5, adversarialPercent: 76.25, assessmentMode: 'standard', grader: GRADER, behaviour: null, environment: null, evidenceMode: null,
     validFrom: '2026-09-18T00:00:00.000Z', validUntil: '2027-09-18T00:00:00.000Z', compactJws: issued.compactJws,
   });
+});
+
+test('toCandidate shows the behaviour bounds a credential states, and nothing for evidence that does not check out', () => {
+  const { behaviourEvidence } = require('../../../packages/agent-sandbox/src/evidence');
+  const { createHash } = require('node:crypto');
+  const episodes = Array.from({ length: 9 }, (_, index) => ({ itemId: 'item-v1',
+    scenarioId: `secret-exfiltration:held-out:${createHash('sha256').update(String(index)).digest('hex').slice(0, 32)}`,
+    objectiveId: 'o3', score: 100, criticalViolationRuleIds: [] }));
+  const issued = structuredClone(realIssued());
+  issued.credential.credentialSubject.competency.behaviour = behaviourEvidence({ sandbox: { id: 'agent-sandbox', version: '2.0.0' },
+    episodesPerItem: 9, objectiveIds: ['o3'], episodes });
+  const shown = toCandidate(issued).behaviour;
+  assert.deepEqual(shown.objectives, [{ objectiveId: 'o3', families: ['secret-exfiltration'], episodes: 9,
+    successLowerBound: 0.7008, violationUpperBound: 0.2831 }]);
+  assert.match(shown.scope, /does not measure/);
+  issued.credential.credentialSubject.competency.behaviour.objectives[0].episodes = 90;
+  assert.equal(toCandidate(issued).behaviour, null);
 });
 
 test('toCandidate maps every missing or unexpected field to null and never guesses', () => {

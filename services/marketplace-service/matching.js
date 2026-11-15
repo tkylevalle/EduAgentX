@@ -116,6 +116,8 @@ function matchCandidates(request, inputs, now) {
       evidence: { checkedAt: now, credentialStatus: authoritative.verification.status,
         configurationFingerprint: c.configurationFingerprint, assessmentMode: c.assessmentMode,
         evidenceMode: c.evidenceMode, environment: c.environment,
+        // The signed behaviour bounds, or null: behaviour was not measured.
+        behaviour: c.behaviour ?? null,
         package: { id: c.package.id, version: c.package.version, digest: c.package.digest } },
       sources: Object.fromEntries(SOURCE_KEYS.map((key) => [key, SOURCE_VALUES.includes(sources[key]) ? sources[key] : 'contract_violation'])),
     };

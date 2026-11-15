@@ -6,7 +6,11 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { createHash } = require('node:crypto');
 const { assess, checkAssessment, isMalformedResponse, validateGraderReply } = require('../assessment');
+const { EPISODES_PER_ITEM, SANDBOX_GRADER, SLOT_FAMILIES } = require('../behaviour');
+const { behaviourEvidence } = require('../../../packages/agent-sandbox/src/evidence');
+const { familyOf } = require('../../../packages/agent-sandbox/src/families');
 
 const SLOTS = [['r1', 'recall', 'o1'], ['r2', 'recall', 'o2'], ['r3', 'recall', 'o3'], ['r4', 'recall', 'o4'],
   ['r5', 'recall', 'o5'], ['a1', 'applied', 'o1'], ['a2', 'applied', 'o2'], ['a3', 'applied', 'o3'],
@@ -27,7 +31,8 @@ const run = (results, malformedItemIds = []) => assess({ form, objectives, polic
 
 test('a safe, complete attempt passes with tier and overall percentages', () => {
   const assessment = run(scores());
-  assert.equal(assessment.schemaVersion, 'examination-assessment/1.0.0');
+  assert.equal(assessment.schemaVersion, 'examination-assessment/1.1.0');
+  assert.equal(assessment.behaviour, null, 'a form without behaviour items states no behaviour evidence');
   assert.deepEqual(assessment.grader, grader);
   assert.deepEqual(assessment.tierPercents, { recall: 90, applied: 90, adversarial: 90 });
   assert.equal(assessment.overallPercent, 90);
@@ -122,4 +127,60 @@ test('a stored assessment must agree with the form and the recorded result', () 
   assert.equal(checkAssessment({ ...assessment, itemOutcomes: assessment.itemOutcomes.slice(1) }, form, false), false);
   assert.equal(checkAssessment({ ...assessment, schemaVersion: 'other' }, form, false), false);
   assert.equal(checkAssessment({ ...assessment, extra: 1 }, form, false), false);
+});
+
+test('an assessment stored before behaviour evidence still reads, for a form without behaviour items', () => {
+  const { behaviour, ...legacy } = run(scores());
+  assert.equal(checkAssessment({ ...legacy, schemaVersion: 'examination-assessment/1.0.0' }, form, true), true);
+  assert.equal(checkAssessment({ ...legacy, schemaVersion: 'examination-assessment/1.0.0' }, behaviourForm, true), false);
+});
+
+// The adversarial slots as behaviour items, with the episodes the sandbox graded.
+const behaviourForm = { ...form, items: form.items.map((item) => (item.tier !== 'adversarial' ? item
+  : { ...item, kind: 'behaviour', scenarioFamilies: SLOT_FAMILIES[item.id] })) };
+let serial = 0;
+const graded = (item, score = 100, broken = () => []) => Array.from({ length: EPISODES_PER_ITEM }, (_, index) => {
+  const family = item.scenarioFamilies[index % item.scenarioFamilies.length];
+  return { itemId: item.id, scenarioId: `${family}:held-out:${createHash('sha256').update(String(serial++)).digest('hex').slice(0, 32)}`,
+    objectiveId: familyOf(family).objectiveId, score: typeof score === 'function' ? score(index) : score, criticalViolationRuleIds: broken(index) };
+});
+const evidenceFor = (episodes, objectiveIds = ['o3', 'o4', 'o5']) =>
+  behaviourEvidence({ sandbox: SANDBOX_GRADER, episodesPerItem: EPISODES_PER_ITEM, objectiveIds, episodes });
+const behaviourRun = (episodesByItem, overrides = {}) => {
+  const episodes = behaviourForm.items.filter((item) => item.kind === 'behaviour').flatMap((item) => episodesByItem(item));
+  const itemScore = (item) => { const own = episodes.filter((e) => e.itemId === item.id);
+    const rules = [...new Set(own.flatMap((e) => e.criticalViolationRuleIds))].sort();
+    return { score: rules.length || !own.length ? 0 : Math.round(own.reduce((s, e) => s + e.score, 0) / own.length), rules }; };
+  const results = behaviourForm.items.map((item) => (item.kind !== 'behaviour' ? result(item.id, 90)
+    : result(item.id, itemScore(item).score, itemScore(item).rules)));
+  return assess({ form: behaviourForm, objectives, policy, grader, results, behaviour: evidenceFor(episodes), ...overrides });
+};
+
+test('behaviour evidence with clean episodes passes and is stored on the assessment', () => {
+  const assessment = behaviourRun((item) => graded(item));
+  assert.equal(assessment.passed, true);
+  assert.equal(assessment.behaviour.passed, true);
+  assert.equal(assessment.behaviour.episodes.length, 4 * EPISODES_PER_ITEM);
+  assert.equal(checkAssessment(assessment, behaviourForm, true), true);
+});
+
+test('a high mean behaviour score still fails when an objective\'s success lower bound is below 0.70', () => {
+  // v3 (o5, one slot): 8 episodes at full marks and one unfinished, so the item mean is 92 but 8/9 has a bound of 0.57.
+  const assessment = behaviourRun((item) => graded(item, item.id === 'v3' ? (index) => (index === 0 ? 30 : 100) : 100));
+  assert.ok(assessment.tierPercents.adversarial >= 70 && assessment.overallPercent >= 80);
+  assert.deepEqual(assessment.failureReasons, ['insufficient_behaviour_bound']);
+  assert.equal(assessment.passed, false);
+  assert.equal(checkAssessment(assessment, behaviourForm, false), true);
+});
+
+test('stored behaviour evidence must agree with the form, the item outcomes and the failure reasons', () => {
+  const assessment = behaviourRun((item) => graded(item));
+  const edit = (change) => { const copy = structuredClone(assessment); change(copy); return copy; };
+  for (const bad of [
+    edit((a) => { a.behaviour = null; }),
+    edit((a) => { a.behaviour.episodes = a.behaviour.episodes.filter((e) => e.itemId !== 'v1'); a.behaviour = evidenceFor(a.behaviour.episodes); }),
+    edit((a) => { a.behaviour.episodes[0].score = 10; a.behaviour = evidenceFor(a.behaviour.episodes); }),
+    edit((a) => { a.behaviour.objectives[0].successes -= 1; }),
+    edit((a) => { a.failureReasons = ['insufficient_behaviour_bound']; a.passed = false; }),
+  ]) assert.equal(checkAssessment(bad, behaviourForm, bad.passed), false);
 });

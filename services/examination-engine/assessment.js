@@ -6,14 +6,22 @@
 // Objective outcomes are diagnostic: they name the gap for remediation and
 // never add a pass condition the pinned policy does not have.
 
-const SCHEMA_VERSION = 'examination-assessment/1.0.0';
+// 1.1.0 adds the behaviour evidence (target design 4.4): the episode list and
+// per-objective bounds of the behaviour tier, and a failure when a bound
+// misses the pass policy. 1.0.0 assessments, stored before it, still read
+// for forms without behaviour items.
+const { behaviourEvidenceFits } = require('./behaviour-evidence');
+
+const SCHEMA_VERSION = 'examination-assessment/1.1.0';
+const LEGACY_SCHEMA_VERSION = 'examination-assessment/1.0.0';
 const TIERS = Object.freeze(['recall', 'applied', 'adversarial']);
 const FAILURE_REASONS = Object.freeze(['insufficient_overall_score', 'insufficient_adversarial_score',
-  'critical_violation', 'malformed_response']);
+  'critical_violation', 'malformed_response', 'insufficient_behaviour_bound']);
 const RESULT_FIELDS = Object.freeze(['itemId', 'score', 'criticalViolationRuleIds', 'rationale', 'citedItemIds']);
-const ASSESSMENT_FIELDS = Object.freeze(['schemaVersion', 'grader', 'overallPercent', 'tierPercents',
+const LEGACY_FIELDS = Object.freeze(['schemaVersion', 'grader', 'overallPercent', 'tierPercents',
   'criticalViolationRuleIds', 'malformedItemIds', 'failureReasons', 'passed', 'objectiveOutcomes',
   'failedObjectiveIds', 'itemOutcomes']);
+const ASSESSMENT_FIELDS = Object.freeze([...LEGACY_FIELDS, 'behaviour']);
 const OUTCOME_FIELDS = Object.freeze(['itemId', 'tier', 'score', 'criticalViolationRuleIds', 'malformed']);
 const IDENTIFIER = /^[\x20-\x7e]{1,256}$/;
 const MAX_RATIONALE_CHARS = 2000;
@@ -84,7 +92,8 @@ function objectiveOutcomesOf({ form, objectives, policy, itemOutcomes, violated 
   });
 }
 
-function assess({ form, objectives, policy, grader, results, malformedItemIds = [] }) {
+// behaviour is the behaviour evidence when the form has behaviour items, else null.
+function assess({ form, objectives, policy, grader, results, malformedItemIds = [], behaviour = null }) {
   const itemOutcomes = itemOutcomesOf(form, results, malformedItemIds);
   const { tierPercents, overallPercent } = scoresOf(form, itemOutcomes);
   const violated = unique(itemOutcomes.flatMap((outcome) => outcome.criticalViolationRuleIds)).sort();
@@ -94,22 +103,30 @@ function assess({ form, objectives, policy, grader, results, malformedItemIds = 
     insufficient_adversarial_score: tierPercents.adversarial < policy.adversarialPassPercent,
     critical_violation: policy.failOnCriticalViolation && violated.length > 0,
     malformed_response: malformed.length > 0,
+    insufficient_behaviour_bound: Boolean(behaviour) && !behaviour.passed,
   })[reason]);
   const objectiveOutcomes = objectiveOutcomesOf({ form, objectives, policy, itemOutcomes, violated });
   return { schemaVersion: SCHEMA_VERSION, grader: { ...grader }, overallPercent, tierPercents,
     criticalViolationRuleIds: violated, malformedItemIds: malformed, failureReasons, passed: failureReasons.length === 0,
-    objectiveOutcomes, failedObjectiveIds: objectiveOutcomes.filter((o) => !o.passed).map((o) => o.objectiveId), itemOutcomes };
+    objectiveOutcomes, failedObjectiveIds: objectiveOutcomes.filter((o) => !o.passed).map((o) => o.objectiveId), itemOutcomes,
+    behaviour: behaviour ? structuredClone(behaviour) : null };
 }
 
 // A stored assessment must be internally consistent, cover exactly the form's
 // items, and agree with the recorded pass/fail result.
 function checkAssessment(assessment, form, passed) {
-  if (!exactKeys(assessment, ASSESSMENT_FIELDS) || assessment.schemaVersion !== SCHEMA_VERSION ||
+  const legacy = assessment?.schemaVersion === LEGACY_SCHEMA_VERSION;
+  if (!exactKeys(assessment, legacy ? LEGACY_FIELDS : ASSESSMENT_FIELDS) || (!legacy && assessment.schemaVersion !== SCHEMA_VERSION) ||
     !exactKeys(assessment.grader, ['id', 'version']) || !IDENTIFIER.test(assessment.grader.id || '') ||
     !IDENTIFIER.test(assessment.grader.version || '') || assessment.passed !== passed ||
     !Array.isArray(assessment.failureReasons) || assessment.failureReasons.some((r) => !FAILURE_REASONS.includes(r)) ||
     (assessment.failureReasons.length === 0) !== passed || !Array.isArray(assessment.itemOutcomes) ||
     assessment.itemOutcomes.length !== form.items.length) return false;
+  // The behaviour evidence must fit the form and its outcomes, and fail the
+  // attempt exactly when a bound misses the policy.
+  const behaviour = legacy ? null : assessment.behaviour;
+  if ((legacy ? form.items.some((item) => item.kind === 'behaviour') : !behaviourEvidenceFits(behaviour, form, assessment.itemOutcomes)) ||
+    assessment.failureReasons.includes('insufficient_behaviour_bound') !== Boolean(behaviour && !behaviour.passed)) return false;
   const outcomesValid = assessment.itemOutcomes.every((outcome, index) => exactKeys(outcome, OUTCOME_FIELDS) &&
     outcome.itemId === form.items[index].id && outcome.tier === form.items[index].tier && isScore(outcome.score) &&
     typeof outcome.malformed === 'boolean' && Array.isArray(outcome.criticalViolationRuleIds));

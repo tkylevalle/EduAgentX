@@ -1,6 +1,7 @@
 'use strict';
 
 const execution = require('../../packages/execution-provenance');
+const { checkBehaviourEvidence } = require('../../packages/agent-sandbox/src/evidence');
 const { createHash, randomUUID, sign } = require('node:crypto');
 
 const digest = (value) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -14,6 +15,27 @@ function graderOf(assessment) {
   const grader = assessment.grader ? { id: assessment.grader.id, version: assessment.grader.version } : null;
   if (!execution.validGrader(grader)) throw fail('examination_evidence_malformed');
   return grader;
+}
+
+// 1.1.0 assessments carry behaviour evidence (target design 4.4); 1.0.0 ones
+// were stored before it existed.
+const ASSESSMENT_SCHEMAS = Object.freeze(['examination-assessment/1.0.0', 'examination-assessment/1.1.0']);
+
+// The behaviour evidence the credential states. A standard 1.1.0 attempt must
+// carry passing, self-consistent evidence for its adversarial items; a
+// fallback attempt has no behaviour items; a 1.0.0 attempt predates the
+// evidence, so its credential states null: behaviour was not measured.
+function behaviourOf(assessment, mode) {
+  if (assessment.schemaVersion === ASSESSMENT_SCHEMAS[0]) return null;
+  const behaviour = assessment.behaviour;
+  if (mode === 'fallback') {
+    if (behaviour !== null) throw fail('examination_evidence_malformed');
+    return null;
+  }
+  const adversarial = new Set(assessment.itemOutcomes.filter((item) => item.tier === 'adversarial').map((item) => item.itemId));
+  if (!checkBehaviourEvidence(behaviour) || behaviour.passed !== true ||
+    !behaviour.episodes.every((episode) => adversarial.has(episode.itemId))) throw fail('examination_evidence_malformed');
+  return structuredClone(behaviour);
 }
 
 function validatedEvidence(attempt, trustedPackage = null, issuanceEnvironment = process.env.CERTIFICATION_ENVIRONMENT, issuer = process.env.CERTIFICATION_ISSUER) {
@@ -48,7 +70,7 @@ function validatedEvidence(attempt, trustedPackage = null, issuanceEnvironment =
       !Number.isFinite(assessment.overallPercent) || !Array.isArray(assessment.criticalViolationRuleIds) ||
       assessment.criticalViolationRuleIds.length !== 0 || !Array.isArray(assessment.failureReasons) ||
       assessment.failureReasons.length !== 0 || !validOutcomes || !weightsValid ||
-      assessment.schemaVersion !== 'examination-assessment/1.0.0' ||
+      !ASSESSMENT_SCHEMAS.includes(assessment.schemaVersion) ||
       !Number.isFinite(Date.parse(completedAt)) || assessment.overallPercent < 0 || assessment.overallPercent > 100 ||
       ['recall','applied','adversarial'].some((tier) => !Number.isFinite(assessment.tierPercents[tier]) ||
         assessment.tierPercents[tier] < 0 || assessment.tierPercents[tier] > 100 ||
@@ -59,6 +81,7 @@ function validatedEvidence(attempt, trustedPackage = null, issuanceEnvironment =
   if (mode === 'standard' && (!template || !text(template.id) || !text(template.version)))
     throw fail('examination_evidence_malformed');
   const grader = graderOf(assessment);
+  const behaviour = behaviourOf(assessment, mode);
   let assessmentPolicy = null;
   if (trustedPackage) {
     assessmentPolicy = mode === 'fallback'
@@ -95,12 +118,12 @@ function validatedEvidence(attempt, trustedPackage = null, issuanceEnvironment =
     packageId: pkg.id, packageVersion: pkg.version, packageDigest: pkg.digest,
     templateId: templateEvidence.id, templateVersion: templateEvidence.version, templateDigest: templateEvidence.digest,
     rubricId: rubric.id, rubricVersion: rubric.version, rubricDigest: rubric.digest,
-    mode, grader, scores, safetyResult,
+    mode, grader, scores, safetyResult, behaviour,
     ...(hasProvenance ? { provenance: attempt.provenance } : {}),
     examinationEvidence: { examinationId: attemptId, formDigest, result: attempt.result,
       ...(hasProvenance ? { provenanceProfile: execution.RUN, provenance: attempt.provenance } : {}),
       completedAt, sequence: attempt.sequence, package: pkg, mode, template: templateEvidence,
-      rubric: { id: rubric.id, version: rubric.version, digest: rubric.digest }, grader, scores, safetyResult,
+      rubric: { id: rubric.id, version: rubric.version, digest: rubric.digest }, grader, scores, safetyResult, behaviour,
       ...(assessmentPolicy ? { passingPolicy: { overallPassPercent: assessmentPolicy.overallPassPercent,
         adversarialPassPercent: assessmentPolicy.adversarialPassPercent,
         failOnCriticalViolation: assessmentPolicy.failOnCriticalViolation !== false } } : {}) },
@@ -128,7 +151,8 @@ function issueCredential(evidence, { privateKey, keyId, issuer = 'https://eduage
     credentialSubject: { id: `${issuer}/agents/${encodeURIComponent(evidence.subjectId)}`,
       configurationFingerprint: evidence.subjectFingerprint,
       competency: { packageId: evidence.packageId, packageVersion: evidence.packageVersion,
-        result: 'pass', mode: evidence.mode, grader: evidence.grader, scores: evidence.scores, safetyResult: evidence.safetyResult } },
+        result: 'pass', mode: evidence.mode, grader: evidence.grader, scores: evidence.scores, safetyResult: evidence.safetyResult,
+        behaviour: evidence.behaviour ?? null } },
     credentialSchema: { id: evidence.provenance ? execution.SCHEMA : 'https://eduagentx.example/schemas/competency/v1.json', type: 'JsonSchema' },
     evidence: { type: 'EduAgentXAssessmentEvidence', ...evidence.examinationEvidence,
       ...(decisionId ? { certificationDecisionId: decisionId } : {}) },

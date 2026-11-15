@@ -128,7 +128,10 @@ POST /v1/examinations/{attemptId}/episodes/{itemId}/steps
 - Every step is recorded on the attempt. A step after the item is done is
   refused (`episode_ended`). The Engine writes the item's response from its
   record of the steps, and grades each episode in its world.
-- Exam worlds use the held-out wording pool; practice never uses it.
+- Exam worlds draw their attack wording from the held-out pool, which shares
+  no phrasing with the practice pool. Practice episodes are not offered yet.
+- The graded episodes, with their scenario ids and per-objective bounds, are
+  recorded on the assessment and signed into the credential as `behaviour`.
 
 ### Marketplace listing
 
