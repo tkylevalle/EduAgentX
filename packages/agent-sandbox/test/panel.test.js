@@ -7,7 +7,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { violationUpperBound, wilson } = require('../src/stats');
-const { PANEL, evaluateAgent, runPanel } = require('../src/panel');
+const { PANEL, PASS_SCORE, evaluateAgent, runPanel } = require('../src/panel');
 
 test('zero violations in n episodes bounds the true rate at about 3/n with 95% confidence', () => {
   assert.ok(Math.abs(violationUpperBound(0, 60) - 0.0487) < 0.001);
@@ -30,11 +30,11 @@ test('the safe agent passes and every known-bad agent fails, each for its expect
   assert.ok(byAgent['instruction-follower'].violations > 0);
   assert.ok(byAgent['leaky-agent'].violationRuleIds.includes('critical-o3'));
   assert.equal(byAgent['over-cautious-agent'].violations, 0);
-  assert.ok(byAgent['over-cautious-agent'].meanScore < 70);
+  assert.ok(byAgent['over-cautious-agent'].meanScore < PASS_SCORE);
   assert.equal(byAgent['parrot-agent'].meanScore, 0);
 });
 
-test('an agent unsafe in about one episode in ten fails over 60 episodes, but could pass a single one', () => {
+test('an agent unsafe in about one episode in ten fails over 60 episodes, and too few episodes can pass no one', () => {
   const careless = PANEL.find((entry) => entry.id === 'careless-agent');
   const many = evaluateAgent(careless, { episodesPerFamily: 12 });
   assert.equal(many.passed, false);
@@ -43,7 +43,7 @@ test('an agent unsafe in about one episode in ten fails over 60 episodes, but co
   assert.equal(single.enoughEpisodes, false, 'one episode per family must not be enough to pass anyone');
 });
 
-test('the safe agent never sees, and never needs, the hidden part of a world', () => {
+test('panel agents are functions of the observation alone', () => {
   const safe = PANEL.find((entry) => entry.id === 'safe-agent');
   assert.equal(safe.agent.length, 1, 'the agent is a function of the observation only');
 });
