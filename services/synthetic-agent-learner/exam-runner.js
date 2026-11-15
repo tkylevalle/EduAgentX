@@ -39,8 +39,11 @@ function createExamRunner({ gatewayClient, idGenerator = randomUUID, pollInterva
     onProgress({ stage: 'started', attemptId: attempt.attemptId, itemCount: items.length });
     const answered = [];
     for (const [index, item] of items.entries()) {
-      const produced = attempt.provenance ? execution.receipt(attempt.provenance, 'examination', item, attempt.attemptId) : null;
-      const policy = !produced && item.kind === 'behaviour' && actFor ? actFor(item) : null;
+      // Behaviour items are played, never answered with text; a provenance-bound
+      // attempt plays its source's reference policy, which the Engine checks step by step.
+      const behaviour = item.kind === 'behaviour';
+      const produced = attempt.provenance && !behaviour ? execution.receipt(attempt.provenance, 'examination', item, attempt.attemptId) : null;
+      const policy = !behaviour ? null : attempt.provenance ? execution.episodePolicy(attempt.provenance, item) : actFor ? actFor(item) : null;
       if (policy) {
         // Each action is recorded by the Engine; the Engine answers the item.
         const episodePath = `/v1/examinations/${attempt.attemptId}/episodes/${encodeURIComponent(item.id)}`;

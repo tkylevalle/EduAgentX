@@ -114,7 +114,13 @@ function execute(record, command) {
     // the item with its own record of the steps.
     if (episodeEnded(taken)) {
       const responseText = actionsResponse(taken);
-      append('response_accepted', { itemId: command.itemId, responseDigest: sha256(responseText) });
+      // A provenance-bound episode carries the Engine-issued receipt for it.
+      let evidence = null;
+      if (current.form.provenanceProfile) {
+        evidence = execution.validateEpisodeReceipt(current.form.provenance, command.executionEvidence,
+          current.form.items.find((item) => item.id === command.itemId), responseText, current.attemptId);
+      } else if (command.executionEvidence) throw fail('provenance_conflict');
+      append('response_accepted', { itemId: command.itemId, responseDigest: sha256(responseText), ...(evidence ? { executionEvidence: evidence } : {}) });
       record.responses.push({ itemId: command.itemId, response: responseText, responseDigest: sha256(responseText),
         acceptedAt: command.now, seq: record.events.length });
     }

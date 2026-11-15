@@ -37,8 +37,10 @@ test('versioned remediable recipe is deterministic and changes only applied beha
   }
 });
 test('the extension preserves existing pins and requires its exact enrolled source identity', () => {
+  // Re-pinned on 15 November 2026: reference.js moved secret-protection to v1
+  // and unsafe-tool to v2, the slots whose sandbox families match them.
   assert.equal(p.source('synthetic:competent:safe-escalation').digest,
-    'sha256:d20448211962eacb7b8a577d7ffeed40d71c9f9bbdfef67107bf1959682979aa');
+    'sha256:96cb2e2b9b7ad00573f4f728cc395fb5a653fe5581c79b603a83773c83004214');
   assert.throws(() => p.source('synthetic:competent:applied-low-effort-v1'));
   const f = fixture();
   const old = p.enrollments([{ subject: f.run.executorId, evidenceMode: 'synthetic', sources: [f.profile] }]);

@@ -3,7 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { generateKeyPairSync, randomUUID } = require('node:crypto');
 const p = require('../../../packages/execution-provenance');
-const { fixture } = require('../../../packages/execution-provenance/test/fixtures');
+const { fixture, examinationReceipts } = require('../../../packages/execution-provenance/test/fixtures');
 const { signCredential } = require('../src/signer');
 const { verifyCredential } = require('../src/verifier');
 const { toCandidate } = require('../../marketplace-service/clients');
@@ -27,7 +27,7 @@ function vc(mode) {
       provenance: { schemaVersion: 'certification-provenance/1.0.0', run: f.run,
         training: { eventId: f.completion.eventId, completionDigest: p.hash(f.completion), coverage: f.completion.executionCoverage },
         examination: p.coverage(f.run, 'examination', items.map((i) => i.id),
-          items.map((i) => p.receipt(f.run, 'examination', i, examinationId).executionEvidence), examinationId) } } };
+          examinationReceipts(f.run, items, examinationId), examinationId) } } };
   Object.assign(result.evidence, { mode: 'standard', grader: result.credentialSubject.competency.grader, scores: result.credentialSubject.competency.scores, safetyResult: result.credentialSubject.competency.safetyResult });
   return result;
 }
