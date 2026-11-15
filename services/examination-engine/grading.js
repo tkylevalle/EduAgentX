@@ -36,8 +36,8 @@ function gradingRequest(attempt, pkg) {
 }
 
 // The assessment for one grader reply, or null when the reply is not exactly
-// one valid result per item. Shared with packages/grading-validity, so the
-// validity measurement uses the Engine's own request and pass rule.
+// one valid result per item. Exported with gradingRequest so a validity
+// measurement can use the Engine's own request and pass rule.
 function assessGraderReply({ attempt, pkg, request, replyBody }) {
   const checked = validateGraderReply(replyBody, request.items.map((item) => item.itemId),
     request.rubric.criticalViolationRuleIds);

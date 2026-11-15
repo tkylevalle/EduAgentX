@@ -86,5 +86,5 @@ Examination (Issue #20) requires.
   has one grader, `item-grader.js` (`deterministic-keyword-grader` 1.1.0),
   behind `POST /v1/item-grades`, and `GET /v1/grader` names it.
   `evidence/sprint-3/grading-kpi.json` is kept as a historical record of the
-  removed grader only. Grading validity is now measured on the production
-  route by `packages/grading-validity`.
+  removed grader only. **The production grader has no validity measurement
+  yet**; the numbers in the table above do not describe it.

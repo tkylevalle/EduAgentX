@@ -10,14 +10,16 @@
 // the affirmative phrases below. It is not a semantic or LLM grader, and its
 // results are labelled with GRADER so they are never read as one.
 //
-// It is the only grader in the service. packages/grading-validity measures
-// this module through POST /v1/item-grades, so the measured grader and the
-// grader behind every credential are the same code.
+// It is the only grader in the service, so a measurement of
+// POST /v1/item-grades measures the grader behind every credential.
 
-// The share of the reference's words (four letters or more) that the response
-// contains, from 0 to 1.
+// Words shorter than this are function words ("the", "and", "for") that would
+// match almost any answer, so overlap ignores them. Unchanged since #18.
+const MIN_KEYWORD_LENGTH = 4;
+
+// The share of the reference's keywords that the response contains, from 0 to 1.
 function keywordOverlap(response, expected) {
-  const words = (value) => new Set(value.toLowerCase().split(/\W+/).filter((word) => word.length > 3));
+  const words = (value) => new Set(value.toLowerCase().split(/\W+/).filter((word) => word.length >= MIN_KEYWORD_LENGTH));
   const responseWords = words(response);
   const expectedWords = words(expected);
   const matched = [...responseWords].filter((word) => expectedWords.has(word)).length;

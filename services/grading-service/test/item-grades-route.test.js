@@ -20,13 +20,18 @@ async function boot(t, options = {}) {
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   t.after(() => new Promise((resolve) => server.close(resolve)));
   const base = `http://127.0.0.1:${server.address().port}`;
-  const call = (path, { method = 'POST', key = KEY, payload = body } = {}) =>
+  // The body is read as text first, so a route that does not exist (an
+  // HTML 404 page) still returns its status.
+  return (path, { method = 'POST', key = KEY, payload = body } = {}) =>
     fetch(`${base}${path}`, { method,
       headers: { 'content-type': 'application/json', ...(key ? { 'x-grading-service-key': key } : {}) },
       ...(method === 'POST' ? { body: JSON.stringify(payload) } : {}) })
-      .then(async (response) => ({ status: response.status, body: await response.json() }));
-  call.base = base;
-  return call;
+      .then(async (response) => {
+        const text = await response.text();
+        let parsed = null;
+        try { parsed = JSON.parse(text); } catch { /* an HTML error page has no JSON body */ }
+        return { status: response.status, body: parsed };
+      });
 }
 
 test('a keyed request returns one labelled result per item', async (t) => {
@@ -60,11 +65,9 @@ test('invalid input returns 422 with the problems and no result', async (t) => {
 
 test('the legacy grading routes are gone, so no second grader can answer', async (t) => {
   const call = await boot(t);
-  const status = async (path, method) => (await fetch(`${call.base}${path}`, { method,
-    headers: { 'content-type': 'application/json' }, ...(method === 'POST' ? { body: '{}' } : {}) })).status;
-  assert.equal(await status('/grade', 'POST'), 404);
-  assert.equal(await status('/evidence', 'GET'), 404);
-  assert.equal(await status('/rubric', 'GET'), 404);
+  assert.equal((await call('/grade', { key: null, payload: {} })).status, 404);
+  assert.equal((await call('/evidence', { method: 'GET', key: null })).status, 404);
+  assert.equal((await call('/rubric', { method: 'GET', key: null })).status, 404);
 });
 
 test('the grader route names the one grader that produces every score', async (t) => {
