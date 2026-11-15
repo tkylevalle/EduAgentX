@@ -24,6 +24,7 @@ function evidence(overrides = {}) {
     rubric: { id: 'ai-safety-rubric', version: '2.0.0', digest: `sha256:${'c'.repeat(64)}` },
     formDigest: `sha256:${'d'.repeat(64)}`, result: { schemaVersion: 'examination-result/1.0.0', valid: true, passed: true },
     assessment: { schemaVersion: 'examination-assessment/1.0.0', passed: true, overallPercent: 90,
+      grader: { id: 'deterministic-keyword-grader', version: '1.1.0' },
       tierPercents: { recall: 90, applied: 90, adversarial: 90 }, criticalViolationRuleIds: [], failureReasons: [],
       itemOutcomes: [...Array.from({ length: 5 }, (_, i) => ({ itemId: `r${i}`, tier: 'recall' })),
         ...Array.from({ length: 6 }, (_, i) => ({ itemId: `a${i}`, tier: 'applied' })),
@@ -77,6 +78,23 @@ test('issues a signed project credential bound to a complete passing evidence re
   assert.equal(kpi.body.targetMet, true);
   assert.ok(kpi.body.processingP95Ms >= 0);
   assert.ok(kpi.body.p95Ms <= 8000);
+});
+
+test('the signed credential names the grader that produced its score', async (t) => {
+  const ctx = await boot(t);
+  const response = await ctx.call('/internal/decisions', { examinationId: evidence().attemptId, idempotencyKey: 'grader-1' });
+  const credential = JSON.parse(Buffer.from(response.body.credential.compactJws.split('.')[1], 'base64url'));
+  assert.deepEqual(credential.evidence.grader, { id: 'deterministic-keyword-grader', version: '1.1.0' });
+  assert.deepEqual(credential.credentialSubject.competency.grader, { id: 'deterministic-keyword-grader', version: '1.1.0' });
+});
+
+test('an assessment that does not name its grader cannot issue a credential', async (t) => {
+  const unnamed = evidence();
+  delete unnamed.assessment.grader;
+  const ctx = await boot(t, async () => unnamed);
+  const response = await ctx.call('/internal/decisions', { examinationId: unnamed.attemptId, idempotencyKey: 'grader-2' });
+  assert.notEqual(response.status, 201);
+  assert.deepEqual(await ctx.store.counts(), { decisions: 0, credentials: 0 });
 });
 
 test('a package under critical quarantine cannot receive a new credential', async (t) => {

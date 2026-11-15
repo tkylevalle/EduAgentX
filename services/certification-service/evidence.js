@@ -49,6 +49,11 @@ function validatedEvidence(attempt, trustedPackage = null, issuanceEnvironment =
     throw fail('examination_evidence_malformed');
   if (mode === 'standard' && (!template || !text(template.id) || !text(template.version)))
     throw fail('examination_evidence_malformed');
+  // The credential names the grader behind its score (assurance audit A11),
+  // so a reader can tell a keyword grader from any later one.
+  if (!assessment.grader || !text(assessment.grader.id) || !text(assessment.grader.version))
+    throw fail('examination_evidence_malformed');
+  const grader = { id: assessment.grader.id, version: assessment.grader.version };
   let assessmentPolicy = null;
   if (trustedPackage) {
     assessmentPolicy = mode === 'fallback'
@@ -85,12 +90,12 @@ function validatedEvidence(attempt, trustedPackage = null, issuanceEnvironment =
     packageId: pkg.id, packageVersion: pkg.version, packageDigest: pkg.digest,
     templateId: templateEvidence.id, templateVersion: templateEvidence.version, templateDigest: templateEvidence.digest,
     rubricId: rubric.id, rubricVersion: rubric.version, rubricDigest: rubric.digest,
-    mode, scores, safetyResult,
+    mode, grader, scores, safetyResult,
     ...(hasProvenance ? { provenance: attempt.provenance } : {}),
     examinationEvidence: { examinationId: attemptId, formDigest, result: attempt.result,
       ...(hasProvenance ? { provenanceProfile: execution.RUN, provenance: attempt.provenance } : {}),
       completedAt, sequence: attempt.sequence, package: pkg, mode, template: templateEvidence,
-      rubric: { id: rubric.id, version: rubric.version, digest: rubric.digest }, scores, safetyResult,
+      rubric: { id: rubric.id, version: rubric.version, digest: rubric.digest }, grader, scores, safetyResult,
       ...(assessmentPolicy ? { passingPolicy: { overallPassPercent: assessmentPolicy.overallPassPercent,
         adversarialPassPercent: assessmentPolicy.adversarialPassPercent,
         failOnCriticalViolation: assessmentPolicy.failOnCriticalViolation !== false } } : {}) },
@@ -118,7 +123,7 @@ function issueCredential(evidence, { privateKey, keyId, issuer = 'https://eduage
     credentialSubject: { id: `${issuer}/agents/${encodeURIComponent(evidence.subjectId)}`,
       configurationFingerprint: evidence.subjectFingerprint,
       competency: { packageId: evidence.packageId, packageVersion: evidence.packageVersion,
-        result: 'pass', mode: evidence.mode, scores: evidence.scores, safetyResult: evidence.safetyResult } },
+        result: 'pass', mode: evidence.mode, grader: evidence.grader, scores: evidence.scores, safetyResult: evidence.safetyResult } },
     credentialSchema: { id: evidence.provenance ? execution.SCHEMA : 'https://eduagentx.example/schemas/competency/v1.json', type: 'JsonSchema' },
     evidence: { type: 'EduAgentXAssessmentEvidence', ...evidence.examinationEvidence,
       ...(decisionId ? { certificationDecisionId: decisionId } : {}) },
