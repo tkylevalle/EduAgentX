@@ -1,0 +1,8 @@
+{
+  "name": "eduagentx-sprint-gates",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Gate runner for the Sprint 3 and 4 stack gates: checks that can fail, NOT_RUN made explicit.",
+  "main": "src/gate.js",
+  "scripts": { "test": "node --test test/*.test.js" }
+}

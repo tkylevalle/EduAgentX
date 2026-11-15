@@ -170,6 +170,7 @@ function createLifecycleDriver({ gatewayUrl, syntheticUrl, validationUrl, curric
       terminalReason: reply.data.attempt.terminalReason || null, itemsAnswered: reply.data.answered.length,
       scenario, overallPercent: assessment?.overallPercent ?? null,
       tierPercents: assessment?.tierPercents ?? null, criticalViolationRuleIds: assessment?.criticalViolationRuleIds ?? [],
+      failureReasons: assessment?.failureReasons ?? [],
       passed: reply.data.attempt.status === 'complete', evidence: reply.data.evidence?.label || null,
       ...(reply.data.live ? { live: reply.data.live } : {}) };
   }
