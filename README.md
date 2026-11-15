@@ -66,6 +66,7 @@ the Live model tile is disabled and everything else works.
 make install     # npm ci for every package and service
 make test-unit   # component tests, no Docker needed
 make test        # full Sprint 1 gate in an isolated Compose project
+node packages/release-gate/cli.js   # final release gate (Issue 36)
 ```
 
 CI runs `python3 scripts/run-sprint1.py --technical-only` on every pull
@@ -95,3 +96,4 @@ evidence/   committed gate runs (do not edit)
 - [Sprint 1 records](docs/sprint-1/): runbook, KPIs, minutes, handoffs, reviews
 - [Five-sprint blueprint](docs/blueprint/spec.md)
 - [Evidence review summary](evidence/review-summary.md)
+- [Final release gate](docs/release/README.md): second-machine run, handoff drill, limitations

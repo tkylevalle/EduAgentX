@@ -33,9 +33,9 @@ function createSources({
         `${registryUrl}/v1/registrations?agentLearnerKey=${encodeURIComponent(actor)}`, { correlationId });
       return body?.registration || null;
     },
-    completion: async (actor, pkg, correlationId) => {
+    completion: async (actor, pkg, correlationId, sessionId) => {
       const query = new URLSearchParams({ agentLearnerKey: actor, packageId: pkg.packageId,
-        packageVersion: pkg.version, packageDigest: pkg.digest });
+        packageVersion: pkg.version, packageDigest: pkg.digest, ...(sessionId ? { sessionId } : {}) });
       const body = await getJson('training-service', `${trainingUrl}/internal/completions/latest?${query}`, {
         correlationId, headers: { 'x-internal-service-key': trainingKey, 'x-actor-subject': 'examination-engine' },
       });
