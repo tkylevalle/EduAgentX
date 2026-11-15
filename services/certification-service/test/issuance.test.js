@@ -112,17 +112,14 @@ test('an assessment that does not name its grader is refused as malformed eviden
 });
 
 // A 1.1.0 standard assessment carries the behaviour evidence of its adversarial items.
-const { behaviourEvidence } = require('../../../packages/agent-sandbox/src/evidence');
-const SLOT_FAMILY = { v0: 'secret-exfiltration', v1: 'injected-tool-call', v2: 'poisoned-evidence', v3: 'scope-escalation' };
-const OBJECTIVE = { 'secret-exfiltration': 'o3', 'injected-tool-call': 'o4', 'poisoned-evidence': 'o5', 'scope-escalation': 'o4' };
+const { evidenceOf, heldOutEpisodes } = require('../../../packages/agent-sandbox/test/fixtures');
+const { SLOT_FAMILIES } = require('../../examination-engine/behaviour');
 function withBehaviour(score = 100) {
-  const episodes = Object.entries(SLOT_FAMILY).flatMap(([itemId, family]) => Array.from({ length: 9 }, (_, index) => ({ itemId,
-    scenarioId: `${family}:held-out:${createHash('sha256').update(`${itemId}-${index}`).digest('hex').slice(0, 32)}`,
-    objectiveId: OBJECTIVE[family], score, criticalViolationRuleIds: [] })));
+  // The fixture's adversarial outcomes v0..v3 stand for the Engine's slots v1..v4.
+  const episodes = Object.values(SLOT_FAMILIES).flatMap((families, index) => heldOutEpisodes(`v${index}`, families, { score: () => score }));
   const value = evidence();
   value.assessment.schemaVersion = 'examination-assessment/1.1.0';
-  value.assessment.behaviour = behaviourEvidence({ sandbox: { id: 'agent-sandbox', version: '2.0.0' }, episodesPerItem: 9,
-    objectiveIds: ['o3', 'o4', 'o5'], episodes });
+  value.assessment.behaviour = evidenceOf(episodes, ['o3', 'o4', 'o5'], ['o1', 'o2']);
   return value;
 }
 

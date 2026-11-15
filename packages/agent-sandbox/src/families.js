@@ -292,4 +292,15 @@ function buildWorld(familyId, seed, pool) {
     criticalRuleIds: [...family.criticalRuleIds], ...world };
 }
 
-module.exports = { EXAM_POOL, FAMILIES, POOLS, WORDING, buildWorld, familyOf, poolDigest, renderWording, sameAddress };
+/**
+ * @param {unknown} scenarioId  a world's scenarioId: family, pool and seed joined by ':'
+ * @returns {{ family: string, pool: string, seed: string } | null} its parts, or null when it names no known family and pool
+ */
+function parseScenarioId(scenarioId) {
+  const parts = typeof scenarioId === 'string' ? scenarioId.split(':') : [];
+  const [family, pool, seed] = parts;
+  if (parts.length !== 3 || !FAMILIES.some((value) => value.id === family) || !POOLS.includes(pool) || !seed) return null;
+  return { family, pool, seed };
+}
+
+module.exports = { EXAM_POOL, FAMILIES, POOLS, WORDING, buildWorld, familyOf, parseScenarioId, poolDigest, renderWording, sameAddress };

@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createHash, generateKeyPairSync, randomUUID } = require('node:crypto');
+const { generateKeyPairSync, randomUUID } = require('node:crypto');
 const p = require('../../../packages/execution-provenance');
 const { fixture, examinationReceipts } = require('../../../packages/execution-provenance/test/fixtures');
 const { signCredential } = require('../src/signer');
@@ -22,7 +22,7 @@ function vc(mode) {
     environment: 'simulation', evidenceMode: mode, credentialSchema: { id: p.SCHEMA, type: 'JsonSchema' },
     credentialSubject: { id: `${issuer}/agents/${f.run.agentLearnerKey}`, configurationFingerprint: f.run.configurationFingerprint,
       competency: { packageId: f.run.package.id, packageVersion: f.run.package.version, result: 'pass', mode: 'standard', grader: { id: 'deterministic-keyword-grader', version: '1.1.0' },
-        safetyResult: { passed: true, criticalViolationRuleIds: [], failureReasons: [] }, scores: { overallPercent: 90, tierPercents: { recall: 90, applied: 90, adversarial: 90 }, itemOutcomes: items.map((i) => ({ itemId: i.id })) } } },
+        safetyResult: { passed: true, criticalViolationRuleIds: [], failureReasons: [] }, scores: { overallPercent: 90, tierPercents: { recall: 90, applied: 90, adversarial: 90 }, itemOutcomes: items.map((i) => ({ itemId: i.id, tier: i.tier })) } } },
     evidence: { examinationId, certificationDecisionId: randomUUID(), package: f.run.package,
       provenance: { schemaVersion: 'certification-provenance/1.0.0', run: f.run,
         training: { eventId: f.completion.eventId, completionDigest: p.hash(f.completion), coverage: f.completion.executionCoverage },
@@ -57,13 +57,11 @@ for (const [name, edit] of [
   assert.equal(verify(v).schema.status, 'FAIL');
 });
 // Behaviour evidence signed into the credential (target design 4.4).
-const { behaviourEvidence } = require('../../../packages/agent-sandbox/src/evidence');
-function withBehaviour(score = 100) {
+const { evidenceOf, heldOutEpisodes } = require('../../../packages/agent-sandbox/test/fixtures');
+function withBehaviour(score = 100, itemId) {
   const v = vc('synthetic');
-  const episodes = Array.from({ length: 9 }, (_, index) => ({ itemId: 'item-v1',
-    scenarioId: `secret-exfiltration:held-out:${createHash('sha256').update(String(index)).digest('hex').slice(0, 32)}`,
-    objectiveId: 'o3', score, criticalViolationRuleIds: [] }));
-  const behaviour = behaviourEvidence({ sandbox: { id: 'agent-sandbox', version: '2.0.0' }, episodesPerItem: 9, objectiveIds: ['o3'], episodes });
+  const adversarial = itemId || v.credentialSubject.competency.scores.itemOutcomes.find((i) => i.tier === 'adversarial').itemId;
+  const behaviour = evidenceOf(heldOutEpisodes(adversarial, ['secret-exfiltration'], { score: () => score }), ['o3']);
   v.credentialSubject.competency.behaviour = behaviour;
   v.evidence.behaviour = structuredClone(behaviour);
   return v;
@@ -75,6 +73,9 @@ for (const [name, edit] of [
   ['mismatched behaviour', (v) => { v.evidence.behaviour = null; }],
   ['forged behaviour bound', (v) => { v.credentialSubject.competency.behaviour.objectives[0].successLowerBound = 0.99;
     v.evidence.behaviour = structuredClone(v.credentialSubject.competency.behaviour); }],
+  ['behaviour for an item the credential does not score', (v) => { const other = withBehaviour(100, 'not-an-item');
+    v.credentialSubject.competency.behaviour = other.credentialSubject.competency.behaviour;
+    v.evidence.behaviour = structuredClone(other.evidence.behaviour); }],
 ]) test(`properly signed ${name} still fails provenance schema`, () => {
   const v = withBehaviour(); edit(v);
   assert.equal(verify(v).schema.status, 'FAIL');

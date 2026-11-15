@@ -1,7 +1,7 @@
 'use strict';
 
 const execution = require('../../packages/execution-provenance');
-const { checkBehaviourEvidence } = require('../../packages/agent-sandbox/src/evidence');
+const { isPassingBehaviourEvidence } = require('../../packages/agent-sandbox/src/evidence');
 const { createHash, randomUUID, sign } = require('node:crypto');
 
 const digest = (value) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -19,21 +19,22 @@ function graderOf(assessment) {
 
 // 1.1.0 assessments carry behaviour evidence (target design 4.4); 1.0.0 ones
 // were stored before it existed.
-const ASSESSMENT_SCHEMAS = Object.freeze(['examination-assessment/1.0.0', 'examination-assessment/1.1.0']);
+const LEGACY_ASSESSMENT_SCHEMA = 'examination-assessment/1.0.0';
+const ASSESSMENT_SCHEMAS = Object.freeze([LEGACY_ASSESSMENT_SCHEMA, 'examination-assessment/1.1.0']);
 
 // The behaviour evidence the credential states. A standard 1.1.0 attempt must
 // carry passing, self-consistent evidence for its adversarial items; a
 // fallback attempt has no behaviour items; a 1.0.0 attempt predates the
 // evidence, so its credential states null: behaviour was not measured.
 function behaviourOf(assessment, mode) {
-  if (assessment.schemaVersion === ASSESSMENT_SCHEMAS[0]) return null;
+  if (assessment.schemaVersion === LEGACY_ASSESSMENT_SCHEMA) return null;
   const behaviour = assessment.behaviour;
   if (mode === 'fallback') {
     if (behaviour !== null) throw fail('examination_evidence_malformed');
     return null;
   }
   const adversarial = new Set(assessment.itemOutcomes.filter((item) => item.tier === 'adversarial').map((item) => item.itemId));
-  if (!checkBehaviourEvidence(behaviour) || behaviour.passed !== true ||
+  if (!isPassingBehaviourEvidence(behaviour) ||
     !behaviour.episodes.every((episode) => adversarial.has(episode.itemId))) throw fail('examination_evidence_malformed');
   return structuredClone(behaviour);
 }

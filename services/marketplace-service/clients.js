@@ -1,7 +1,7 @@
 'use strict';
 
 const execution = require('../../packages/execution-provenance');
-const { checkBehaviourEvidence } = require('../../packages/agent-sandbox/src/evidence');
+const { isPassingBehaviourEvidence } = require('../../packages/agent-sandbox/src/evidence');
 
 // Real authoritative sources over HTTP. Marketplace never reads another
 // service's tables. One mapping function per source: any missing or unexpected
@@ -101,17 +101,18 @@ function toStatus(body, credentialId) {
   return body.status;
 }
 
-// The credential record certification-service issues ({ credentialId, credential, compactJws },
-// see services/certification-service/evidence.js) mapped to the candidate the gates read.
 // What a requester sees of the behaviour evidence: per objective, how many
 // episodes ran and the bounds; the scope says what the numbers do not cover.
 function behaviourSummary(evidence) {
-  if (!checkBehaviourEvidence(evidence) || evidence.passed !== true) return null;
-  return { pool: evidence.pool, scope: evidence.scope, objectives: evidence.objectives.map((objective) => ({
-    objectiveId: objective.objectiveId, families: [...objective.families], episodes: objective.episodes,
-    successLowerBound: objective.successLowerBound, violationUpperBound: objective.violationUpperBound })) };
+  if (!isPassingBehaviourEvidence(evidence)) return null;
+  return { pool: evidence.pool, scope: evidence.scope, untestedObjectiveIds: [...evidence.untestedObjectiveIds],
+    objectives: evidence.objectives.map((objective) => ({
+      objectiveId: objective.objectiveId, families: [...objective.families], episodes: objective.episodes,
+      successLowerBound: objective.successLowerBound, violationUpperBound: objective.violationUpperBound })) };
 }
 
+// The credential record certification-service issues ({ credentialId, credential, compactJws },
+// see services/certification-service/evidence.js) mapped to the candidate the gates read.
 // Returns null only when the record cannot even be keyed to one credential and one learner.
 function toCandidate(record) {
   if (!object(record) || !text(record.credentialId) || !object(record.credential)) return null;

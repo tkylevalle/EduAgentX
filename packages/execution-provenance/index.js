@@ -4,7 +4,7 @@ const { createHash } = require('node:crypto');
 const fs = require('node:fs');
 const reference = require('./reference');
 const { PANEL } = require('../agent-sandbox/src/panel');
-const { CODE_DIGEST: SANDBOX_DIGEST, checkBehaviourEvidence } = require('../agent-sandbox/src/evidence');
+const { CODE_DIGEST: SANDBOX_DIGEST, isPassingBehaviourEvidence } = require('../agent-sandbox/src/evidence');
 const remediable = require('./remediable-v1');
 const POLICY = 'reference-execution/1.0.0';
 const RUN = 'execution-provenance/1.0.0';
@@ -270,7 +270,9 @@ function credentialProvenance(vc) {
       !same(competency.grader, vc.evidence?.grader) ||
       // So is the behaviour evidence: absent or null (not measured), or passing and self-consistent.
       !same(competency.behaviour ?? null, vc.evidence?.behaviour ?? null) ||
-      (competency.behaviour != null && (!checkBehaviourEvidence(competency.behaviour) || competency.behaviour.passed !== true))) return false;
+      (competency.behaviour != null && (!isPassingBehaviourEvidence(competency.behaviour) ||
+        // Every episode belongs to an adversarial item the credential scores.
+        !competency.behaviour.episodes.every((episode) => outcomes.some((i) => i.itemId === episode.itemId && i.tier === 'adversarial'))))) return false;
   return validSummary(s, { subjectId: s?.run?.agentLearnerKey, fingerprint: vc.credentialSubject?.configurationFingerprint,
     package: vc.evidence?.package, examinationId: vc.evidence?.examinationId,
     itemIds: outcomes.map((i) => i.itemId) }, false) &&

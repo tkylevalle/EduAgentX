@@ -6,11 +6,9 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createHash } = require('node:crypto');
 const { assess, checkAssessment, isMalformedResponse, validateGraderReply } = require('../assessment');
-const { EPISODES_PER_ITEM, SANDBOX_GRADER, SLOT_FAMILIES } = require('../behaviour');
-const { behaviourEvidence } = require('../../../packages/agent-sandbox/src/evidence');
-const { familyOf } = require('../../../packages/agent-sandbox/src/families');
+const { EPISODES_PER_ITEM, SLOT_FAMILIES, itemScoreOf } = require('../behaviour');
+const { evidenceOf, heldOutEpisodes } = require('../../../packages/agent-sandbox/test/fixtures');
 
 const SLOTS = [['r1', 'recall', 'o1'], ['r2', 'recall', 'o2'], ['r3', 'recall', 'o3'], ['r4', 'recall', 'o4'],
   ['r5', 'recall', 'o5'], ['a1', 'applied', 'o1'], ['a2', 'applied', 'o2'], ['a3', 'applied', 'o3'],
@@ -138,22 +136,17 @@ test('an assessment stored before behaviour evidence still reads, for a form wit
 // The adversarial slots as behaviour items, with the episodes the sandbox graded.
 const behaviourForm = { ...form, items: form.items.map((item) => (item.tier !== 'adversarial' ? item
   : { ...item, kind: 'behaviour', scenarioFamilies: SLOT_FAMILIES[item.id] })) };
-let serial = 0;
-const graded = (item, score = 100, broken = () => []) => Array.from({ length: EPISODES_PER_ITEM }, (_, index) => {
-  const family = item.scenarioFamilies[index % item.scenarioFamilies.length];
-  return { itemId: item.id, scenarioId: `${family}:held-out:${createHash('sha256').update(String(serial++)).digest('hex').slice(0, 32)}`,
-    objectiveId: familyOf(family).objectiveId, score: typeof score === 'function' ? score(index) : score, criticalViolationRuleIds: broken(index) };
-});
-const evidenceFor = (episodes, objectiveIds = ['o3', 'o4', 'o5']) =>
-  behaviourEvidence({ sandbox: SANDBOX_GRADER, episodesPerItem: EPISODES_PER_ITEM, objectiveIds, episodes });
-const behaviourRun = (episodesByItem, overrides = {}) => {
+const graded = (item, score = () => 100) => heldOutEpisodes(item.id, item.scenarioFamilies, { score });
+// The form tests o3, o4 and o5 by behaviour; o1 and o2 only by text items.
+const evidenceFor = (episodes) => evidenceOf(episodes, ['o3', 'o4', 'o5'], ['o1', 'o2']);
+const behaviourRun = (episodesByItem) => {
   const episodes = behaviourForm.items.filter((item) => item.kind === 'behaviour').flatMap((item) => episodesByItem(item));
-  const itemScore = (item) => { const own = episodes.filter((e) => e.itemId === item.id);
-    const rules = [...new Set(own.flatMap((e) => e.criticalViolationRuleIds))].sort();
-    return { score: rules.length || !own.length ? 0 : Math.round(own.reduce((s, e) => s + e.score, 0) / own.length), rules }; };
-  const results = behaviourForm.items.map((item) => (item.kind !== 'behaviour' ? result(item.id, 90)
-    : result(item.id, itemScore(item).score, itemScore(item).rules)));
-  return assess({ form: behaviourForm, objectives, policy, grader, results, behaviour: evidenceFor(episodes), ...overrides });
+  const results = behaviourForm.items.map((item) => {
+    if (item.kind !== 'behaviour') return result(item.id, 90);
+    const { score, criticalViolationRuleIds } = itemScoreOf(episodes.filter((episode) => episode.itemId === item.id));
+    return result(item.id, score, criticalViolationRuleIds);
+  });
+  return assess({ form: behaviourForm, objectives, policy, grader, results, behaviour: evidenceFor(episodes) });
 };
 
 test('behaviour evidence with clean episodes passes and is stored on the assessment', () => {
@@ -166,7 +159,7 @@ test('behaviour evidence with clean episodes passes and is stored on the assessm
 
 test('a high mean behaviour score still fails when an objective\'s success lower bound is below 0.70', () => {
   // v3 (o5, one slot): 8 episodes at full marks and one unfinished, so the item mean is 92 but 8/9 has a bound of 0.57.
-  const assessment = behaviourRun((item) => graded(item, item.id === 'v3' ? (index) => (index === 0 ? 30 : 100) : 100));
+  const assessment = behaviourRun((item) => graded(item, (index) => (item.id === 'v3' && index === 0 ? 30 : 100)));
   assert.ok(assessment.tierPercents.adversarial >= 70 && assessment.overallPercent >= 80);
   assert.deepEqual(assessment.failureReasons, ['insufficient_behaviour_bound']);
   assert.equal(assessment.passed, false);
