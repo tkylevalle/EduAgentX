@@ -57,12 +57,21 @@ async function boot(t) {
   upstream.post('/verify', (req, res) => res.json({ overall: 'VALID', reasonCodes: [] }));
   upstream.post('/status/:action', (req, res) => res.json({ credentialId: req.body.credentialId, status: req.params.action }));
   upstream.get('/snapshot', (req, res) => res.json({ assurancePosture: {} }));
+  upstream.get('/.well-known/jwks.json', (req, res) => res.json({ keys: [{ kid: 'issuer#key-1', kty: 'OKP' }] }));
   const stub = await listen(upstream);
   const gateway = await listen(createGateway({ certificationServiceUrl: url(stub), certificationInternalKey: 'cert-key',
     credentialVerificationUrl: url(stub), credentialInternalKey: 'cred-key', monitoringServiceUrl: url(stub) }));
   t.after(() => { gateway.close(); stub.close(); });
   return { gateway, seen };
 }
+
+test('anyone can read the issuer\'s published keys through the Gateway, without a token', async (t) => {
+  const { gateway, seen } = await boot(t);
+  const reply = await request(gateway, 'GET', '/.well-known/jwks.json');
+  assert.equal(reply.status, 200);
+  assert.deepEqual(reply.body.keys.map((key) => key.kid), ['issuer#key-1']);
+  assert.ok(seen.some((entry) => entry.path === '/.well-known/jwks.json'));
+});
 
 test('admin reads certifications through the Gateway with a read-only gateway actor', async (t) => {
   const { gateway, seen } = await boot(t);
