@@ -5,8 +5,7 @@
 
 const { randomBytes } = require('node:crypto');
 const { assessGraderReply, gradingRequest } = require('../../../services/examination-engine/grading');
-const { stepEpisode } = require('../../../services/examination-engine/behaviour');
-const { behaviourResponse } = require('../../../services/synthetic-agent-learner/exam-scenarios');
+const { actionsResponse, episodesOf, policyActions } = require('../../../services/examination-engine/behaviour');
 const { PANEL } = require('../../../packages/agent-sandbox/src/panel');
 
 const POLICIES = Object.freeze(Object.fromEntries(PANEL.map((entry) => [entry.id, entry.agent])));
@@ -51,13 +50,13 @@ async function gradeEntries({ exam, route, entries }) {
 async function gradeAttempt({ exam, route, answers, attemptId = `validity-${randomBytes(6).toString('hex')}` }) {
   const missing = exam.form.items.filter((item) => answers[item.slotId] === undefined);
   if (missing.length) throw new Error(`no answer for slots ${missing.map((item) => item.slotId).join(', ')}`);
-  // Behaviour items are played in the sandbox by their reference policy,
-  // through the Engine's own step function, as a learner plays them.
+  // Behaviour items are played in every episode's world by their reference
+  // policy, recorded as the Engine records a learner's steps.
   const responses = [];
   for (const item of exam.form.items) {
     const answer = answers[item.slotId];
     const response = typeof answer === 'string' ? answer
-      : await behaviourResponse(POLICIES[answer.policy], (taken) => stepEpisode(attemptId, item, taken, RUN_SEED_KEY));
+      : actionsResponse(episodesOf(policyActions(attemptId, item, RUN_SEED_KEY, POLICIES[answer.policy])));
     responses.push({ itemId: item.id, response });
   }
   const attempt = { attemptId, form: exam.form, responses };

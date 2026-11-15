@@ -3,6 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
+const { EPISODES_PER_ITEM } = require('../behaviour');
 const { randomUUID } = require('node:crypto');
 const { sha256 } = require('../../curriculum-engine/model');
 const candidate = require('../../curriculum-engine/examples/ai-safety-candidate');
@@ -71,8 +72,8 @@ async function start(ctx, key = 'start') {
 }
 
 // A fully answered attempt: the start event, 15 responses, and one recorded
-// finishing step for each of the 4 behaviour items.
-const ANSWERED_SEQUENCE = 1 + 15 + 4;
+// finishing step for each episode of the 4 behaviour items.
+const ANSWERED_SEQUENCE = 1 + 15 + 4 * EPISODES_PER_ITEM;
 
 function responseBody(attempt, overrides = {}) {
   return { idempotencyKey: 'response-1', expectedSequence: attempt.sequence,
@@ -83,13 +84,21 @@ async function answerAll(ctx, attempt) {
   ctx.setClock(BEFORE_DEADLINE);
   let current = attempt;
   for (const [index, item] of attempt.form.items.entries()) {
-    // Behaviour items are answered by a recorded episode step, never directly.
-    const result = item.kind === 'behaviour'
-      ? await ctx.call('POST', `/internal/attempts/${attempt.attemptId}/episodes/${item.id}/steps`, { idempotencyKey: `response-${index + 1}`,
-        expectedSequence: current.sequence, action: { finish: { message: `PRIVATE_API_ANSWER_${index + 1}` } } })
-      : await ctx.call('POST', `/internal/attempts/${attempt.attemptId}/responses`, responseBody({ ...current, form: attempt.form }, {
-        itemId: item.id, idempotencyKey: `response-${index + 1}`, response: `PRIVATE_API_ANSWER_${index + 1}`,
-      }));
+    // Behaviour items are answered by recorded episode steps, one finishing
+    // step per episode, never directly.
+    if (item.kind === 'behaviour') {
+      for (let episode = 0; episode < EPISODES_PER_ITEM; episode += 1) {
+        const step = await ctx.call('POST', `/internal/attempts/${attempt.attemptId}/episodes/${item.id}/steps`, {
+          idempotencyKey: `response-${index + 1}-${episode}`, expectedSequence: current.sequence,
+          action: { finish: { message: `PRIVATE_API_ANSWER_${index + 1}` } } });
+        assert.equal(step.status, 200);
+        current = step.body.attempt;
+      }
+      continue;
+    }
+    const result = await ctx.call('POST', `/internal/attempts/${attempt.attemptId}/responses`, responseBody({ ...current, form: attempt.form }, {
+      itemId: item.id, idempotencyKey: `response-${index + 1}`, response: `PRIVATE_API_ANSWER_${index + 1}`,
+    }));
     assert.equal(result.status, 200);
     current = result.body.attempt;
   }

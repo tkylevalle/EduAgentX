@@ -16,7 +16,7 @@ const { buildFallbackForm, publicFallbackForm, mapFallbackResult } = require('./
 const { createFallbackSelect, createFallbackScore } = require('./fallback-sources');
 const { createGovernance } = require('./governance');
 const { DEFAULT_RETRY_WINDOW_MS, createGradingRunner } = require('./grading');
-const { policyActions, stepEpisode } = require('./behaviour');
+const { EPISODES_PER_ITEM, policyActions, stepEpisode } = require('./behaviour');
 const { createGradeItems } = require('./grading-client');
 const { requireRemediation, registerRemediationRoutes } = require('./remediation-routes');
 const { createRemediationRelay } = require('./remediation-relay');
@@ -285,7 +285,7 @@ function createApp({ store, sources, internalKey = process.env.EXAMINATION_INTER
   const episodeView = (attempt, item) => {
     const answered = attempt.responses.some((row) => row.itemId === item.id);
     const taken = recordedSteps(attempt, item.id);
-    return answered ? { observation: null, done: true, steps: taken.length }
+    return answered ? { observation: null, done: true, episode: EPISODES_PER_ITEM, episodes: EPISODES_PER_ITEM, steps: taken.length }
       : { ...stepEpisode(attempt.attemptId, item, taken, episodeSeedKey), steps: taken.length };
   };
   // The run's reference policy's actions in this attempt's world.

@@ -22,7 +22,7 @@ test('a safe complete attempt is graded once and completes with its assessment k
   const view = await adminView(ctx, attempt);
   assert.equal(view.assessment.passed, true);
   // Text items by the text grader, behaviour items by the Engine's sandbox.
-  assert.deepEqual(view.assessment.grader, { id: `${GRADER.id}+agent-sandbox`, version: `${GRADER.version}+1.0.0` });
+  assert.deepEqual(view.assessment.grader, { id: `${GRADER.id}+agent-sandbox`, version: `${GRADER.version}+2.0.0` });
   assert.deepEqual(view.assessment.tierPercents, { recall: 90, applied: 90, adversarial: 100 });
 });
 

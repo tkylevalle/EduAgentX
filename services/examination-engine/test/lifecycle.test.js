@@ -9,6 +9,7 @@ const { generateStandardForm } = require('../generation');
 const { createStandardItems } = require('../standard-generator');
 const { createMemoryStore } = require('../store');
 const { derive } = require('../lifecycle');
+const { EPISODES_PER_ITEM } = require('../behaviour');
 
 const START = '2026-10-12T06:00:00.000Z';
 const BEFORE_DEADLINE = '2026-10-12T06:59:59.999Z';
@@ -39,18 +40,23 @@ function responseCommand(attempt, overrides = {}) {
 }
 
 // A fully answered attempt: the start event, 15 responses, and one recorded
-// finishing step for each of the 4 behaviour items.
-const ANSWERED_SEQUENCE = 1 + 15 + 4;
+// finishing step for each episode of the 4 behaviour items.
+const ANSWERED_SEQUENCE = 1 + 15 + 4 * EPISODES_PER_ITEM;
 
 async function answerAll(ctx) {
   let current = await ctx.store.get(ctx.attempt.attemptId);
   for (const [index, item] of current.form.items.entries()) {
-    // Behaviour items are answered by a recorded episode step, never directly.
-    const command = item.kind === 'behaviour'
-      ? { type: 'episode_step', idempotencyKey: `response-${index + 1}`, expectedSequence: current.sequence, itemId: item.id,
-        action: { finish: { message: `Accepted response ${index + 1}.` } }, now: BEFORE_DEADLINE, correlationId: 'response-test' }
-      : responseCommand(current, { itemId: item.id, idempotencyKey: `response-${index + 1}`, response: `Accepted response ${index + 1}.` });
-    current = (await ctx.store.command(current.attemptId, command)).attempt;
+    if (item.kind !== 'behaviour') {
+      current = (await ctx.store.command(current.attemptId, responseCommand(current,
+        { itemId: item.id, idempotencyKey: `response-${index + 1}`, response: `Accepted response ${index + 1}.` }))).attempt;
+      continue;
+    }
+    // Behaviour items are answered by recorded episode steps, never directly.
+    for (let episode = 0; episode < EPISODES_PER_ITEM; episode += 1) {
+      current = (await ctx.store.command(current.attemptId, { type: 'episode_step', idempotencyKey: `response-${index + 1}-${episode}`,
+        expectedSequence: current.sequence, itemId: item.id, action: { finish: { message: `Accepted response ${index + 1}.` } },
+        now: BEFORE_DEADLINE, correlationId: 'response-test' })).attempt;
+    }
   }
   return current;
 }

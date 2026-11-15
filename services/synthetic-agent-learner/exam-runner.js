@@ -57,7 +57,7 @@ function createExamRunner({ gatewayClient, idGenerator = randomUUID, pollInterva
         const view = (reply) => {
           if (reply.status !== 200) throw new Error(`episode_step_failed:${reply.status}:${reply.body?.error || ''}`);
           if (reply.body.attempt) attempt = { ...attempt, ...reply.body.attempt };
-          return { observation: reply.body.observation, done: reply.body.done };
+          return { observation: reply.body.observation, done: reply.body.done, episodes: reply.body.episodes };
         };
         let step = 0;
         await playEpisode(policy, { observe: async () => view(await call('GET', episodePath)),

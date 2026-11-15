@@ -5,7 +5,7 @@ const execution = require('../../packages/execution-provenance');
 const { randomUUID } = require('node:crypto');
 const { sha256 } = require('../curriculum-engine/model');
 const { fail, validateCommand, commandDigest, derive, stateReceipt, isResponseExpired } = require('./lifecycle');
-const { actionsResponse, episodeEnded } = require('./behaviour');
+const { actionsResponse, episodesOf, itemEnded } = require('./behaviour');
 const { checkAssessment } = require('./assessment');
 const { remediationEventFor } = require('./remediation');
 const { pgRemediationMethods, memoryRemediationMethods } = require('./remediation-store');
@@ -127,10 +127,10 @@ function execute(record, command, options = {}) {
   if (command.type === 'episode_step') {
     append('episode_step_recorded', { itemId: command.itemId, action: command.action });
     const taken = stepsFor(record, command.itemId);
-    // The episode ends at a finish or the step limit; the Engine then answers
-    // the item with its own record of the steps.
-    if (episodeEnded(taken)) {
-      const responseText = actionsResponse(taken);
+    // After the item's last episode ends (each at a finish or the step limit),
+    // the Engine answers the item with its own record of the steps.
+    if (itemEnded(taken)) {
+      const responseText = actionsResponse(episodesOf(taken));
       // A provenance-bound episode carries the receipt the Engine issues for it.
       const evidence = current.form.provenanceProfile ? execution.episodeReceipt(current.form.provenance,
         current.form.items.find((item) => item.id === command.itemId), current.attemptId, responseText, command.now) : null;

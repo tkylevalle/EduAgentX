@@ -8,6 +8,7 @@ const { sha256 } = require('../../curriculum-engine/model');
 const candidate = require('../../curriculum-engine/examples/ai-safety-candidate');
 const { createApp: createExamination } = require('../../examination-engine');
 const { createMemoryStore } = require('../../examination-engine/store');
+const { EPISODES_PER_ITEM } = require('../../examination-engine/behaviour');
 
 process.env.JWT_ISSUER = 'eduagentx-api-gateway-exam-test';
 process.env.JWT_AUDIENCE = 'eduagentx-platform-exam-test';
@@ -163,15 +164,22 @@ test('Gateway learner and admin reads agree after trusted finalization of comple
   const id = started.body.attempt.attemptId;
   let attempt = started.body.attempt;
   for (const [index, item] of attempt.form.items.entries()) {
-    // Behaviour items are answered by recorded episode steps, never directly.
-    const submitted = item.kind === 'behaviour'
-      ? await request(gateway, 'POST', `/v1/examinations/${id}/episodes/${item.id}/steps`, {
-        idempotencyKey: `item-${index}`, expectedSequence: attempt.sequence, action: { finish: { message: `restricted response ${index}` } },
-      }, agentHeaders)
-      : await request(gateway, 'POST', `/v1/examinations/${id}/responses`, {
-        idempotencyKey: `item-${index}`, expectedSequence: attempt.sequence, itemId: item.id,
-        response: `restricted response ${index}`,
-      }, agentHeaders);
+    // Behaviour items are answered by recorded episode steps, one finishing
+    // step per episode, never directly.
+    if (item.kind === 'behaviour') {
+      for (let episode = 0; episode < EPISODES_PER_ITEM; episode += 1) {
+        const step = await request(gateway, 'POST', `/v1/examinations/${id}/episodes/${item.id}/steps`, {
+          idempotencyKey: `item-${index}-${episode}`, expectedSequence: attempt.sequence,
+          action: { finish: { message: `restricted response ${index}` } } }, agentHeaders);
+        assert.equal(step.status, 200);
+        attempt = step.body.attempt;
+      }
+      continue;
+    }
+    const submitted = await request(gateway, 'POST', `/v1/examinations/${id}/responses`, {
+      idempotencyKey: `item-${index}`, expectedSequence: attempt.sequence, itemId: item.id,
+      response: `restricted response ${index}`,
+    }, agentHeaders);
     assert.equal(submitted.status, 200);
     attempt = submitted.body.attempt;
   }
