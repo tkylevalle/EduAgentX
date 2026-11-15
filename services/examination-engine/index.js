@@ -16,8 +16,7 @@ const { buildFallbackForm, publicFallbackForm, mapFallbackResult } = require('./
 const { createFallbackSelect, createFallbackScore } = require('./fallback-sources');
 const { createGovernance } = require('./governance');
 const { DEFAULT_RETRY_WINDOW_MS, createGradingRunner } = require('./grading');
-const { actionsResponse, episodeEnded, stepEpisode, worldFor } = require('./behaviour');
-const { runEpisode } = require('../../packages/agent-sandbox/src/episode');
+const { policyActions, stepEpisode } = require('./behaviour');
 const { createGradeItems } = require('./grading-client');
 const { requireRemediation, registerRemediationRoutes } = require('./remediation-routes');
 const { createRemediationRelay } = require('./remediation-relay');
@@ -289,10 +288,9 @@ function createApp({ store, sources, internalKey = process.env.EXAMINATION_INTER
     return answered ? { observation: null, done: true, steps: taken.length }
       : { ...stepEpisode(attempt.attemptId, item, taken, episodeSeedKey), steps: taken.length };
   };
-  // The reference policy's actions in this attempt's world, as recorded steps.
-  const referenceActions = (attempt, item) => runEpisode(worldFor(attempt.attemptId, item, episodeSeedKey),
-    execution.episodePolicy(attempt.form.provenance, item)).log
-    .map((call) => (call.tool === 'finish' ? { finish: { message: call.args.message } } : { tool: call.tool, args: call.args }));
+  // The run's reference policy's actions in this attempt's world.
+  const referenceActions = (attempt, item) => policyActions(attempt.attemptId, item, episodeSeedKey,
+    execution.episodePolicy(attempt.form.provenance, item));
   const behaviourItem = (attempt, itemId) => {
     const item = attempt.form.items.find((value) => value.id === itemId && value.kind === 'behaviour');
     if (!item) throw fail('behaviour_item_not_found', 404);
@@ -317,19 +315,10 @@ function createApp({ store, sources, internalKey = process.env.EXAMINATION_INTER
       const item = behaviourItem(attempt, req.params.itemId);
       // The world must be buildable before a step is recorded: no key, no step.
       stepEpisode(attempt.attemptId, item, [], episodeSeedKey);
-      // A provenance-bound attempt must play its source's reference policy
-      // step for step; the Engine then issues the item's receipt itself.
-      if (attempt.form.provenanceProfile) {
-        // Only steps before this command's sequence count, so a retried step is
-        // checked at its own position and reaches the store as a replay.
-        const taken = recordedSteps({ events: attempt.events.filter((event) => event.seq <= command.expectedSequence) }, item.id);
-        const expected = referenceActions(attempt, item);
-        if (!execution.same(command.action, expected[taken.length])) throw fail('provenance_conflict');
-        const ending = [...taken, command.action];
-        if (episodeEnded(ending)) command.executionEvidence = execution.episodeReceipt(attempt.form.provenance, item,
-          attempt.attemptId, actionsResponse(ending), attempt.startedAt);
-      }
-      const result = await store.command(attempt.attemptId, command, { clock,
+      // A provenance-bound attempt must play its source's reference policy step
+      // for step; the store checks each step under the attempt's lock and
+      // issues the item's receipt when the episode ends.
+      const result = await store.command(attempt.attemptId, command, { clock, referenceActions,
         guard: (current) => governance(current, req.correlationId) });
       res.json({ apiVersion: 'v1', outcome: result.replay ? 'replay' : 'accepted', attempt: lifecycleView(result.attempt),
         receipt: result.receipt, ...episodeView(result.attempt, item), correlationId: req.correlationId });
