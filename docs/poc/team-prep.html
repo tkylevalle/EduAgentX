@@ -524,7 +524,7 @@ const PEOPLE = [
       { id: "#9", sprint: 2, title: "Source and Domain Assurance Package model",
         l1: "The package is the fixed “course + exam rules” for one domain, with every claim tied to an official source. It is never edited, only replaced by a new version.",
         l2: ["A package holds sources (with SHA-256 pins), 5 modules, objectives, delivery items, the exam template (15 slots), the rubric, the critical rules and the 15-item fallback bank.", "Its content digest identifies it. Training, exams and credentials all pin that digest."],
-        l3: ["Files: `services/curriculum-engine/model.js` (`validatePackage`, `sha256`), `fallback.js`.", "Domain: `ai-agent-safety-secure-tool-use`; edition `0.1.5-draft`."],
+        l3: ["Files: `services/curriculum-engine/model.js` (`validatePackage`, `sha256`), `fallback.js`.", "Domain: `ai-agent-safety-secure-tool-use`; edition `0.1.6-draft`."],
         qa: [["Why immutable?", "So “what was this agent certified on?” always has one exact answer: the package ID and digest in the credential."],
              ["Where do the sources come from?", "Official publications, for example the NIST AI Risk Management Framework, pinned by hash and pinpoint."]] },
       { id: "#17", sprint: 3, title: "Examination attempt state and atomicity",
@@ -687,7 +687,7 @@ add("real", "everyone", `
   ${head("06", "Say this openly", "What is real, what is simulated")}
   <div class="grid g2">
     <div class="panel stripe-signal"><div class="label">Real</div>${li(["14 services, PostgreSQL schemas, Redis Streams, ChromaDB, JWT auth, Ed25519 signatures, status registry, grading pipeline, outboxes, monitoring, marketplace projection.", "The full lifecycle runs end to end, live, in the web app.", "**547** tests pass, 0 fail, across 19 components. Smoke test **16/16**.", "Issuance p95 about **560 ms** (target 5,000 ms)."])}</div>
-    <div class="panel stripe-amber"><div class="label">Simulated or limited</div>${li(["The agent is the deterministic Synthetic Agent Learner, not a live LLM.", "The grader is a deterministic keyword rubric, not an LLM judge.", "Capability requests are simulated.", "The curriculum is a draft (`0.1.5-draft`); the two reviewers are simulated identities.", "Credentials are project evidence, not accreditation. Keys are local demo keys."])}</div>
+    <div class="panel stripe-amber"><div class="label">Simulated or limited</div>${li(["The agent is the deterministic Synthetic Agent Learner, not a live LLM.", "The grader is a deterministic keyword rubric, not an LLM judge.", "Capability requests are simulated.", "The curriculum is a draft (`0.1.6-draft`); the two reviewers are simulated identities.", "Credentials are project evidence, not accreditation. Keys are local demo keys."])}</div>
   </div>
   <div class="panel stripe-danger"><div class="label">Known weak result · if asked, be honest</div><p style="margin-top:6px">Grading validity on the production grader is <strong>Red</strong>: an agent that repeats each question passes, leaks written in other words are not flagged as critical, and no answers have labels from people yet. The trust chain around the score holds; the score itself is a keyword baseline (assurance audit, Phase 1 replaces it).</p></div>
 `);

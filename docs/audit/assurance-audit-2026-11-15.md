@@ -149,3 +149,27 @@ These parts are real and were checked in code or on a real stack:
 5. Real curriculum review and verified sources (C1-C5).
 6. Fingerprints observed by the platform, a signed status list and a published issuer key (D1-D3).
 7. Evidence and documentation honesty: committed evidence, one verdict per report, a complete limitations record (E4, E5, E8).
+
+## Status after Phase 0 (15 November 2026)
+
+Branch `neeraj/assurance-audit`. The findings above are the audit as written;
+this section records what changed. Files the findings cite as evidence may
+since have been removed (for example `services/grading-service/kpi/` and
+`src/grader.js`).
+
+| Item | Status | Where |
+|---|---|---|
+| A3, F4 | Done. One grader (`item-grader.js`); the legacy routes and KPI are removed. | `services/grading-service` |
+| A2, A4, A7 | Measured, not fixed. `packages/grading-validity` measures the production route on the 15 real items: **Red**. No response has labels from people yet. | `packages/grading-validity` |
+| A9, E2 | Done as measurement. Eleven whole-attempt probes, including a parrot and an instruction follower, run in CI; nine are broken today. | `packages/grading-validity/src/probes.js` |
+| A10 | Done for format. Options shown, shuffled per attempt, plausible distractors; free text removed, so wording equivalence no longer arises. Question content still needs review by people. | `services/curriculum-engine/fallback.js` |
+| A11 | Done. The grader is in the signed credential, the schema, provenance verification and the Marketplace projection. Refusing unmeasured graders needs a grader registry (Phase 1). | `services/certification-service/evidence.js` |
+| A12 | Rewritten, not yet run. Both gates fail on a wrong result and refuse scripted approvals, and are unit tested; neither has run against a live stack. | `scripts/sprint3-gate.js`, `scripts/sprint4-gate.js` |
+| A13 | Deferred to Phase 1, recorded. | — |
+| E1 | Done. CI's `grading-validity` job fails while the status is Red. | `.github/workflows/sprint1-tests.yml` |
+| E8 | Done. | `docs/release/limitations.md` |
+| C1 | Unchanged; the reference package is now `0.1.6-draft`. | — |
+| All others | Open. | — |
+
+The original "Checks run" row for `kpi/measure.js` describes the removed
+grader. The phase's claim is restated in the target design.

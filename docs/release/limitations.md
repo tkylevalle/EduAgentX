@@ -23,10 +23,12 @@ be written until the team has reviewed and corrected this file.
   and evidence packs were written by hand, not by a run, and PR #91 removed
   them. The earlier gate scripts could not fail: their checks only printed,
   and every scenario was recorded as PASS (assurance audit A12). The
-  rewritten `scripts/sprint3-gate.js` and `scripts/sprint4-gate.js` run on
-  the stack through public routes and fail on a wrong result. Each still
-  reports two demonstrations as not run, so neither gate can pass yet, and
-  the Sprint 3 gate also needs grading validity to leave Red.
+  rewritten `scripts/sprint3-gate.js` and `scripts/sprint4-gate.js` are
+  written to run on the stack through public routes and to fail on a wrong
+  result; their runner and package checks are unit tested, but **neither has
+  yet run against a live stack**. Each reports two demonstrations as not
+  run, so neither gate can pass yet, and the Sprint 3 gate also needs
+  grading validity to leave Red.
 - The secret scan does not read binary files, and it blocks on text files
   over 2 MB instead of reading them. It cannot find a password written in
   prose.
@@ -76,9 +78,17 @@ does not yet support a competence claim. State on 15 November 2026:
   signed status list, and the issuer (`did:example`) publishes no key.
 - **The credential names its grader** (since this audit), but Certification
   accepts any grader the assessment names; refusing graders that have not
-  passed the validity measurement needs a grader registry.
+  passed the validity measurement needs a grader registry. Credentials
+  issued before this change carry no grader, so verification and the
+  Marketplace now treat their provenance as invalid; a database with such
+  credentials loses those Eligible candidates until the agents are
+  examined again.
 - **The fallback bank's questions** now show shuffled options with plausible
-  distractors, but their content has not been reviewed by people.
+  distractors, and every item is a selection, so no answer depends on exact
+  wording. Their content has not been reviewed by people.
+- **Not run on a stack.** The branch's changes are covered by unit tests and
+  the validity measurement only; the changed lifecycle driver and the gates
+  have not yet run against a live stack.
 
 The fixes are planned in [docs/audit/target-system-design.md](../audit/target-system-design.md).
 
