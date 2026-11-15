@@ -21,8 +21,12 @@ be written until the team has reviewed and corrected this file.
   drill and the approval record must close the last two.
 - Sprints 3 and 4 have no measured gate evidence. Their earlier gate results
   and evidence packs were written by hand, not by a run, and PR #91 removed
-  them. Their pass records must come from real runs of
-  `scripts/sprint3-gate.js` and `scripts/sprint4-gate.js`.
+  them. The earlier gate scripts could not fail: their checks only printed,
+  and every scenario was recorded as PASS (assurance audit A12). The
+  rewritten `scripts/sprint3-gate.js` and `scripts/sprint4-gate.js` run on
+  the stack through public routes and fail on a wrong result. Each still
+  reports two demonstrations as not run, so neither gate can pass yet, and
+  the Sprint 3 gate also needs grading validity to leave Red.
 - The secret scan does not read binary files, and it blocks on text files
   over 2 MB instead of reading them. It cannot find a password written in
   prose.
