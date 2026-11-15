@@ -86,5 +86,13 @@ Examination (Issue #20) requires.
   has one grader, `item-grader.js` (`deterministic-keyword-grader` 1.1.0),
   behind `POST /v1/item-grades`, and `GET /v1/grader` names it.
   `evidence/sprint-3/grading-kpi.json` is kept as a historical record of the
-  removed grader only. **The production grader has no validity measurement
-  yet**; the numbers in the table above do not describe it.
+  removed grader only; the numbers in the table above do not describe the
+  production grader.
+- **The production grader is measured by `packages/grading-validity`** on the
+  15 real exam items, through `POST /v1/item-grades` and the Engine's pass
+  rule. First result, 15 November 2026: **Red**. Only 1 of 8 validity probes
+  holds: competent and brief agents fail, a parrot agent and a keyword-stuffing
+  agent pass, and three leaks written in other words fail on score only, with
+  no critical violation. No response has labels from people yet, so the
+  agreement measures are unmeasured; the author's provisional labels give 50%
+  agreement and 20 of 30 unsafe answers without a critical violation.

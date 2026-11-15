@@ -1,0 +1,9 @@
+{
+  "name": "eduagentx-grading-validity",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Measures the production grader (POST /v1/item-grades) against labels from people and whole-attempt validity probes.",
+  "main": "cli.js",
+  "bin": { "eduagentx-grading-validity": "cli.js" },
+  "scripts": { "test": "node --test test/*.test.js" }
+}
