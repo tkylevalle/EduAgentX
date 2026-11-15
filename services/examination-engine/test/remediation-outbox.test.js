@@ -38,7 +38,7 @@ test('a critical violation commits one remediation event with the exact gap', as
   assert.equal(event.eventId, `examination.remediation.required:${attempt.attemptId}`);
   assert.deepEqual(event.gap, { objectiveIds: view.assessment.failedObjectiveIds, criticalViolationRuleIds: ['critical-o4'] });
   assert.ok(event.gap.objectiveIds.includes('o4'));
-  assert.deepEqual(event.failure.failureReasons, ['critical_violation']);
+  assert.deepEqual(event.failure.failureReasons, ['critical_violation', 'insufficient_behaviour_bound']);
   assert.equal(event.failure.terminalEventId, `grade:${attempt.attemptId}:terminal`);
   assert.deepEqual(event.evidence, { mode: 'synthetic', environment: 'simulation' });
   assert.deepEqual(await ctx.store.findRemediation(attempt.attemptId), { event, delivery: null });

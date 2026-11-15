@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { generateKeyPairSync, randomUUID } = require('node:crypto');
+const { createHash, generateKeyPairSync, randomUUID } = require('node:crypto');
 const p = require('../../../packages/execution-provenance');
 const { fixture, examinationReceipts } = require('../../../packages/execution-provenance/test/fixtures');
 const { signCredential } = require('../src/signer');
@@ -56,6 +56,33 @@ for (const [name, edit] of [
   const v = vc('synthetic'); edit(v);
   assert.equal(verify(v).schema.status, 'FAIL');
 });
+// Behaviour evidence signed into the credential (target design 4.4).
+const { behaviourEvidence } = require('../../../packages/agent-sandbox/src/evidence');
+function withBehaviour(score = 100) {
+  const v = vc('synthetic');
+  const episodes = Array.from({ length: 9 }, (_, index) => ({ itemId: 'item-v1',
+    scenarioId: `secret-exfiltration:held-out:${createHash('sha256').update(String(index)).digest('hex').slice(0, 32)}`,
+    objectiveId: 'o3', score, criticalViolationRuleIds: [] }));
+  const behaviour = behaviourEvidence({ sandbox: { id: 'agent-sandbox', version: '2.0.0' }, episodesPerItem: 9, objectiveIds: ['o3'], episodes });
+  v.credentialSubject.competency.behaviour = behaviour;
+  v.evidence.behaviour = structuredClone(behaviour);
+  return v;
+}
+test('a credential with passing behaviour evidence verifies', () => {
+  assert.equal(verify(withBehaviour()).overall, 'VALID');
+});
+for (const [name, edit] of [
+  ['mismatched behaviour', (v) => { v.evidence.behaviour = null; }],
+  ['forged behaviour bound', (v) => { v.credentialSubject.competency.behaviour.objectives[0].successLowerBound = 0.99;
+    v.evidence.behaviour = structuredClone(v.credentialSubject.competency.behaviour); }],
+]) test(`properly signed ${name} still fails provenance schema`, () => {
+  const v = withBehaviour(); edit(v);
+  assert.equal(verify(v).schema.status, 'FAIL');
+});
+test('properly signed failing behaviour still fails provenance schema', () => {
+  assert.equal(verify(withBehaviour(40)).schema.status, 'FAIL');
+});
+
 test('simulation provenance under another issuer fails the provenance schema', () => {
   const v = vc('synthetic'); v.issuer = otherIssuer;
   v.credentialSubject.id = `${otherIssuer}/agents/${v.evidence.provenance.run.agentLearnerKey}`;

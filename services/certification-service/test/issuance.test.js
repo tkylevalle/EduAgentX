@@ -111,6 +111,52 @@ test('an assessment that does not name its grader is refused as malformed eviden
   assert.deepEqual(await ctx.store.counts(), { decisions: 0, credentials: 0 });
 });
 
+// A 1.1.0 standard assessment carries the behaviour evidence of its adversarial items.
+const { behaviourEvidence } = require('../../../packages/agent-sandbox/src/evidence');
+const SLOT_FAMILY = { v0: 'secret-exfiltration', v1: 'injected-tool-call', v2: 'poisoned-evidence', v3: 'scope-escalation' };
+const OBJECTIVE = { 'secret-exfiltration': 'o3', 'injected-tool-call': 'o4', 'poisoned-evidence': 'o5', 'scope-escalation': 'o4' };
+function withBehaviour(score = 100) {
+  const episodes = Object.entries(SLOT_FAMILY).flatMap(([itemId, family]) => Array.from({ length: 9 }, (_, index) => ({ itemId,
+    scenarioId: `${family}:held-out:${createHash('sha256').update(`${itemId}-${index}`).digest('hex').slice(0, 32)}`,
+    objectiveId: OBJECTIVE[family], score, criticalViolationRuleIds: [] })));
+  const value = evidence();
+  value.assessment.schemaVersion = 'examination-assessment/1.1.0';
+  value.assessment.behaviour = behaviourEvidence({ sandbox: { id: 'agent-sandbox', version: '2.0.0' }, episodesPerItem: 9,
+    objectiveIds: ['o3', 'o4', 'o5'], episodes });
+  return value;
+}
+
+test('a standard credential states the behaviour evidence: episodes, bounds, pool and scope', async (t) => {
+  const source = withBehaviour();
+  const ctx = await boot(t, async () => source);
+  const response = await ctx.call('/internal/decisions', { examinationId: source.attemptId, idempotencyKey: 'behaviour-1' });
+  assert.equal(response.status, 201, JSON.stringify(response.body));
+  const credential = signedClaims(response);
+  assert.deepEqual(credential.credentialSubject.competency.behaviour, source.assessment.behaviour);
+  assert.deepEqual(credential.evidence.behaviour, source.assessment.behaviour);
+  assert.match(credential.credentialSubject.competency.behaviour.scope, /does not measure/);
+});
+
+test('behaviour evidence that is missing, failing or inconsistent cannot issue a standard 1.1.0 credential', async (t) => {
+  const missing = withBehaviour(); missing.assessment.behaviour = null;
+  const failing = withBehaviour(60);
+  const forged = withBehaviour(); forged.assessment.behaviour.objectives[0].successLowerBound = 0.99;
+  const onFallback = withBehaviour(); Object.assign(onFallback, { mode: 'fallback', template: undefined,
+    bank: { id: 'ai-safety-fallback', version: '1.0.0', digest: `sha256:${'f'.repeat(64)}` } });
+  for (const [index, source] of [missing, failing, forged, onFallback].entries()) {
+    const ctx = await boot(t, async () => source);
+    const response = await ctx.call('/internal/decisions', { examinationId: source.attemptId, idempotencyKey: `behaviour-bad-${index}` });
+    assert.equal(response.body.error || response.body.code || response.body.outcome, 'examination_evidence_malformed', `${index}: ${JSON.stringify(response.body)}`);
+    assert.deepEqual(await ctx.store.counts(), { decisions: 0, credentials: 0 });
+  }
+});
+
+test('an assessment from before behaviour evidence issues a credential that states behaviour was not measured', async (t) => {
+  const ctx = await boot(t);
+  const response = await ctx.call('/internal/decisions', { examinationId: evidence().attemptId, idempotencyKey: 'behaviour-legacy' });
+  assert.equal(signedClaims(response).credentialSubject.competency.behaviour, null);
+});
+
 test('a package under critical quarantine cannot receive a new credential', async (t) => {
   const ctx = await boot(t, async () => evidence(), async () => false);
   const response = await ctx.call('/internal/decisions', { examinationId: evidence().attemptId, idempotencyKey: 'quarantined' });

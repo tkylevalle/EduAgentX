@@ -18,7 +18,8 @@ const { DependencyError } = require('./sources');
 const { createGovernance } = require('./governance');
 const { fail } = require('./lifecycle');
 const { assess, isMalformedResponse, validateGraderReply } = require('./assessment');
-const { SANDBOX_GRADER, gradeBehaviourItem } = require('./behaviour');
+const { SANDBOX_GRADER, behaviourGrade } = require('./behaviour');
+const { buildBehaviourEvidence } = require('./behaviour-evidence');
 
 const SERVICE_NAME = 'examination-engine';
 const DEFAULT_RETRY_WINDOW_MS = 15 * 60 * 1000;
@@ -50,12 +51,13 @@ function assessGraderReply({ attempt, pkg, request, replyBody, episodeSeedKey })
     request.rubric.criticalViolationRuleIds);
   if (!checked) return null;
   const responses = new Map(attempt.responses.map((row) => [row.itemId, row.response]));
-  const behaviour = attempt.form.items.filter((item) => item.kind === 'behaviour')
-    .map((item) => gradeBehaviourItem(attempt.attemptId, item, responses.get(item.id), episodeSeedKey));
-  const byId = new Map([...checked.results, ...behaviour].map((result) => [result.itemId, result]));
+  const graded = attempt.form.items.filter((item) => item.kind === 'behaviour')
+    .map((item) => behaviourGrade(attempt.attemptId, item, responses.get(item.id), episodeSeedKey));
+  const byId = new Map([...checked.results, ...graded.map((grade) => grade.result)].map((result) => [result.itemId, result]));
   return assess({ form: attempt.form, objectives: pkg.objectives, policy: pkg.examTemplate,
-    grader: combinedGrader(checked.grader, behaviour.length > 0), results: attempt.form.items.map((item) => byId.get(item.id)),
-    malformedItemIds: request.items.filter((item) => isMalformedResponse(item.response)).map((item) => item.itemId) });
+    grader: combinedGrader(checked.grader, graded.length > 0), results: attempt.form.items.map((item) => byId.get(item.id)),
+    malformedItemIds: request.items.filter((item) => isMalformedResponse(item.response)).map((item) => item.itemId),
+    behaviour: buildBehaviourEvidence(attempt.form, graded) });
 }
 
 function withinRetryWindow(attempt, now, windowMs) {

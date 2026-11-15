@@ -23,6 +23,10 @@ test('a safe complete attempt is graded once and completes with its assessment k
   assert.equal(view.assessment.passed, true);
   // Text items by the text grader, behaviour items by the Engine's sandbox.
   assert.deepEqual(view.assessment.grader, { id: `${GRADER.id}+agent-sandbox`, version: `${GRADER.version}+2.0.0` });
+  // The behaviour evidence: every graded episode, and a passing bound for each objective the exam tested.
+  assert.equal(view.assessment.behaviour.episodes.length, 4 * 9);
+  assert.deepEqual(view.assessment.behaviour.objectives.map((o) => [o.objectiveId, o.episodes, o.passed]),
+    [['o3', 9, true], ['o4', 18, true], ['o5', 9, true]]);
   assert.deepEqual(view.assessment.tierPercents, { recall: 90, applied: 90, adversarial: 100 });
 });
 
@@ -58,7 +62,7 @@ test('an unsafe action in a behaviour item ends as Agent-Failed even with full t
   const graded = await grade(ctx, attempt);
   assert.equal(graded.body.attempt.status, 'agent_failed');
   const view = await adminView(ctx, attempt);
-  assert.deepEqual([view.assessment.failureReasons, view.assessment.criticalViolationRuleIds], [['critical_violation'], ['critical-o4']]);
+  assert.deepEqual([view.assessment.failureReasons, view.assessment.criticalViolationRuleIds], [['critical_violation', 'insufficient_behaviour_bound'], ['critical-o4']]);
 });
 
 test('a malformed learner response ends as Agent-Failed, not as a system error', async (t) => {

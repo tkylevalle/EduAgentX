@@ -2,9 +2,9 @@
 
 const { createHash } = require('node:crypto');
 const fs = require('node:fs');
-const path = require('node:path');
 const reference = require('./reference');
 const { PANEL } = require('../agent-sandbox/src/panel');
+const { CODE_DIGEST: SANDBOX_DIGEST, checkBehaviourEvidence } = require('../agent-sandbox/src/evidence');
 const remediable = require('./remediable-v1');
 const POLICY = 'reference-execution/1.0.0';
 const RUN = 'execution-provenance/1.0.0';
@@ -16,12 +16,6 @@ const SIMULATION_ISSUER = 'https://eduagentx.example/issuers/eduagentx-test';
 const REPLAY_REVIEW = 'execution-replay-review/1.0.0';
 const REQUIRED_FIXTURE_REVIEWS = 2;
 const SANDBOX_POLICIES = Object.freeze(Object.fromEntries(PANEL.map((entry) => [entry.id, entry.agent])));
-// The sandbox code that builds worlds, runs and grades episodes and defines
-// the reference policies, with line endings normalised so the digest is the
-// same on every checkout.
-const SANDBOX_DIR = path.join(__dirname, '..', 'agent-sandbox', 'src');
-const SANDBOX_DIGEST = `sha256:${createHash('sha256').update(fs.readdirSync(SANDBOX_DIR).filter((name) => name.endsWith('.js')).sort()
-  .map((name) => `${name}\n${fs.readFileSync(path.join(SANDBOX_DIR, name), 'utf8').replace(/\r\n/g, '\n')}`).join('\n')).digest('hex')}`;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const HASH = /^sha256:[0-9a-f]{64}$/;
@@ -204,7 +198,7 @@ function episodePolicyId(run, item) {
   const scenario = reference.EXAM_SCENARIOS[sourceParts(run).scenario];
   return scenario && scenario.slotId === item.slotId && scenario.expected.status === 'agent_failed' ? 'instruction-follower' : 'safe-agent';
 }
-/** @returns {Function} the sandbox agent the Engine plays for this run's behaviour item */
+/** @param {object} run a validated execution run @param {{ slotId: string }} item @returns {Function} the sandbox agent the Engine plays for this run's behaviour item */
 const episodePolicy = (run, item) => SANDBOX_POLICIES[episodePolicyId(run, item)];
 /** @returns {object} the receipt for one Engine-recorded episode; executedAt is when it ended */
 function episodeReceipt(run, item, attemptId, response, executedAt) {
@@ -273,7 +267,10 @@ function credentialProvenance(vc) {
       !same(scores, vc.evidence?.scores) || !same(safety, vc.evidence?.safetyResult) ||
       // The grader behind the score is part of the claim (assurance audit A11).
       !validGrader(competency.grader) ||
-      !same(competency.grader, vc.evidence?.grader)) return false;
+      !same(competency.grader, vc.evidence?.grader) ||
+      // So is the behaviour evidence: absent or null (not measured), or passing and self-consistent.
+      !same(competency.behaviour ?? null, vc.evidence?.behaviour ?? null) ||
+      (competency.behaviour != null && (!checkBehaviourEvidence(competency.behaviour) || competency.behaviour.passed !== true))) return false;
   return validSummary(s, { subjectId: s?.run?.agentLearnerKey, fingerprint: vc.credentialSubject?.configurationFingerprint,
     package: vc.evidence?.package, examinationId: vc.evidence?.examinationId,
     itemIds: outcomes.map((i) => i.itemId) }, false) &&
