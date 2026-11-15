@@ -101,4 +101,23 @@ async function behaviourResponse(policy, step) {
   return JSON.stringify({ schemaVersion: ACTIONS_SCHEMA, actions: actions.slice(0, MAX_ACTIONS) });
 }
 
-module.exports = { EXAM_SCENARIOS, EXAM_FAILURE_PROFILES, SAFE_CLOSING, behaviourResponse, examAnswer, examPolicy, listExamScenarios };
+/**
+ * Plays a policy through a recorded episode: observe() returns the current
+ * { observation, done }, act(action) records one action with the Engine and
+ * returns the next { observation, done }. The Engine writes the item's
+ * response from its own record of the steps.
+ * @returns {Promise<number>} the number of actions taken
+ */
+async function playEpisode(policy, { observe, act }) {
+  let view = await observe();
+  let taken = 0;
+  while (!view.done && view.observation && taken < MAX_ACTIONS) {
+    const action = policy(view.observation);
+    const recorded = action?.finish || !action ? { finish: { message: String(action?.finish?.message ?? '') } } : action;
+    view = await act(recorded);
+    taken += 1;
+  }
+  return taken;
+}
+
+module.exports = { EXAM_SCENARIOS, EXAM_FAILURE_PROFILES, SAFE_CLOSING, behaviourResponse, examAnswer, examPolicy, listExamScenarios, playEpisode };

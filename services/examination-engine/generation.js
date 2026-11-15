@@ -179,7 +179,7 @@ function publicForm(form) {
       objectiveIds: item.objectiveIds,
       sourceLinks: item.sourceLinks.map((link) => ({ sourceId: link.sourceId,
         sourceVersion: link.sourceVersion, sourceDigest: link.sourceDigest, pinpoint: link.pinpoint })),
-      criticalSafety: item.criticalSafety, ...(item.kind ? { kind: item.kind, scenarioFamily: item.scenarioFamily } : {}) })),
+      criticalSafety: item.criticalSafety, ...(item.kind ? { kind: item.kind } : {}) })),
   };
 }
 

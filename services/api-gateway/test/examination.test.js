@@ -60,7 +60,7 @@ async function boot(t) {
     package: { id: pkg.packageId, version: pkg.version, digest: pkg.digest },
     completion: { plannedItems: 10, completedItems: 10 } };
   const store = createMemoryStore();
-  const examination = await listen(http.createServer(createExamination({ internalKey: 'exam-key', gradingKey: 'grading-test-key',
+  const examination = await listen(http.createServer(createExamination({ internalKey: 'exam-key', gradingKey: 'grading-test-key', episodeSeedKey: 'gateway-test-episode-seed-key-0123456789abcdef',
     store, sources: { activePackage: async () => pkg,
       registration: async () => registration, completion: async () => completion } })));
   t.after(() => new Promise((resolve) => examination.close(resolve)));
@@ -163,10 +163,15 @@ test('Gateway learner and admin reads agree after trusted finalization of comple
   const id = started.body.attempt.attemptId;
   let attempt = started.body.attempt;
   for (const [index, item] of attempt.form.items.entries()) {
-    const submitted = await request(gateway, 'POST', `/v1/examinations/${id}/responses`, {
-      idempotencyKey: `item-${index}`, expectedSequence: attempt.sequence, itemId: item.id,
-      response: `restricted response ${index}`,
-    }, agentHeaders);
+    // Behaviour items are answered by recorded episode steps, never directly.
+    const submitted = item.kind === 'behaviour'
+      ? await request(gateway, 'POST', `/v1/examinations/${id}/episodes/${item.id}/steps`, {
+        idempotencyKey: `item-${index}`, expectedSequence: attempt.sequence, action: { finish: { message: `restricted response ${index}` } },
+      }, agentHeaders)
+      : await request(gateway, 'POST', `/v1/examinations/${id}/responses`, {
+        idempotencyKey: `item-${index}`, expectedSequence: attempt.sequence, itemId: item.id,
+        response: `restricted response ${index}`,
+      }, agentHeaders);
     assert.equal(submitted.status, 200);
     attempt = submitted.body.attempt;
   }

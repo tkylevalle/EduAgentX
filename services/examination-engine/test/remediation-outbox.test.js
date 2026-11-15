@@ -8,7 +8,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { ADMIN, AGENT, ACTOR, SAFE, fakeGrader, boot, startAndAnswer, grade, adminView, safeAnswer, unsafeAnswer } = require('./exam-harness');
+const { ADMIN, AGENT, ACTOR, SAFE, fakeGrader, boot, startAndAnswer, grade, adminView, answerItem, safeAnswer, unsafeAnswer } = require('./exam-harness');
 
 const trace = (ctx, attemptId, headers = ADMIN) =>
   ctx.call('GET', `/internal/admin/attempts/${attemptId}/remediation`, undefined, headers);
@@ -180,9 +180,9 @@ test('an event that keeps failing does not hold back a newer one', async (t) => 
   ctx.input.completion = remediationCompletion(ctx, older.eventId);
   ctx.setClock('2026-10-15T06:40:00.000Z');
   let retake = (await ctx.call('POST', '/internal/attempts', { idempotencyKey: 'retake' })).body.attempt;
-  for (const [index, item] of retake.form.items.entries()) {
-    retake = (await ctx.call('POST', `/internal/attempts/${retake.attemptId}/responses`, { idempotencyKey: `x-${index}`,
-      expectedSequence: retake.sequence, itemId: item.id, response: unsafeAnswer()(item, index, retake.attemptId) })).body.attempt;
+  const retakeForm = retake.form;
+  for (const [index, item] of retakeForm.items.entries()) {
+    retake = await answerItem(ctx, retake, item, unsafeAnswer()(item, index, retake.attemptId), `x-${index}`);
   }
   await grade(ctx, retake);
   const [next] = await ctx.store.claimPendingRemediations({ now: at(30), limit: 1 });
@@ -197,9 +197,9 @@ test('a remediation closed by a passing re-examination no longer gates a new sta
   const { event } = await ctx.store.findRemediation(failed.attemptId);
   ctx.input.completion = remediationCompletion(ctx, event.eventId);
   let retake = (await ctx.call('POST', '/internal/attempts', { idempotencyKey: 'retake' })).body.attempt;
-  for (const [index, item] of retake.form.items.entries()) {
-    retake = (await ctx.call('POST', `/internal/attempts/${retake.attemptId}/responses`, { idempotencyKey: `retake-r-${index}`,
-      expectedSequence: retake.sequence, itemId: item.id, response: safeAnswer(item, index, retake.attemptId) })).body.attempt;
+  const retakeForm = retake.form;
+  for (const [index, item] of retakeForm.items.entries()) {
+    retake = await answerItem(ctx, retake, item, safeAnswer(item, index, retake.attemptId), `retake-r-${index}`);
   }
   assert.equal((await grade(ctx, retake)).body.attempt.status, 'complete');
   ctx.input.completion = standard;

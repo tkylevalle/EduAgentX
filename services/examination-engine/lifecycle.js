@@ -3,6 +3,7 @@
 const execution = require('../../packages/execution-provenance');
 const { sha256 } = require('../curriculum-engine/model');
 const { checkAssessment } = require('./assessment');
+const { actionsResponse, isAction } = require('./behaviour');
 const KEY = /^[\x20-\x7e]{1,256}$/;
 const REASONS = ['infrastructure_failure', 'governance_changed', 'grading_unavailable'];
 const terminalTypes = { attempt_completed: 'complete', agent_failed: 'agent_failed', system_aborted: 'system_aborted' };
@@ -11,7 +12,7 @@ const exact = (value, fields) => value && typeof value === 'object' && !Array.is
   Object.keys(value).length === fields.length && fields.every((key) => Object.hasOwn(value, key));
 
 function validateCommand(command) {
-  if (!command || !['response', 'finalize', 'abort', 'timeout', 'system_abort'].includes(command.type))
+  if (!command || !['response', 'episode_step', 'finalize', 'abort', 'timeout', 'system_abort'].includes(command.type))
     throw fail('invalid_request', 400);
   if (!Number.isFinite(Date.parse(command.now))) throw fail('invalid_request', 400);
   if (command.type === 'timeout') return;
@@ -21,7 +22,9 @@ function validateCommand(command) {
   }
   if (typeof command.idempotencyKey !== 'string' || !KEY.test(command.idempotencyKey) ||
     !Number.isSafeInteger(command.expectedSequence) || command.expectedSequence < 1) throw fail('invalid_request', 400);
-  if (command.type === 'response') {
+  if (command.type === 'episode_step') {
+    if (typeof command.itemId !== 'string' || !command.itemId || !isAction(command.action)) throw fail('invalid_request', 400);
+  } else if (command.type === 'response') {
     if (typeof command.itemId !== 'string' || !command.itemId || typeof command.response !== 'string' ||
       !command.response.trim() || command.response.length > 16000 || command.response.includes('\0') ||
       Buffer.from(command.response, 'utf8').toString('utf8') !== command.response) throw fail('invalid_request', 400);
@@ -38,7 +41,7 @@ function validateCommand(command) {
 
 function commandDigest(attemptId, command) {
   const semantic = { attemptId, type: command.type, expectedSequence: command.expectedSequence };
-  for (const name of ['itemId', 'response', 'eventId', 'formDigest', 'rubricDigest', 'responseSetDigest', 'result', 'reason',
+  for (const name of ['itemId', 'action', 'response', 'eventId', 'formDigest', 'rubricDigest', 'responseSetDigest', 'result', 'reason',
     'assessment','executionEvidence'])
     if (command[name] !== undefined) semantic[name] = command[name];
   return sha256(semantic);
@@ -60,6 +63,7 @@ function derive(attempt, events, responses) {
     throw fail('invalid_manifest');
   const executionReceipts = [];
   const answered = new Set(), identities = new Set();
+  const steps = new Map();
   let grade = null, previousTime = Date.parse(attempt.startedAt);
   const orderedDigest = () => sha256(attempt.form.items.flatMap((item) => {
     const response = responses.find((value) => value.itemId === item.id && answered.has(item.id));
@@ -73,9 +77,17 @@ function derive(attempt, events, responses) {
     if (event.eventId) identities.add(event.eventId);
     if (event.seq === 1) {
       if (event.eventType !== 'attempt_started' || time !== Date.parse(attempt.startedAt)) throw fail('invalid_event_history');
+    } else if (event.eventType === 'episode_step_recorded') {
+      const item = attempt.form.items.find((value) => value.id === event.payload?.itemId);
+      if (grade || !item || item.kind !== 'behaviour' || answered.has(item.id) || time >= Date.parse(attempt.deadlineAt) ||
+        !isAction(event.payload.action)) throw fail('invalid_event_history');
+      steps.set(item.id, [...(steps.get(item.id) || []), event.payload.action]);
     } else if (event.eventType === 'response_accepted') {
       const row = responses.find((r) => r.itemId === event.payload?.itemId);
-      if (grade || !row || answered.has(row.itemId) || !attempt.form.items.some((item) => item.id === row.itemId) ||
+      const answeredItem = attempt.form.items.find((item) => item.id === row?.itemId);
+      // A behaviour item's response is the Engine's record of its steps.
+      if (answeredItem?.kind === 'behaviour' && row.response !== actionsResponse(steps.get(row.itemId) || [])) throw fail('invalid_event_history');
+      if (grade || !row || answered.has(row.itemId) || !answeredItem ||
         time >= Date.parse(attempt.deadlineAt) || row.seq !== event.seq || Date.parse(row.acceptedAt) !== time ||
         row.responseDigest !== event.payload.responseDigest || sha256(row.response) !== row.responseDigest)
         throw fail('invalid_event_history');

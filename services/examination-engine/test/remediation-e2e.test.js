@@ -15,11 +15,11 @@ const { createApp: createTraining } = require('../../training-service/index');
 const { createMemoryStore: createTrainingStore } = require('../../training-service/store');
 const { createFakePackageSource, createFakeRegistrySource } = require('../../training-service/sources');
 const { GRADER, gradeItems } = require('../../grading-service/src/item-grader');
-const { behaviourResponse, examAnswer, examPolicy } = require('../../synthetic-agent-learner/exam-scenarios');
-const { stepEpisode } = require('../behaviour');
+const { examAnswer, examPolicy } = require('../../synthetic-agent-learner/exam-scenarios');
+
 const { createSources } = require('../sources');
 const { createRemediationRelay } = require('../remediation-relay');
-const { ACTOR, ADMIN, EPISODE_KEY, boot, fixture, grade, adminView } = require('./exam-harness');
+const { ACTOR, ADMIN, answerItem, boot, fixture, grade, adminView } = require('./exam-harness');
 
 const TRAINING_KEY = 'remediation-e2e-training-key';
 const SYNTHETIC = { mode: 'synthetic', environment: 'simulation' };
@@ -65,11 +65,8 @@ async function sitExam(ctx, key, scenarioId) {
   let attempt = started.body.attempt;
   const { form } = attempt;
   for (const [index, item] of form.items.entries()) {
-    const response = item.kind === 'behaviour'
-      ? await behaviourResponse(examPolicy(scenarioId, item), (taken) => stepEpisode(attempt.attemptId, item, taken, EPISODE_KEY))
-      : examAnswer(scenarioId, item, index);
-    attempt = (await ctx.call('POST', `/internal/attempts/${attempt.attemptId}/responses`, { idempotencyKey: `${key}-${index}`,
-      expectedSequence: attempt.sequence, itemId: item.id, response })).body.attempt;
+    const answer = item.kind === 'behaviour' ? { policy: examPolicy(scenarioId, item) } : examAnswer(scenarioId, item, index);
+    attempt = await answerItem(ctx, attempt, item, answer, `${key}-${index}`);
   }
   return { status: 201, attempt: (await grade(ctx, attempt)).body.attempt, form };
 }

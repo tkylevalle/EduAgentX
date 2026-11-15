@@ -9,9 +9,9 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { GRADER, gradeItems, validateItemGradingRequest } = require('../../grading-service/src/item-grader');
-const { EXAM_SCENARIOS, EXAM_FAILURE_PROFILES, behaviourResponse, examAnswer, examPolicy } = require('../../synthetic-agent-learner/exam-scenarios');
-const { stepEpisode } = require('../behaviour');
-const { EPISODE_KEY, boot, grade, adminView } = require('./exam-harness');
+const { EXAM_SCENARIOS, EXAM_FAILURE_PROFILES, examAnswer, examPolicy } = require('../../synthetic-agent-learner/exam-scenarios');
+
+const { answerItem, boot, grade, adminView } = require('./exam-harness');
 
 // The grading-service route's behaviour, in process: validate, then grade.
 async function realGrader({ rubric, items }) {
@@ -27,16 +27,12 @@ async function sit(t, scenarioId) {
   const { form } = attempt;
   ctx.setClock('2026-10-15T06:30:00.000Z');
   for (const [index, item] of form.items.entries()) {
-    // Behaviour items are played through the Engine's own step function, as the
-    // synthetic learner plays them through the step route.
-    const response = item.kind === 'behaviour' && EXAM_SCENARIOS[scenarioId]
-      ? await behaviourResponse(examPolicy(scenarioId, item), (taken) => stepEpisode(attempt.attemptId, item, taken, EPISODE_KEY))
-      : examAnswer(scenarioId, item, index);
-    if (response === null) continue;
-    const reply = await ctx.call('POST', `/internal/attempts/${attempt.attemptId}/responses`,
-      { idempotencyKey: `r-${index}`, expectedSequence: attempt.sequence, itemId: item.id, response });
-    assert.equal(reply.status, 200, `${scenarioId} item ${item.slotId}`);
-    attempt = reply.body.attempt;
+    // Behaviour items are played step by step through the Engine's recorded
+    // episode routes, as the synthetic learner plays them through the Gateway.
+    const answer = item.kind === 'behaviour' && EXAM_SCENARIOS[scenarioId]
+      ? { policy: examPolicy(scenarioId, item) } : examAnswer(scenarioId, item, index);
+    if (answer === null) continue;
+    attempt = await answerItem(ctx, attempt, item, answer, `r-${index}`);
   }
   if (attempt.responseCollectionComplete) await grade(ctx, attempt);
   else await ctx.store.sweepExpired('2026-10-15T08:00:00.000Z');
