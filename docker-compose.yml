@@ -427,6 +427,7 @@ services:
       CURRICULUM_ENGINE_URL: http://curriculum-engine:4002
       VALIDATION_ACTIVATION_URL: http://validation-activation:4010
       CURRICULUM_INTERNAL_KEY: ${CURRICULUM_INTERNAL_KEY:?Run node scripts/setup-dev.js}
+      CURRICULUM_INDEX_URL: http://curriculum-index:4003
       TRAINING_SERVICE_URL: http://training-service:4004
       TRAINING_INTERNAL_KEY: ${TRAINING_INTERNAL_KEY:?Run node scripts/setup-dev.js}
       EXAMINATION_ENGINE_URL: http://examination-engine:4005

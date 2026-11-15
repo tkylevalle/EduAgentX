@@ -13,6 +13,9 @@ const { randomUUID } = require('node:crypto');
 
 const POLL_INTERVAL_MS = 1000;
 const DEFAULT_GRADING_WAIT_MS = 60_000;
+// knowledge.lookup: the Gateway's default of three lessons, and its query limit.
+const LOOKUP_RESULTS = 3;
+const LOOKUP_MAX_QUERY_CHARS = 500;
 const TERMINAL = new Set(['complete', 'agent_failed', 'system_aborted']);
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -29,13 +32,25 @@ function createExamRunner({ gatewayClient, idGenerator = randomUUID, pollInterva
     throw new TypeError('A gateway client with a request method is required');
   }
 
-  // answerFor(item, index) returns the response text, or null to stop
-  // answering (the attempt then waits for its deadline).
+  // answerFor(item, index, tools) returns the response text, or null to stop
+  // answering (the attempt then waits for its deadline). tools.lookup(query)
+  // is knowledge.lookup: the agent's declared read-only tool, so the exam is
+  // open book.
   // actFor(item) returns the policy for a behaviour item, played through the
   // Engine's step route; without it a behaviour item gets answerFor's text.
   async function examine({ answerFor, actFor, correlationId = `exam-run-${idGenerator()}`,
     gradingWaitMs = DEFAULT_GRADING_WAIT_MS, trainingSessionId, executionProfile, onProgress = () => {} } = {}) {
     const call = (method, path, body) => gatewayClient.request(method, path, { body, correlationId });
+    // A failed lookup gives no lessons and the item is still answered; the
+    // result counts lookups and failures so a closed book is visible.
+    const knowledge = { lookups: 0, failed: 0 };
+    const lookup = async (query, limit = LOOKUP_RESULTS) => {
+      knowledge.lookups += 1;
+      const reply = await call('GET', `/v1/knowledge?query=${encodeURIComponent(String(query).slice(0, LOOKUP_MAX_QUERY_CHARS))}&limit=${limit}`);
+      if (reply.status === 200 && Array.isArray(reply.body?.results)) return reply.body.results;
+      knowledge.failed += 1;
+      return [];
+    };
     const started = await call('POST', '/v1/examinations', { idempotencyKey: `exam-${idGenerator()}`, ...(trainingSessionId ? { trainingSessionId } : {}), ...(executionProfile ? { executionProfile } : {}) });
     if (started.status !== 201 && started.status !== 200) {
       return { outcome: 'not_started', status: started.status, reason: started.body?.error || 'examination_unavailable',
@@ -67,7 +82,7 @@ function createExamRunner({ gatewayClient, idGenerator = randomUUID, pollInterva
         onProgress({ stage: 'answered', attemptId: attempt.attemptId, itemId: item.id, answered: answered.length, itemCount: items.length });
         continue;
       }
-      const response = produced ? produced.response : await answerFor(item, index);
+      const response = produced ? produced.response : await answerFor(item, index, { lookup });
       if (response === null || response === undefined) break;
       const receipt = await call('POST', `/v1/examinations/${attempt.attemptId}/responses`, {
         idempotencyKey: `answer-${attempt.attemptId}-${item.id}`, expectedSequence: attempt.sequence,
@@ -92,7 +107,7 @@ function createExamRunner({ gatewayClient, idGenerator = randomUUID, pollInterva
     }
     const { form, ...summary } = attempt;
     onProgress({ stage: 'graded', attemptId: attempt.attemptId, status: attempt.status });
-    return { outcome: TERMINAL.has(attempt.status) ? attempt.status : 'grading_pending', attempt: summary,
+    return { outcome: TERMINAL.has(attempt.status) ? attempt.status : 'grading_pending', attempt: summary, knowledge,
       answered, correlationId };
   }
 

@@ -172,11 +172,13 @@ function createApp({ learner = createDefaultLearner(), examRunner = null, liveMo
         const usage = newUsage();
         try {
           const result = await liveRunner().examine({
-            answerFor: async (item) => record(usage, await liveModel.answerExam(item)),
+            // Open book: the model sees the lessons knowledge.lookup returns for the item.
+            answerFor: async (item, index, tools) => record(usage, await liveModel.answerExam(item, await tools.lookup(item.prompt))),
             // Behaviour items: the model chooses each action from what the step route shows it.
             actFor: () => async (observation) => {
-              const { action, usage: used } = await liveModel.actEpisode(observation);
-              record(usage, { answer: null, usage: used });
+              const { action, valid, usage: used } = await liveModel.actEpisode(observation);
+              count(usage, used);
+              if (!valid) usage.invalidActions += 1;
               return action;
             },
             correlationId: req.correlationId || body.correlationId,
@@ -243,11 +245,16 @@ function createDefaultLiveModel() {
 
 // Token counts only. Answers are restricted examination material (#17) and are
 // never returned.
-const newUsage = () => ({ calls: 0, promptTokens: 0, completionTokens: 0 });
-function record(usage, { answer, usage: used }) {
+// invalidActions: acting turns whose reply held no valid action, so the
+// episode ended there; counted so a format failure is not read as a choice.
+const newUsage = () => ({ calls: 0, promptTokens: 0, completionTokens: 0, invalidActions: 0 });
+function count(usage, used) {
   usage.calls += 1;
   usage.promptTokens += used.promptTokens || 0;
   usage.completionTokens += used.completionTokens || 0;
+}
+function record(usage, { answer, usage: used }) {
+  count(usage, used);
   return answer;
 }
 const liveSummary = (liveModel, usage) => ({ provider: liveModel.provider, model: liveModel.model, ...usage });

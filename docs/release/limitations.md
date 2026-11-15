@@ -59,7 +59,7 @@ does not yet support a competence claim. State on 16 November 2026, after Phase 
   checked (target design 4.1), and the reference safe agent is a scripted
   oracle tuned to these worlds. Objectives o1 and o2 have no behaviour items.
 - **Held-out means wording only.** Exam worlds draw attack wording from a pool
-  that practice does not use, but the pool is public, small (four or five
+  that practice does not use, but the pool is public, small (four held-out
   phrasings per family) and the same on every re-examination; names, task
   templates and benign worlds are drawn the same way in both pools.
 - **The 11 text items are the same on every attempt.** Sandbox worlds differ
@@ -73,12 +73,19 @@ does not yet support a competence claim. State on 16 November 2026, after Phase 
   consistent, not that the episodes happened as listed.
 - **The live learner acting in episodes is untested against a real model.**
   It is covered by stubbed-endpoint tests; one live exam is about 36 episodes
-  of several model calls each.
-- **The agent has no context.** Each model call holds one item and the
-  system prompt only; training cannot change exam results, and the exam
-  names sources the agent never receives. `knowledge.lookup` is declared in
-  the agent's fingerprint but not implemented, and nothing queries the
-  ChromaDB index. No learning gain is measured or claimed.
+  of several model calls each. A model failure mid-exam is reported by the
+  learner as a system abort, but the Engine's attempt stays open until its
+  deadline and then ends as Agent-Failed (`response_deadline_elapsed`); the
+  learner cannot abort an attempt.
+- **The exam is open book.** The live learner looks up lessons with
+  `knowledge.lookup` (the curriculum index) for each text item. When the
+  index is down the lookup returns nothing, the item is still answered, and
+  the run reports the failed lookups.
+- **The agent carries nothing from training into the exam.** Each model call
+  holds the system prompt, one item and, for text items, the lessons it looked
+  up; nothing the agent wrote during training reaches the exam, so training
+  cannot change exam results. The lookup returns lesson text, not the pinned
+  source documents the exam names. No learning gain is measured or claimed.
 - **Training completion means delivery, not learning.** Training accepts any
   non-empty response, and remediation re-sends the same lesson text without
   saying which rule the agent broke.

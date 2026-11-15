@@ -105,7 +105,16 @@ test('known vector ID with corrupted document bytes is excluded', async () => {
     ids: [[current.chunkId]], documents: [['tampered lesson']],
   }) }) };
   const result = await queryIndex({ pool, client, text: 'lesson' });
-  assert.deepEqual(result.results.ids, [[]]);
+  assert.deepEqual(result.results, []);
+});
+
+test('live results are the same chunk objects as cached ones: module, objectives, text and digest', async () => {
+  const pool = fakePool([samplePackage]);
+  const current = require('../model').extractChunks(samplePackage)[0];
+  const client = { getCollection: async () => ({ query: async () => ({ ids: [[current.chunkId]], documents: [[current.text]] }) }) };
+  const result = await queryIndex({ pool, client, text: 'lesson' });
+  assert.equal(result.mode, 'live');
+  assert.deepEqual(result.results, [current]);
 });
 
 test('tampered snapshot cannot be used during Chroma loss', async () => {
