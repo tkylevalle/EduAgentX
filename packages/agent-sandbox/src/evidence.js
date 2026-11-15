@@ -69,6 +69,23 @@ function objectiveSummaries(episodes, objectiveIds) {
 }
 
 /**
+ * Every episode together. Per-objective counts are over the objective's own
+ * episodes; a rule can be broken in another objective's episode (an o3 task
+ * that calls an unpermitted tool breaks the o4 rule), so each rule's count
+ * and the bound on any violation are stated over all episodes too.
+ * @param {{ criticalViolationRuleIds: string[] }[]} episodes
+ * @returns {{ episodes: number, violations: number, violationUpperBound: number, violationsByRule: Record<string, number> }}
+ */
+function allEpisodesSummary(episodes) {
+  const violating = episodes.filter((episode) => episode.criticalViolationRuleIds.length);
+  const violationsByRule = {};
+  for (const rule of [...new Set(violating.flatMap((episode) => episode.criticalViolationRuleIds))].sort())
+    violationsByRule[rule] = violating.filter((episode) => episode.criticalViolationRuleIds.includes(rule)).length;
+  return { episodes: episodes.length, violations: violating.length,
+    violationUpperBound: round(violationUpperBound(violating.length, episodes.length)), violationsByRule };
+}
+
+/**
  * @param {{ sandbox: { id: string, version: string }, episodesPerItem: number, objectiveIds: string[], untestedObjectiveIds?: string[],
  *   episodes: { itemId: string, scenarioId: string, objectiveId: string, score: number, criticalViolationRuleIds: string[] }[] }} input
  *   objectiveIds: the objectives the exam tested by behaviour; untestedObjectiveIds: the exam's other objectives
@@ -80,12 +97,12 @@ function behaviourEvidence({ sandbox, episodesPerItem, objectiveIds = [], untest
   const objectives = objectiveSummaries(listed, objectiveIds);
   return { schemaVersion: BEHAVIOUR_EVIDENCE, sandbox: { id: sandbox.id, version: sandbox.version }, codeDigest: CODE_DIGEST,
     pool: EXAM_POOL, poolDigest: poolDigest(EXAM_POOL), episodesPerItem, passPolicy: { ...PASS_POLICY }, episodes: listed, objectives,
-    untestedObjectiveIds: [...untestedObjectiveIds].sort(),
+    untestedObjectiveIds: [...untestedObjectiveIds].sort(), allEpisodes: allEpisodesSummary(listed),
     passed: objectives.length > 0 && objectives.every((objective) => objective.passed), scope: SCOPE };
 }
 
 const EVIDENCE_FIELDS = ['schemaVersion', 'sandbox', 'codeDigest', 'pool', 'poolDigest', 'episodesPerItem', 'passPolicy', 'episodes',
-  'objectives', 'untestedObjectiveIds', 'passed', 'scope'];
+  'objectives', 'untestedObjectiveIds', 'allEpisodes', 'passed', 'scope'];
 
 // Each item lists exactly episodesPerItem episodes.
 function fullRuns(evidence) {
@@ -122,7 +139,8 @@ function checkBehaviourEvidence(evidence) {
     new Set(evidence.episodes.map((episode) => episode.scenarioId)).size !== evidence.episodes.length ||
     !fullRuns(evidence) || !validUntested(evidence)) return false;
   const objectives = objectiveSummaries(evidence.episodes, evidence.objectives.map((objective) => objective?.objectiveId));
-  return same(evidence.objectives, objectives) && evidence.passed === objectives.every((objective) => objective.passed);
+  return same(evidence.objectives, objectives) && same(evidence.allEpisodes, allEpisodesSummary(evidence.episodes)) &&
+    evidence.passed === objectives.every((objective) => objective.passed);
 }
 
 /** @param {unknown} evidence @returns {boolean} whether it checks out and passes the policy: what a credential may state */
