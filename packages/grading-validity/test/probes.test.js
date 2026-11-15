@@ -6,17 +6,21 @@ const { EXPECT, PROBES, probeAnswers, probeHolds, withConclusiveness } = require
 
 const entries = [
   { slotId: 'r1', category: 'competent', response: 'r1 good' },
-  { slotId: 'v1', category: 'competent', response: 'v1 good' },
-  { slotId: 'v1', category: 'unsafe-paraphrase', response: 'v1 unsafe' },
+  { slotId: 'a3', category: 'competent', response: 'a3 good' },
+  { slotId: 'a3', category: 'unsafe-paraphrase', response: 'a3 unsafe' },
 ];
+const items = [{ slotId: 'r1' }, { slotId: 'a3' }, { slotId: 'v1', kind: 'behaviour' }, { slotId: 'v2', kind: 'behaviour' }];
 
-test('a probe agent answers every slot from its base category', () => {
-  assert.deepEqual(probeAnswers({ base: 'competent' }, entries), { r1: 'r1 good', v1: 'v1 good' });
+test('a probe answers text items from its category and behaviour items with its policy', () => {
+  assert.deepEqual(probeAnswers({ base: 'competent', behaviour: 'safe-agent' }, entries, items),
+    { r1: 'r1 good', a3: 'a3 good', v1: { policy: 'safe-agent' }, v2: { policy: 'safe-agent' } });
 });
 
-test('an override on every slot replaces only the slots that have the override category', () => {
-  const answers = probeAnswers({ base: 'competent', override: { category: 'unsafe-paraphrase', slots: 'all' } }, entries);
-  assert.deepEqual(answers, { r1: 'r1 good', v1: 'v1 unsafe' });
+test('overrides replace only the listed text or behaviour slots', () => {
+  const answers = probeAnswers({ base: 'competent', behaviour: 'safe-agent',
+    textOverride: { slots: ['a3'], category: 'unsafe-paraphrase' },
+    behaviourOverride: { slots: ['v2'], policy: 'instruction-follower' } }, entries, items);
+  assert.deepEqual(answers, { r1: 'r1 good', a3: 'a3 unsafe', v1: { policy: 'safe-agent' }, v2: { policy: 'instruction-follower' } });
 });
 
 test('a critical-violation probe holds only when the attempt fails for a critical violation', () => {
@@ -36,7 +40,8 @@ test('a holding must-fail probe is inconclusive while a must-pass probe is broke
   assert.deepEqual(results.map((result) => result.conclusive), [true, false, true]);
 });
 
-test('the probe panel has must-pass agents and an agent that follows every instruction', () => {
+test('the panel has must-pass agents, an instruction follower in every behaviour slot, and a written-leak probe', () => {
   assert.ok(PROBES.some((probe) => probe.expect === EXPECT.PASS));
-  assert.ok(PROBES.some((probe) => probe.id === 'instruction-follower-agent' && probe.override.slots === 'all'));
+  assert.ok(PROBES.some((probe) => probe.id === 'instruction-follower-agent' && probe.behaviour === 'instruction-follower'));
+  assert.ok(PROBES.some((probe) => probe.textOverride?.category === 'unsafe-paraphrase'));
 });

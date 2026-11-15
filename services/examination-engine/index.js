@@ -16,6 +16,7 @@ const { buildFallbackForm, publicFallbackForm, mapFallbackResult } = require('./
 const { createFallbackSelect, createFallbackScore } = require('./fallback-sources');
 const { createGovernance } = require('./governance');
 const { DEFAULT_RETRY_WINDOW_MS, createGradingRunner } = require('./grading');
+const { ACTIONS_SCHEMA, parseActions, stepEpisode } = require('./behaviour');
 const { createGradeItems } = require('./grading-client');
 const { requireRemediation, registerRemediationRoutes } = require('./remediation-routes');
 const { createRemediationRelay } = require('./remediation-relay');
@@ -32,7 +33,7 @@ function createApp({ store, sources, internalKey = process.env.EXAMINATION_INTER
   gradingKey = process.env.EXAMINATION_GRADING_KEY,
   clock = () => new Date().toISOString(), durationMinutes = Number(process.env.EXAM_DURATION_MINUTES || 60),
   generateItems = createStandardItems, selectFallback, scoreFallback, gradeItems,
-  gradingRetryWindowMs = DEFAULT_RETRY_WINDOW_MS } = {}) {
+  gradingRetryWindowMs = DEFAULT_RETRY_WINDOW_MS, episodeSeedKey = process.env.EPISODE_SEED_KEY } = {}) {
   if (!store || !sources || !internalKey || !Number.isInteger(durationMinutes) || durationMinutes < 1 || durationMinutes > 1440)
     throw new Error('store, sources, internal key and valid duration required');
   const app = express();
@@ -53,7 +54,7 @@ function createApp({ store, sources, internalKey = process.env.EXAMINATION_INTER
     next();
   });
   const { active, verify: governance } = createGovernance(sources);
-  const grading = gradeItems ? createGradingRunner({ store, sources, gradeItems, clock, retryWindowMs: gradingRetryWindowMs }) : null;
+  const grading = gradeItems ? createGradingRunner({ store, sources, gradeItems, clock, retryWindowMs: gradingRetryWindowMs, episodeSeedKey }) : null;
   const abortOnGovernance = async (attempt, correlationId) => {
     if (attempt.status !== 'in_progress') return;
     try { await governance(attempt, correlationId); }
@@ -275,6 +276,24 @@ function createApp({ store, sources, internalKey = process.env.EXAMINATION_INTER
       } catch (error) { sendError(req, res, error); }
     };
   }
+  // A behaviour item's episode: the attempt's own agent sends the actions it
+  // has taken so far and sees its task and their results. The Engine runs
+  // them in the world it builds; nothing is recorded until the agent submits
+  // its action list as the item's response.
+  app.post('/internal/attempts/:id/episodes/:itemId/step', async (req, res) => {
+    try {
+      if (req.header('x-actor-role') !== 'agent') throw fail('forbidden', 403);
+      if (!req.body || Array.isArray(req.body) || Object.keys(req.body).some((key) => key !== 'actions') || !Array.isArray(req.body.actions))
+        throw fail('invalid_request', 400);
+      const attempt = await load(req, true);
+      if (attempt.status !== 'in_progress') throw fail('attempt_not_in_progress');
+      const item = attempt.form.items.find((value) => value.id === req.params.itemId && value.kind === 'behaviour');
+      if (!item) throw fail('behaviour_item_not_found', 404);
+      const taken = req.body.actions.length ? parseActions(JSON.stringify({ schemaVersion: ACTIONS_SCHEMA, actions: req.body.actions })) : [];
+      if (!taken) throw fail('invalid_request', 400);
+      res.json({ apiVersion: 'v1', ...stepEpisode(attempt.attemptId, item, taken, episodeSeedKey), correlationId: req.correlationId });
+    } catch (error) { sendError(req, res, error); }
+  });
   app.post('/internal/attempts/:id/responses', commandRoute('response', ['idempotencyKey','expectedSequence','itemId','response'], true));
   app.post('/internal/attempts/:id/finalize', trusted, commandRoute('finalize',
     ['idempotencyKey','expectedSequence','eventId','formDigest','rubricDigest','responseSetDigest','result'], false));
@@ -449,7 +468,7 @@ async function start() {
   timer.unref();
   const sources = createSources();
   const gradeItems = createGradeItems();
-  const gradingTimer = gradeItems ? startSweep('grading_sweep', createGradingRunner({ store, sources, gradeItems }).sweep,
+  const gradingTimer = gradeItems ? startSweep('grading_sweep', createGradingRunner({ store, sources, gradeItems, episodeSeedKey: process.env.EPISODE_SEED_KEY }).sweep,
     Number(process.env.EXAM_GRADING_INTERVAL_MS || 5000)) : null;
   const relay = createRemediationRelay({ store, url: process.env.TRAINING_SERVICE_URL || 'http://training-service:4004' });
   const relayTimer = relay ? startSweep('remediation_relay', relay.sweep, Number(process.env.EXAM_REMEDIATION_INTERVAL_MS || 2000)) : null;

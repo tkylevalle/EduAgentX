@@ -381,6 +381,7 @@ services:
       DATABASE_URL: postgres://examination_owner:${EXAMINATION_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
       EXAMINATION_INTERNAL_KEY: ${EXAMINATION_INTERNAL_KEY:?Run node scripts/setup-dev.js}
       EXAMINATION_GRADING_KEY: ${EXAMINATION_GRADING_KEY:?Run node scripts/setup-dev.js}
+      EPISODE_SEED_KEY: ${EPISODE_SEED_KEY:?Run node scripts/setup-dev.js}
       CURRICULUM_INTERNAL_KEY: ${CURRICULUM_INTERNAL_KEY:?Run node scripts/setup-dev.js}
       TRAINING_INTERNAL_KEY: ${TRAINING_INTERNAL_KEY:?Run node scripts/setup-dev.js}
       EXAM_DURATION_MINUTES: ${EXAM_DURATION_MINUTES:-60}

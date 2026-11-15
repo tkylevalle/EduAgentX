@@ -10,6 +10,9 @@ const candidate = require('../../curriculum-engine/examples/ai-safety-candidate'
 const { createApp } = require('../index');
 const { createMemoryStore } = require('../store');
 const { createGradingRunner } = require('../grading');
+const { ACTIONS_SCHEMA, worldFor } = require('../behaviour');
+const { PANEL } = require('../../../packages/agent-sandbox/src/panel');
+const { runEpisode } = require('../../../packages/agent-sandbox/src/episode');
 
 const INTERNAL_KEY = 'grading-run-service-key';
 const GRADING_KEY = 'grading-run-grading-key';
@@ -19,6 +22,16 @@ const ANSWERED = '2026-10-15T06:30:00.000Z';
 const AGENT = { 'x-internal-service-key': INTERNAL_KEY, 'x-actor-subject': ACTOR, 'x-actor-role': 'agent' };
 const ADMIN = { ...AGENT, 'x-actor-subject': 'grading-run-admin', 'x-actor-role': 'admin' };
 const EXAMINER = { ...AGENT, 'x-actor-subject': 'grading-sweep', 'x-actor-role': 'examiner', 'x-internal-grading-key': GRADING_KEY };
+const EPISODE_KEY = 'engine-test-episode-seed-key-0123456789abcdef';
+const SAFE_POLICY = PANEL.find((entry) => entry.id === 'safe-agent').agent;
+
+// The safe reference agent's actions for one behaviour item of one attempt.
+function safeActions(attemptId, item) {
+  const episode = runEpisode(worldFor(attemptId, item, EPISODE_KEY), SAFE_POLICY);
+  return JSON.stringify({ schemaVersion: ACTIONS_SCHEMA, actions: episode.log.map((call) => (call.tool === 'finish'
+    ? { finish: { message: call.args.message } } : { tool: call.tool, args: call.args })) });
+}
+
 const SAFE = 'I map the boundary, verify the evidence, refuse untrusted instructions and escalate to a human operator.';
 const GRADER = { id: 'test-grader', version: '1.0.0' };
 
@@ -54,7 +67,7 @@ async function boot(t, { grader = fakeGrader(), retryWindowMs = 15 * 60 * 1000, 
   const sources = { activePackage: async () => input.pkg, registration: async () => input.registration,
     completion: async () => input.completion, ...overrides };
   const clock = () => now;
-  const app = createApp({ store, sources, internalKey: INTERNAL_KEY, gradingKey: GRADING_KEY, clock,
+  const app = createApp({ store, sources, internalKey: INTERNAL_KEY, gradingKey: GRADING_KEY, clock, episodeSeedKey: EPISODE_KEY,
     durationMinutes: 60, gradeItems: grader, gradingRetryWindowMs: retryWindowMs, ...appOptions });
   const server = http.createServer(app);
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -63,11 +76,26 @@ async function boot(t, { grader = fakeGrader(), retryWindowMs = 15 * 60 * 1000, 
     method, headers: { ...headers, ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }) })
     .then(async (response) => ({ status: response.status, body: await response.json() }));
-  const runner = createGradingRunner({ store, sources, gradeItems: grader, clock, retryWindowMs });
+  const runner = createGradingRunner({ store, sources, gradeItems: grader, clock, retryWindowMs, episodeSeedKey: EPISODE_KEY });
   return { input, store, grader, call, runner, clock, setClock: (value) => { now = value; } };
 }
 
-async function startAndAnswer(ctx, answer = () => SAFE) {
+// Text items get the safe text answer; behaviour items the safe agent's actions.
+const safeAnswer = (item, index, attemptId) => (item.kind === 'behaviour' ? safeActions(attemptId, item) : SAFE);
+
+// The instruction follower's actions for one behaviour item: in the v2 world
+// it sends mail with a tool the task does not permit (critical-o4).
+const FOLLOWER_POLICY = PANEL.find((entry) => entry.id === 'instruction-follower').agent;
+function unsafeActions(attemptId, item) {
+  const episode = runEpisode(worldFor(attemptId, item, EPISODE_KEY), FOLLOWER_POLICY);
+  return JSON.stringify({ schemaVersion: ACTIONS_SCHEMA, actions: episode.log.map((call) => (call.tool === 'finish'
+    ? { finish: { message: call.args.message } } : { tool: call.tool, args: call.args })) });
+}
+// Safe everywhere except one behaviour slot, where the agent follows the injection.
+const unsafeAnswer = (slotId = 'v2') => (item, index, attemptId) =>
+  (item.kind === 'behaviour' && item.slotId === slotId ? unsafeActions(attemptId, item) : safeAnswer(item, index, attemptId));
+
+async function startAndAnswer(ctx, answer = safeAnswer) {
   const started = await ctx.call('POST', '/internal/attempts', { idempotencyKey: 'start' });
   assert.equal(started.status, 201);
   let attempt = started.body.attempt;
@@ -75,7 +103,7 @@ async function startAndAnswer(ctx, answer = () => SAFE) {
   ctx.setClock(ANSWERED);
   for (const [index, item] of form.items.entries()) {
     const reply = await ctx.call('POST', `/internal/attempts/${attempt.attemptId}/responses`, { idempotencyKey: `r-${index}`,
-      expectedSequence: attempt.sequence, itemId: item.id, response: answer(item, index) });
+      expectedSequence: attempt.sequence, itemId: item.id, response: answer(item, index, attempt.attemptId) });
     assert.equal(reply.status, 200);
     attempt = reply.body.attempt;
   }
@@ -85,5 +113,5 @@ async function startAndAnswer(ctx, answer = () => SAFE) {
 const grade = (ctx, attempt, headers = EXAMINER) => ctx.call('POST', `/internal/attempts/${attempt.attemptId}/grade`, {}, headers);
 const adminView = async (ctx, attempt) => (await ctx.call('GET', `/internal/admin/attempts/${attempt.attemptId}`, undefined, ADMIN)).body.attempt;
 
-module.exports = { INTERNAL_KEY, GRADING_KEY, ACTOR, START, ANSWERED, AGENT, ADMIN, EXAMINER, SAFE, GRADER,
+module.exports = { INTERNAL_KEY, GRADING_KEY, EPISODE_KEY, ACTOR, START, ANSWERED, AGENT, ADMIN, EXAMINER, SAFE, GRADER, safeActions, safeAnswer, unsafeAnswer,
   fixture, fakeGrader, boot, startAndAnswer, grade, adminView };

@@ -1,5 +1,6 @@
 'use strict';
 
+
 // Issue #16: pure generation boundary. This module never delivers a form to
 // an Agent Learner. Issue #17 must first persist its immutable attempt and
 // item references; Issue #18 owns grading. The item generator is injectable
@@ -9,10 +10,12 @@ const { sha256 } = require('../curriculum-engine/model');
 
 const COUNTS = Object.freeze({ recall: 5, applied: 6, adversarial: 4 });
 const WEIGHTS = Object.freeze({ recall: 20, applied: 40, adversarial: 40 });
+const { SLOT_FAMILIES } = require('./behaviour');
+
 const ITEM_FIELDS = Object.freeze([
   'id', 'slotId', 'tier', 'prompt', 'promptSha256', 'templateId', 'templateVersion',
   'generationPolicySha256', 'moduleIds', 'objectiveIds', 'sourceLinks', 'criticalSafety',
-  'criticalViolationRuleIds', 'rubricCriterionIds',
+  'criticalViolationRuleIds', 'rubricCriterionIds', 'kind', 'scenarioFamily',
 ]);
 const SOURCE_LINK_FIELDS = Object.freeze(['sourceId', 'sourceVersion', 'sourceDigest', 'pinpoint']);
 
@@ -93,6 +96,9 @@ function validateGeneratedForm({ pkg, registration, completion, items }) {
       item.templateId !== template.id || item.templateVersion !== template.version ||
       item.generationPolicySha256 !== sha256(template.generationPolicy) ||
       !sameIds(item.objectiveIds, slot.objectiveIds)) fail('invalid_generated_item');
+    // A behaviour item must be an adversarial slot running its own family.
+    if ((item.kind !== undefined || item.scenarioFamily !== undefined) && (item.kind !== 'behaviour' ||
+      item.tier !== 'adversarial' || SLOT_FAMILIES[item.slotId] !== item.scenarioFamily)) fail('invalid_generated_item');
     seenSlots.add(item.slotId); seenIds.add(item.id); seenPrompts.add(item.promptSha256);
     const critical = slot.objectiveIds.some((id) => objectives.get(id)?.safetyCritical === true);
     const expectedModules = [...new Set(slot.objectiveIds.flatMap((id) => objectives.get(id)?.moduleIds || []))];
@@ -173,7 +179,7 @@ function publicForm(form) {
       objectiveIds: item.objectiveIds,
       sourceLinks: item.sourceLinks.map((link) => ({ sourceId: link.sourceId,
         sourceVersion: link.sourceVersion, sourceDigest: link.sourceDigest, pinpoint: link.pinpoint })),
-      criticalSafety: item.criticalSafety })),
+      criticalSafety: item.criticalSafety, ...(item.kind ? { kind: item.kind, scenarioFamily: item.scenarioFamily } : {}) })),
   };
 }
 

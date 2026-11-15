@@ -6,7 +6,7 @@ const { canonicalEvidence } = require('../../packages/external-agent-protocol');
 const { GatewayProtocolClient } = require('./gateway-client');
 const { createExamRunner } = require('./exam-runner');
 const { publishListing } = require('./listing');
-const { examAnswer, listExamScenarios } = require('./exam-scenarios');
+const { examAnswer, examPolicy, listExamScenarios } = require('./exam-scenarios');
 const { createLiveModel, LiveModelError } = require('./live-model');
 const {
   DEFAULT_REGISTRATION,
@@ -191,7 +191,7 @@ function createApp({ learner = createDefaultLearner(), examRunner = null, liveMo
           evidence: canonicalEvidence('synthetic') });
       }
       const result = await runner().examine({
-        answerFor: (item, index) => examAnswer(scenarioId, item, index),
+        answerFor: (item, index) => examAnswer(scenarioId, item, index), actFor: (item) => examPolicy(scenarioId, item),
         correlationId: req.correlationId || body.correlationId,
       });
       const status = result.outcome === 'not_started' && result.status >= 500 ? 503 : 200;
