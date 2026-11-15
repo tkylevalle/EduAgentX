@@ -107,6 +107,13 @@ test('fallback selection requires prior passing validation, complete pinned bank
     assert.equal(selected.mode, 'fallback');
     assert.equal(selected.items.length, 15);
     assert.equal(selected.items.some((item) => Object.hasOwn(item, 'expectedAnswer')), false);
+    // Audit A10: each attempt sees the options in its own shuffled order.
+    const { deliveryChoices } = require('../../curriculum-engine/fallback');
+    const bank = active.fallbackBank || active.fallback_bank;
+    for (const item of selected.items) {
+      const authored = bank.items.find((value) => value.id === item.id).choices;
+      assert.deepEqual(item.choices, deliveryChoices(authored, `${selected.attemptId}:${item.id}`));
+    }
 
     const partial = await fetch(`${baseUrl}/fallback/score`, { method: 'POST', headers,
       body: JSON.stringify({ package_id: active.id, attemptId: selected.attemptId, responses: [] }) });

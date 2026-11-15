@@ -1,7 +1,7 @@
 const express = require('express');
 const { randomUUID } = require('node:crypto');
 const { validatePackage } = require('../../curriculum-engine/model');
-const { scoreBank } = require('../../curriculum-engine/fallback');
+const { deliveryChoices, scoreBank } = require('../../curriculum-engine/fallback');
 
 const { runValidationGates } = require('./gates');
 const { db } = require('./db');
@@ -238,8 +238,10 @@ route('post', '/fallback/select', requireInternalActor, async (req, res) => {
   await packageDb.appendEvidence(packageId, { event: 'fallback_selected', attemptId, bankId: fallback.id, bankVersion: fallback.version,
     digest: pkg.digest, reason: req.body.reason, actor: req.header('x-actor-subject'), ts: now().toISOString() }, pkg.version);
   res.json({ packageId, bankId: fallback.id, bankVersion: fallback.version, scoringPolicy: fallback.scoringPolicy,
+    // Options are shuffled per attempt (audit A10); scoring compares values.
     attemptId, mode: 'fallback', items: safeItems.map(({ id, version, tier, answerType, choices, prompt, objectiveIds, sourceLinks, criticalSafety }) =>
-      ({ id, version, tier, answerType, choices, prompt, objectiveIds, sourceLinks, criticalSafety: criticalSafety === true })) });
+      ({ id, version, tier, answerType, choices: Array.isArray(choices) ? deliveryChoices(choices, `${attemptId}:${id}`) : choices,
+        prompt, objectiveIds, sourceLinks, criticalSafety: criticalSafety === true })) });
 });
 
 route('post', '/fallback/score', requireInternalActor, async (req, res) => {
