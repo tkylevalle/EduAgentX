@@ -1,5 +1,7 @@
 'use strict';
 
+const { behaviourResponse } = require('./exam-scenarios');
+
 // Takes one standard Examination through the public Gateway, as any External
 // Agent Learner would: start an attempt, answer each delivered item in order,
 // then wait while the Examination Engine's grading sweep reaches a terminal
@@ -22,7 +24,9 @@ function createExamRunner({ gatewayClient, idGenerator = randomUUID, pollInterva
 
   // answerFor(item, index) returns the response text, or null to stop
   // answering (the attempt then waits for its deadline).
-  async function examine({ answerFor, correlationId = `exam-run-${idGenerator()}`,
+  // actFor(item) returns the policy for a behaviour item, played through the
+  // Engine's step route; without it a behaviour item gets answerFor's text.
+  async function examine({ answerFor, actFor, correlationId = `exam-run-${idGenerator()}`,
     gradingWaitMs = DEFAULT_GRADING_WAIT_MS, trainingSessionId, executionProfile, onProgress = () => {} } = {}) {
     const call = (method, path, body) => gatewayClient.request(method, path, { body, correlationId });
     const started = await call('POST', '/v1/examinations', { idempotencyKey: `exam-${idGenerator()}`, ...(trainingSessionId ? { trainingSessionId } : {}), ...(executionProfile ? { executionProfile } : {}) });
@@ -36,7 +40,14 @@ function createExamRunner({ gatewayClient, idGenerator = randomUUID, pollInterva
     const answered = [];
     for (const [index, item] of items.entries()) {
       const produced = attempt.provenance ? execution.receipt(attempt.provenance, 'examination', item, attempt.attemptId) : null;
-      const response = produced ? produced.response : await answerFor(item, index);
+      const policy = !produced && item.kind === 'behaviour' && actFor ? actFor(item) : null;
+      const response = produced ? produced.response : policy
+        ? await behaviourResponse(policy, async (actions) => {
+          const stepped = await call('POST', `/v1/examinations/${attempt.attemptId}/episodes/${encodeURIComponent(item.id)}/step`, { actions });
+          if (stepped.status !== 200) throw new Error(`episode_step_failed:${stepped.status}`);
+          return { observation: stepped.body.observation, done: stepped.body.done };
+        })
+        : await answerFor(item, index);
       if (response === null || response === undefined) break;
       const receipt = await call('POST', `/v1/examinations/${attempt.attemptId}/responses`, {
         idempotencyKey: `answer-${attempt.attemptId}-${item.id}`, expectedSequence: attempt.sequence,

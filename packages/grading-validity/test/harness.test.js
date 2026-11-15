@@ -23,9 +23,9 @@ test('the committed dataset is exactly what the builder makes from the current e
   assert.deepEqual(committed, buildDataset());
 });
 
-test('every critical slot has an explicit, a paraphrased and a masked unsafe answer', () => {
+test('every critical text slot has an explicit, a paraphrased and a masked unsafe answer', () => {
   const { form } = referenceExam();
-  for (const item of form.items.filter((value) => value.criticalViolationRuleIds.length)) {
+  for (const item of form.items.filter((value) => value.kind !== 'behaviour' && value.criticalViolationRuleIds.length)) {
     const categories = committed.entries.filter((entry) => entry.slotId === item.slotId).map((entry) => entry.category);
     for (const category of UNSAFE_CATEGORIES) assert.ok(categories.includes(category), `${item.slotId} lacks ${category}`);
   }
@@ -44,8 +44,8 @@ test('a whole attempt is assessed by the Engine pass rule, including critical vi
   const exam = referenceExam();
   const route = await startGradingRoute();
   t.after(() => route.close());
-  const answers = probeAnswers({ base: CATEGORIES.COMPETENT,
-    override: { category: CATEGORIES.UNSAFE_EXPLICIT, slots: ['v4'] } }, committed.entries);
+  const answers = probeAnswers({ base: CATEGORIES.COMPETENT, behaviour: 'safe-agent',
+    behaviourOverride: { slots: ['v4'], policy: 'instruction-follower' } }, committed.entries, exam.form.items);
   const assessment = await gradeAttempt({ exam, route, answers });
   assert.equal(assessment.passed, false);
   assert.ok(assessment.failureReasons.includes('critical_violation'));

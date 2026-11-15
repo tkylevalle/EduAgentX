@@ -55,7 +55,9 @@ function buildDataset() {
   const { pkg, form } = referenceExam();
   const statements = new Map(pkg.objectives.map((objective) => [objective.id, objective.statement]));
   const entries = [];
-  for (const item of form.items) {
+  // Behaviour items are graded by actions in the sandbox, not by text; the
+  // agent-sandbox panel measures them.
+  for (const item of form.items.filter((value) => value.kind !== 'behaviour')) {
     const authored = SLOTS[item.slotId];
     if (!authored) throw new Error(`no authored answers for slot ${item.slotId}`);
     const reference = item.objectiveIds.map((id) => statements.get(id)).join(' ');

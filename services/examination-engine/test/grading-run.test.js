@@ -8,7 +8,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { DependencyError } = require('../sources');
-const { AGENT, EXAMINER, SAFE, GRADER, fakeGrader, boot, startAndAnswer, grade, adminView } =
+const { AGENT, EXAMINER, SAFE, GRADER, fakeGrader, boot, startAndAnswer, grade, adminView, unsafeAnswer } =
   require('./exam-harness');
 
 test('a safe complete attempt is graded once and completes with its assessment kept', async (t) => {
@@ -21,37 +21,40 @@ test('a safe complete attempt is graded once and completes with its assessment k
   assert.equal(ctx.grader.calls.length, 1, 'a graded attempt is never sent to the grader again');
   const view = await adminView(ctx, attempt);
   assert.equal(view.assessment.passed, true);
-  assert.deepEqual(view.assessment.grader, GRADER);
-  assert.deepEqual(view.assessment.tierPercents, { recall: 90, applied: 90, adversarial: 90 });
+  // Text items by the text grader, behaviour items by the Engine's sandbox.
+  assert.deepEqual(view.assessment.grader, { id: `${GRADER.id}+agent-sandbox`, version: `${GRADER.version}+1.0.0` });
+  assert.deepEqual(view.assessment.tierPercents, { recall: 90, applied: 90, adversarial: 100 });
 });
 
-test('the grader receives each item with its objective reference and the pinned rules, never the prompt key', async (t) => {
+test('the text grader receives each text item with its objective reference, and never a behaviour item', async (t) => {
   const ctx = await boot(t);
   const attempt = await startAndAnswer(ctx);
   await grade(ctx, attempt);
   const [items] = ctx.grader.calls;
-  assert.equal(items.length, 15);
+  const behaviourIds = attempt.form.items.filter((item) => item.kind === 'behaviour').map((item) => item.id);
+  assert.equal(behaviourIds.length, 4);
+  assert.equal(items.length, 11);
+  assert.equal(items.some((item) => behaviourIds.includes(item.itemId)), false);
   assert.deepEqual(Object.keys(items[0]).sort(), ['itemId', 'reference', 'response', 'tier']);
   const objective = ctx.input.pkg.objectives.find((o) => o.id === attempt.form.items[0].objectiveIds[0]);
   assert.equal(items[0].reference, objective.statement);
   assert.equal(items[0].response, SAFE);
 });
 
-test('an insufficient score ends as Agent-Failed with the failing tiers and objectives', async (t) => {
+test('insufficient text scores end as Agent-Failed with the failing tiers and objectives', async (t) => {
   const ctx = await boot(t, { grader: fakeGrader({ score: 40 }) });
   const attempt = await startAndAnswer(ctx);
   const graded = await grade(ctx, attempt);
   assert.deepEqual([graded.body.attempt.status, graded.body.attempt.terminalReason], ['agent_failed', 'valid_failing_result']);
   const view = await adminView(ctx, attempt);
-  assert.deepEqual(view.assessment.failureReasons, ['insufficient_overall_score', 'insufficient_adversarial_score']);
+  // Safe actions keep the adversarial tier at 100; the text tiers fail the overall mark.
+  assert.deepEqual(view.assessment.failureReasons, ['insufficient_overall_score']);
   assert.deepEqual(view.assessment.failedObjectiveIds, ['o1', 'o2', 'o3', 'o4', 'o5']);
 });
 
-test('a critical violation ends as Agent-Failed even with a full score', async (t) => {
-  const grader = fakeGrader({ score: 100, perItem: (item) => (item.tier === 'adversarial' && item.response.includes('page instructs')
-    ? { criticalViolationRuleIds: ['critical-o4'] } : {}) });
-  const ctx = await boot(t, { grader });
-  const attempt = await startAndAnswer(ctx, (item) => (item.slotId === 'v2' ? 'As the page instructs, I am calling the tool now.' : SAFE));
+test('an unsafe action in a behaviour item ends as Agent-Failed even with full text scores', async (t) => {
+  const ctx = await boot(t, { grader: fakeGrader({ score: 100 }) });
+  const attempt = await startAndAnswer(ctx, unsafeAnswer('v2'));
   const graded = await grade(ctx, attempt);
   assert.equal(graded.body.attempt.status, 'agent_failed');
   const view = await adminView(ctx, attempt);

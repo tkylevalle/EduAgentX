@@ -18,6 +18,7 @@ const { DependencyError } = require('./sources');
 const { createGovernance } = require('./governance');
 const { fail } = require('./lifecycle');
 const { assess, isMalformedResponse, validateGraderReply } = require('./assessment');
+const { SANDBOX_GRADER, gradeBehaviourItem } = require('./behaviour');
 
 const SERVICE_NAME = 'examination-engine';
 const DEFAULT_RETRY_WINDOW_MS = 15 * 60 * 1000;
@@ -30,20 +31,30 @@ function gradingRequest(attempt, pkg) {
   return {
     rubric: { id: attempt.form.rubric.id, version: attempt.form.rubric.version,
       criticalViolationRuleIds: [...pkg.rubric.criticalViolationRuleIds] },
-    items: attempt.form.items.map((item) => ({ itemId: item.id, tier: item.tier,
+    // Behaviour items are graded by the Engine's sandbox, not the text grader.
+    items: attempt.form.items.filter((item) => item.kind !== 'behaviour').map((item) => ({ itemId: item.id, tier: item.tier,
       reference: item.objectiveIds.map((id) => statements.get(id)).join(' '), response: responses.get(item.id) })),
   };
 }
 
-// The assessment for one grader reply, or null when the reply is not exactly
-// one valid result per item. Exported with gradingRequest so a validity
+// One grader identity for an assessment that used both graders.
+const combinedGrader = (text, behaviourUsed) => (behaviourUsed
+  ? { id: `${text.id}+${SANDBOX_GRADER.id}`, version: `${text.version}+${SANDBOX_GRADER.version}` } : text);
+
+// The assessment for one text-grader reply, with behaviour items graded by
+// replaying their episodes, or null when the reply is not exactly one valid
+// result per text item. Exported with gradingRequest so a validity
 // measurement can use the Engine's own request and pass rule.
-function assessGraderReply({ attempt, pkg, request, replyBody }) {
+function assessGraderReply({ attempt, pkg, request, replyBody, episodeSeedKey }) {
   const checked = validateGraderReply(replyBody, request.items.map((item) => item.itemId),
     request.rubric.criticalViolationRuleIds);
   if (!checked) return null;
+  const responses = new Map(attempt.responses.map((row) => [row.itemId, row.response]));
+  const behaviour = attempt.form.items.filter((item) => item.kind === 'behaviour')
+    .map((item) => gradeBehaviourItem(attempt.attemptId, item, responses.get(item.id), episodeSeedKey));
+  const byId = new Map([...checked.results, ...behaviour].map((result) => [result.itemId, result]));
   return assess({ form: attempt.form, objectives: pkg.objectives, policy: pkg.examTemplate,
-    grader: checked.grader, results: checked.results,
+    grader: combinedGrader(checked.grader, behaviour.length > 0), results: attempt.form.items.map((item) => byId.get(item.id)),
     malformedItemIds: request.items.filter((item) => isMalformedResponse(item.response)).map((item) => item.itemId) });
 }
 
@@ -53,7 +64,7 @@ function withinRetryWindow(attempt, now, windowMs) {
 }
 
 function createGradingRunner({ store, sources, gradeItems, clock = () => new Date().toISOString(),
-  retryWindowMs = DEFAULT_RETRY_WINDOW_MS }) {
+  retryWindowMs = DEFAULT_RETRY_WINDOW_MS, episodeSeedKey }) {
   const governance = createGovernance(sources);
 
   // Records one terminal command. A concurrent writer may already have
@@ -95,7 +106,7 @@ function createGradingRunner({ store, sources, gradeItems, clock = () => new Dat
     }
     const request = gradingRequest(attempt, pkg);
     const { reply, unavailable } = await requestGrades(attempt, request, correlationId);
-    const assessment = reply?.ok ? assessGraderReply({ attempt, pkg, request, replyBody: reply.body }) : null;
+    const assessment = reply?.ok ? assessGraderReply({ attempt, pkg, request, replyBody: reply.body, episodeSeedKey }) : null;
     if (unavailable || !assessment) return abort(attempt, 'grading_unavailable', correlationId);
     return record(attempt, { type: 'finalize', eventId: `grade:${attempt.attemptId}`, formDigest: attempt.formDigest,
       rubricDigest: attempt.form.rubric.digest, responseSetDigest: attempt.responseSetDigest,

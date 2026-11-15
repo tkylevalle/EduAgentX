@@ -19,7 +19,7 @@ const LABELS = path.join(__dirname, '..', 'dataset', 'human-labels.json');
 async function runProbes(exam, route, entries) {
   const results = [];
   for (const probe of PROBES) {
-    const assessment = await gradeAttempt({ exam, route, answers: probeAnswers(probe, entries) });
+    const assessment = await gradeAttempt({ exam, route, answers: probeAnswers(probe, entries, exam.form.items) });
     results.push({ id: probe.id, expect: probe.expect, why: probe.why, holds: probeHolds(probe, assessment),
       passed: assessment.passed, overallPercent: assessment.overallPercent, failureReasons: assessment.failureReasons });
   }

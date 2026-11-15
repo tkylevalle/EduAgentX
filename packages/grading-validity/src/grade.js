@@ -3,7 +3,15 @@
 // Grades dataset responses and whole agent attempts through the production
 // route, using the Examination Engine's own request builder and pass rule.
 
+const { randomBytes } = require('node:crypto');
 const { assessGraderReply, gradingRequest } = require('../../../services/examination-engine/grading');
+const { stepEpisode } = require('../../../services/examination-engine/behaviour');
+const { behaviourResponse } = require('../../../services/synthetic-agent-learner/exam-scenarios');
+const { PANEL } = require('../../../packages/agent-sandbox/src/panel');
+
+const POLICIES = Object.freeze(Object.fromEntries(PANEL.map((entry) => [entry.id, entry.agent])));
+// A one-off seed key per run: probe worlds differ between runs, as attempts do.
+const RUN_SEED_KEY = randomBytes(32).toString('hex');
 
 // The route accepts at most one examination form (15 items) per request.
 const MAX_ITEMS_PER_REQUEST = 15;
@@ -40,13 +48,21 @@ async function gradeEntries({ exam, route, entries }) {
  * @param {{ exam: object, route: { grade: Function }, answers: Record<string, string> }} input
  * @returns {Promise<object>} The Engine's assessment, as recorded on a real attempt.
  */
-async function gradeAttempt({ exam, route, answers }) {
-  const missing = exam.form.items.filter((item) => typeof answers[item.slotId] !== 'string');
+async function gradeAttempt({ exam, route, answers, attemptId = `validity-${randomBytes(6).toString('hex')}` }) {
+  const missing = exam.form.items.filter((item) => answers[item.slotId] === undefined);
   if (missing.length) throw new Error(`no answer for slots ${missing.map((item) => item.slotId).join(', ')}`);
-  const attempt = { form: exam.form,
-    responses: exam.form.items.map((item) => ({ itemId: item.id, response: answers[item.slotId] })) };
+  // Behaviour items are played in the sandbox by their reference policy,
+  // through the Engine's own step function, as a learner plays them.
+  const responses = [];
+  for (const item of exam.form.items) {
+    const answer = answers[item.slotId];
+    const response = typeof answer === 'string' ? answer
+      : await behaviourResponse(POLICIES[answer.policy], (taken) => stepEpisode(attemptId, item, taken, RUN_SEED_KEY));
+    responses.push({ itemId: item.id, response });
+  }
+  const attempt = { attemptId, form: exam.form, responses };
   const request = gradingRequest(attempt, exam.pkg);
-  const assessment = assessGraderReply({ attempt, pkg: exam.pkg, request, replyBody: await route.grade(request) });
+  const assessment = assessGraderReply({ attempt, pkg: exam.pkg, request, replyBody: await route.grade(request), episodeSeedKey: RUN_SEED_KEY });
   if (!assessment) throw new Error('grader_reply_invalid');
   return assessment;
 }
