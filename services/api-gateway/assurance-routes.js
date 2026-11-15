@@ -54,6 +54,13 @@ function registerAssuranceRoutes(app, {
     await proxyJson(req, res, `${credentialVerificationUrl}/verify`, { method: 'POST', body: { jws: body.jws } });
   });
 
+  // The issuer's public keys (assurance audit D3): open to anyone, so a third
+  // party can check a credential's signature itself.
+  app.get('/.well-known/jwks.json', async (req, res) => {
+    if (!credentialVerificationUrl) return unavailable(req, res, 'verification_unavailable');
+    await proxyJson(req, res, `${credentialVerificationUrl}/.well-known/jwks.json`);
+  });
+
   app.get('/v1/credentials/:credentialId/status', requireRole('agent', ...ASSURANCE_READERS), async (req, res) => {
     if (!UUID.test(req.params.credentialId)) return invalid(req, res, ['credentialId']);
     if (!credentialVerificationUrl) return unavailable(req, res, 'verification_unavailable');

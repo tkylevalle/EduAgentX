@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const { timingSafeEqual } = require('node:crypto');
 const { verifyCredential, TEST_KEY_PREFIX, keyIdOf } = require('./verifier');
 const { statusStore, StatusTransitionError } = require('./statusStore');
+const { issuerJwks, publicKeyForKid } = require('./issuer-keys');
 
 const app = express();
 app.use(express.json({ limit: '64kb' }));
@@ -16,9 +17,24 @@ function getPublicKey() {
   return null;
 }
 
-// A credential's key ID selects its verification key, so a test-issuer
+// The credential's validFrom, which decides whether a retired key may verify it.
+function issuedAtOf(jws) {
+  try { return String(JSON.parse(Buffer.from(String(jws).split('.')[1], 'base64url').toString()).validFrom || ''); }
+  catch { return ''; } // A malformed payload fails the signature check that follows.
+}
+
+// A credential's key ID selects its verification key: a published key with
+// that id first (a retired one only for credentials issued before it was
+// retired), else the configured key for its issuer, so a test-issuer
 // credential can never verify with the other key, or the reverse.
 function publicKeyFor(jws) {
+  let published = null;
+  try { published = publicKeyForKid(keyIdOf(jws), issuedAtOf(jws)); } catch (error) {
+    // Broken key configuration: log it and fail closed (the signature check fails).
+    console.error(`[credential-verification] issuer keys unavailable: ${error.message}`);
+    return null;
+  }
+  if (published) return published;
   if (!keyIdOf(jws).startsWith(TEST_KEY_PREFIX)) return getPublicKey();
   const keyPath = process.env.CREDENTIAL_TEST_PUBLIC_KEY_PATH;
   return keyPath && fs.existsSync(keyPath) ? fs.readFileSync(keyPath, 'utf8') : null;
@@ -110,6 +126,17 @@ app.get('/status/:credentialId', (req, res) => {
   const status = statusStore.getStatus(req.params.credentialId);
   if (status === null) return res.status(404).json({ error: 'not_found', status: 'INDETERMINATE_STATUS' });
   res.json({ credentialId: req.params.credentialId, status, history: statusStore.getHistory(req.params.credentialId) });
+});
+
+// The issuer's public keys (assurance audit D3), open to anyone.
+app.get('/.well-known/jwks.json', (_req, res) => {
+  try {
+    res.set('cache-control', 'public, max-age=300');
+    res.json(issuerJwks());
+  } catch (error) {
+    console.error(`[credential-verification] issuer keys unavailable: ${error.message}`);
+    res.status(503).json({ error: 'issuer_keys_unavailable' });
+  }
 });
 
 if (require.main === module) {
