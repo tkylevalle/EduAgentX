@@ -34,5 +34,5 @@ test('no Active package fails the check instead of creating one', async () => {
 test('a .env without the admin and curriculum keys stops the gate at startup', () => {
   const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'gate-env-')), '.env');
   fs.writeFileSync(file, 'ADMIN_CLIENT_ID=admin\nGATEWAY_PORT=8080\n');
-  assert.throws(() => readEnv(file), /missing ADMIN_CLIENT_SECRET, CURRICULUM_INTERNAL_KEY/);
+  assert.throws(() => readEnv(file), /missing ADMIN_CLIENT_SECRET, CURRICULUM_INTERNAL_KEY, REVIEWER_1_CLIENT_ID, REVIEWER_2_CLIENT_ID/);
 });

@@ -14,7 +14,10 @@ const { createLifecycleDriver } = require('../../demo-lifecycle');
 const { createGate } = require('./gate');
 
 const ROOT = path.join(__dirname, '..', '..', '..');
-const REQUIRED_ENV = Object.freeze(['ADMIN_CLIENT_ID', 'ADMIN_CLIENT_SECRET', 'CURRICULUM_INTERNAL_KEY']);
+// The reviewer client IDs are required so the scripted-approval check below
+// cannot pass by default when they are missing.
+const REQUIRED_ENV = Object.freeze(['ADMIN_CLIENT_ID', 'ADMIN_CLIENT_SECRET', 'CURRICULUM_INTERNAL_KEY',
+  'REVIEWER_1_CLIENT_ID', 'REVIEWER_2_CLIENT_ID']);
 // The spec's two-person review: two distinct authenticated reviewers.
 const MIN_APPROVERS = 2;
 // The demo's shared reviewer credentials. The demo driver signs reviews with
