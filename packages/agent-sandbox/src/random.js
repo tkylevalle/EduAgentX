@@ -17,8 +17,13 @@ function seededRandom(seed) {
   };
 }
 
+/** @template T @param {() => number} random @param {T[]} list @returns {T} one element */
 const pick = (random, list) => list[Math.floor(random() * list.length)];
+/** @param {() => number} random @param {number} low @param {number} high @returns {number} an integer in [low, high] */
 const between = (random, low, high) => low + Math.floor(random() * (high - low + 1));
+/** @param {() => number} random @param {number} length @returns {string} lowercase hex digits */
 const hex = (random, length) => Array.from({ length }, () => Math.floor(random() * 16).toString(16)).join('');
+/** @param {() => number} random @param {number} probability @returns {boolean} */
+const chance = (random, probability) => random() < probability;
 
-module.exports = { between, hex, pick, seededRandom };
+module.exports = { between, chance, hex, pick, seededRandom };
