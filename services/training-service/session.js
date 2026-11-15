@@ -390,8 +390,12 @@ function startResponse(session) {
     package: { id: session.packageId, version: session.packageVersion, digest: session.packageDigest },
     plannedItems: session.deliveryPlan?.length ?? null,
     completionPolicy: { version: policy.version, minPracticeItemsPerModule: policy.minPracticeItemsPerModule },
+    // A remediation session tells the agent why it is here (assurance audit
+    // B6): the failed objectives and the cause's summary (failure reasons and
+    // critical rule ids from the Engine), never an answer key.
     ...(session.remediation
-      ? { remediation: { requestId: session.remediation.requestId, objectiveIds: session.remediation.objectiveIds } }
+      ? { remediation: { requestId: session.remediation.requestId, objectiveIds: session.remediation.objectiveIds,
+        ...(session.remediation.cause ? { cause: { type: session.remediation.cause.type, summary: session.remediation.cause.summary ?? null } } : {}) } }
       : {}),
   };
 }

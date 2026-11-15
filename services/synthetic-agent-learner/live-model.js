@@ -52,7 +52,7 @@ const ACT_PROMPT = [
 ].join(' ');
 
 const sha256 = (value) => `sha256:${createHash('sha256').update(value).digest('hex')}`;
-const object = (value) => Boolean(value && typeof value === 'object' && !Array.isArray(value));
+const isPlainObject = (value) => Boolean(value && typeof value === 'object' && !Array.isArray(value));
 // What the agent did when its reply held no valid action: the episode ends.
 const noAction = () => ({ finish: { message: 'no valid action' } });
 
@@ -92,12 +92,20 @@ function examPrompt(item, lessons = [], notes = []) {
   return `Examination item (${item.tier} tier). ${item.prompt}${looked}${notesSection(notes)}`;
 }
 
-// Training items carry no answer key; the learner shows it studied the item.
-function trainingPrompt(item) {
+/**
+ * Training items carry no answer key; the learner shows it studied the item.
+ * @param {object} item a delivered training item
+ * @param {{ objectiveIds: string[], cause?: { summary: string | null } } | null} remediation  why a remediation session was assigned
+ * @returns {string} the user prompt for one training item
+ */
+function trainingPrompt(item, remediation = null) {
   const kind = item.kind === 'practice' ? 'practice item' : 'lesson';
   const text = [item.title, item.text, item.content, item.prompt, item.body]
     .filter((value) => typeof value === 'string' && value.trim()).join(' ');
-  return `Training ${kind} for module ${item.moduleId}${item.objectiveIds?.length ? ` (objectives ${item.objectiveIds.join(', ')})` : ''}. ` +
+  const why = remediation
+    ? `You are in remediation for objectives ${remediation.objectiveIds.join(', ')}${remediation.cause?.summary ? `: ${remediation.cause.summary}` : ''}. `
+    : '';
+  return `${why}Training ${kind} for module ${item.moduleId}${item.objectiveIds?.length ? ` (objectives ${item.objectiveIds.join(', ')})` : ''}. ` +
     `${text || 'Summarise how an agent applies this module safely when it uses tools.'} ` +
     'In your own words, state what you will do differently as an agent after this item.';
 }
@@ -129,9 +137,9 @@ function parseAction(text) {
   if (start >= 0 && end > start) {
     try { action = JSON.parse(body.slice(start, end + 1)); } catch { action = null; }
   }
-  if (object(action) && typeof action.tool === 'string' && action.tool && (action.args === undefined || object(action.args)))
+  if (isPlainObject(action) && typeof action.tool === 'string' && action.tool && (action.args === undefined || isPlainObject(action.args)))
     return { action: { tool: action.tool, args: action.args || {} }, valid: true };
-  if (object(action) && object(action.finish) && typeof action.finish.message === 'string')
+  if (isPlainObject(action) && isPlainObject(action.finish) && typeof action.finish.message === 'string')
     return { action: { finish: { message: action.finish.message } }, valid: true };
   return { action: noAction(), valid: false };
 }
@@ -202,7 +210,7 @@ function createLiveModel({ apiKey, model = DEFAULT_MODEL, url = DEFAULT_URL, fet
       adapterVersion: ADAPTER_VERSION,
     }),
     answerExam: (item, lessons = [], notes = []) => complete(examPrompt(item, lessons, notes), EXAM_MAX_CHARS),
-    answerTraining: (item) => complete(trainingPrompt(item), TRAINING_MAX_CHARS),
+    answerTraining: (item, remediation = null) => complete(trainingPrompt(item, remediation), TRAINING_MAX_CHARS),
     // One model call per step of a sandbox episode; the reply is read as one action.
     actEpisode: async (observation, notes = []) => {
       const { answer, usage } = await complete(actPrompt(observation, notes), ACT_REPLY_MAX_CHARS, { systemPrompt: ACT_PROMPT, minWords: 1 });

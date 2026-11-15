@@ -217,7 +217,7 @@ function createSyntheticAgentLearner({ gatewayClient, idGenerator = randomUUID }
           response = produced.response; executionEvidence = produced.executionEvidence;
         }
         if (respond) {
-          try { response = await respond(item); } catch (error) {
+          try { response = await respond(item, { remediation: started.body.remediation || null }); } catch (error) {
             return { outcome: 'system_aborted', reason: error.code || 'learner_unavailable', sessionId, completedItems, credentialIssued: false };
           }
         }

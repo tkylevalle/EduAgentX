@@ -200,6 +200,26 @@ test('a live learner registers its own configuration and submits the model answe
   assert.equal(registrations[0].evidence.label, 'LIVE: Live Agent Learner');
 });
 
+test('a remediation session\'s reason reaches the learner with every item', async () => {
+  const remediation = { requestId: 'req-1', objectiveIds: ['o3'], cause: { type: 'examination_failure', summary: 'critical rules: critical-o3.' } };
+  const seen = [];
+  let done = false;
+  const learner = createSyntheticAgentLearner({ gatewayClient: {
+    register: async () => ({ status: 200, body: {} }),
+    interact: async (message) => {
+      const { interactionType } = message.payload;
+      if (interactionType === 'training.session.start') return { status: 200, body: { sessionId: 'session-r', remediation } };
+      if (interactionType === 'training.session.continue') return { status: 200, body: { sessionId: 'session-r', status: done ? 'completed' : 'open',
+        item: done ? null : { deliveryItemId: 'm3-lesson', moduleId: 'm3', objectiveIds: ['o3'] }, bounds: { modelWeightsModified: false } } };
+      done = true;
+      return { status: 200, body: { sessionId: 'session-r', status: 'completed', modelWeightsModified: false } };
+    },
+  } });
+  await learner.train({ agentLearnerKey: 'live-agent-learner-dev', evidenceMode: 'live', registration: {},
+    respond: async (item, context) => { seen.push(context); return 'answer'; } });
+  assert.deepEqual(seen, [{ remediation }]);
+});
+
 test('a live learner that cannot reach its model stops training as a system abort', async () => {
   const learner = createSyntheticAgentLearner({ gatewayClient: {
     register: async () => ({ status: 200, body: {} }),

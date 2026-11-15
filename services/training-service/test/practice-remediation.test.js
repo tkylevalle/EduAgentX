@@ -207,6 +207,10 @@ test('a remediation request assigns only the targeted content and keeps the evid
     input({ agentLearnerKey: LEARNER })));
   assert.deepEqual([started.events[0].eventType, started.response.resumed, started.response.kind],
     ['session_started', false, 'remediation']);
+  // The agent is told why it is here (assurance audit B6): the failed
+  // objectives and the cause's summary, never an answer key.
+  assert.deepEqual(started.response.remediation, { requestId: 'req-1', objectiveIds: ['o2'],
+    cause: { type: cause.type, summary: cause.summary } });
   const { delivered, last } = walk(ctx);
   assert.deepEqual(delivered, ['m2-lesson', 'm2-practice']);
   assert.deepEqual([last.completion.sessionKind, last.completion.remediationRequestId, last.completion.completion.objectiveIds],
