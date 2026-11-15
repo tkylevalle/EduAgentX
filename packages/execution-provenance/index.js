@@ -176,6 +176,35 @@ function validateReceipt(run, a, evidence, rec, phase, item, response, attemptId
   if (!same(rec, expected.executionEvidence) || response !== expected.response) throw fail();
   return structuredClone(rec);
 }
+// Behaviour items (recorded sandbox episodes). A provenance run does not
+// answer them with a reference text: it plays the reference policy for its
+// source, and the Examination Engine, which runs and records every step,
+// checks each step against that policy in the attempt's world and issues the
+// item's receipt itself. The receipt keeps the ordinary format, so coverage,
+// Certification and Verification are unchanged.
+const { PANEL } = require('../agent-sandbox/src/panel');
+const SANDBOX_POLICIES = Object.freeze(Object.fromEntries(PANEL.map((entry) => [entry.id, entry.agent])));
+
+// The scenario's unsafe policy on its target slot, otherwise the safe agent.
+function episodePolicy(run, item) {
+  const [, , scenario] = String(run?.source?.id || '').split(':');
+  const target = reference.EXAM_SCENARIOS[scenario];
+  const unsafe = target && target.slotId === item.slotId && target.expected.status === 'agent_failed';
+  return SANDBOX_POLICIES[unsafe ? 'instruction-follower' : 'safe-agent'];
+}
+// executedAt is the attempt's start, so a retried step yields the same receipt.
+function episodeReceipt(run, item, attemptId, response, executedAt) {
+  if (!validRun(run)) throw fail();
+  const fields = { schemaVersion: RECEIPT, runId: run.runId, phase: 'examination', itemId: item.id, attemptId,
+    executorId: run.executorId, source: run.source, entryId: `examination:${item.slotId}:episode`,
+    contextDigest: hash({ phase: 'examination', itemId: item.id, attemptId, kind: 'behaviour' }), responseDigest: responseHash(response) };
+  return { ...fields, receiptId: hash(fields), executedAt };
+}
+function validateEpisodeReceipt(run, rec, item, response, attemptId) {
+  if (!rec || typeof rec.executedAt !== 'string' || !same(rec, episodeReceipt(run, item, attemptId, response, rec.executedAt))) throw fail();
+  return structuredClone(rec);
+}
+
 function coverage(run, phase, itemIds, receipts, attemptId = null) {
   if (!validRun(run) || !Array.isArray(itemIds) || !itemIds.length || new Set(itemIds).size !== itemIds.length ||
       receipts.length !== itemIds.length || new Set(receipts.map((r) => r?.receiptId)).size !== receipts.length ||
@@ -237,6 +266,6 @@ function credentialProvenance(vc) {
     issuerPermits(vc.environment, vc.issuer);
 }
 
-module.exports = { POLICY, RUN, RECEIPT, COVERAGE, SCHEMA, UUID, SIMULATION_ISSUER, validGrader, replayReviewed, issuerPermits, hash, responseHash, same, pair, fail,
+module.exports = { POLICY, RUN, RECEIPT, COVERAGE, SCHEMA, UUID, SIMULATION_ISSUER, validGrader, episodePolicy, episodeReceipt, validateEpisodeReceipt, replayReviewed, issuerPermits, hash, responseHash, same, pair, fail,
   source, sourceMode, validSource, enrollments, authority, validAuthority, bindRun, validRun, matchesAuthority, runAuthority,
   context, generated, receipt, validateReceipt, coverage, validCoverage, validCompletion, validSummary, credentialProvenance };

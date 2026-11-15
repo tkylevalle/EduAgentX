@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const { randomUUID } = require('node:crypto');
 const p = require('../../../packages/execution-provenance');
 const { fixture } = require('../../../packages/execution-provenance/test/fixtures');
-const { boot, ACTOR, AGENT, EXAMINER, INTERNAL_KEY } = require('./exam-harness');
+const { boot, answerItem, ACTOR, AGENT, EXAMINER, INTERNAL_KEY, EPISODE_KEY } = require('./exam-harness');
 
 async function setup(t, mode, options = {}) {
   const f = fixture(mode, ACTOR);
@@ -28,6 +28,16 @@ for (const mode of ['synthetic','replay']) {
     assert.equal(changed.status, 409);
     let first;
     for (const [index, item] of a.form.items.entries()) {
+      if (item.kind === 'behaviour') {
+        // A step that departs from the source's reference policy is refused and records nothing.
+        const count = (await c.store.get(a.attemptId)).events.length;
+        const off = await c.call('POST', `/internal/attempts/${a.attemptId}/episodes/${item.id}/steps`,
+          { idempotencyKey: `off-${index}`, expectedSequence: a.sequence, action: { finish: { message: 'done' } } });
+        assert.deepEqual([off.status, off.body.error], [409, 'provenance_conflict']);
+        assert.equal((await c.store.get(a.attemptId)).events.length, count);
+        a = { ...a, ...(await answerItem(c, a, item, { policy: p.episodePolicy(c.f.run, item) }, `answer-${index}`)) };
+        continue;
+      }
       const produced = p.receipt(c.f.run, 'examination', item, a.attemptId, c.clock());
       const body = { idempotencyKey: `answer-${index}`, expectedSequence: a.sequence, itemId: item.id,
         ...produced, trustedExecution: c.f.authority };
@@ -58,6 +68,22 @@ for (const mode of ['synthetic','replay']) {
     assert.equal(projected.body.attempt.provenance.run.evidenceMode, mode);
   });
 }
+
+test('a retried provenance-bound episode step replays instead of conflicting', async (t) => {
+  const { runEpisode } = require('../../../packages/agent-sandbox/src/episode');
+  const { worldFor } = require('../behaviour');
+  const c = await setup(t, 'synthetic');
+  const a = (await c.call('POST', '/internal/attempts', c.admission)).body.attempt;
+  const item = (await c.store.get(a.attemptId)).form.items.find((value) => value.kind === 'behaviour');
+  const [call] = runEpisode(worldFor(a.attemptId, item, EPISODE_KEY), p.episodePolicy(c.f.run, item)).log;
+  const action = call.tool === 'finish' ? { finish: { message: call.args.message } } : { tool: call.tool, args: call.args };
+  const body = { idempotencyKey: 'step-retry', expectedSequence: a.sequence, action };
+  const path = `/internal/attempts/${a.attemptId}/episodes/${item.id}/steps`;
+  const first = await c.call('POST', path, body);
+  assert.equal(first.status, 200, JSON.stringify(first.body));
+  const retry = await c.call('POST', path, body);
+  assert.deepEqual([retry.status, retry.body.outcome], [200, 'replay'], JSON.stringify(retry.body));
+});
 
 test('Examination refuses unknown/wrong exact Training run, incomplete completion and missing internal key', async (t) => {
   const c = await setup(t, 'synthetic');

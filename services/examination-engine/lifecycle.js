@@ -93,8 +93,10 @@ function derive(attempt, events, responses) {
         throw fail('invalid_event_history');
       if (attempt.form.provenanceProfile) {
         const r = attempt.form.provenance;
-        execution.validateReceipt(r, execution.runAuthority(r), { mode: r.evidenceMode, environment: r.environment },
-          event.payload.executionEvidence, 'examination', attempt.form.items.find((i) => i.id === row.itemId), row.response, attempt.attemptId);
+        // A behaviour item's receipt was issued by the Engine over its recorded steps.
+        if (answeredItem.kind === 'behaviour') execution.validateEpisodeReceipt(r, event.payload.executionEvidence, answeredItem, row.response, attempt.attemptId);
+        else execution.validateReceipt(r, execution.runAuthority(r), { mode: r.evidenceMode, environment: r.environment },
+          event.payload.executionEvidence, 'examination', answeredItem, row.response, attempt.attemptId);
         executionReceipts.push(event.payload.executionEvidence);
       }
       answered.add(row.itemId);

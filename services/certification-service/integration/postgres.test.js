@@ -64,7 +64,7 @@ test('PostgreSQL persists one immutable decision and credential across concurren
 
 test('PostgreSQL retains signed synthetic/replay provenance with exactly-once issuance after restart', { skip: !url }, async () => {
   const p = require('../../../packages/execution-provenance');
-  const { fixture } = require('../../../packages/execution-provenance/test/fixtures');
+  const { fixture, examinationReceipts } = require('../../../packages/execution-provenance/test/fixtures');
   const pool = new Pool({ connectionString: url });
   try {
     await pool.query(fs.readFileSync(path.resolve(__dirname, '../schema.sql'), 'utf8'));
@@ -75,7 +75,7 @@ test('PostgreSQL retains signed synthetic/replay provenance with exactly-once is
       const summary = { schemaVersion: 'certification-provenance/1.0.0', run: f.run,
         training: { eventId: f.completion.eventId, completionDigest: p.hash(f.completion), coverage: f.completion.executionCoverage },
         examination: p.coverage(f.run, 'examination', items.map(i=>i.id),
-          items.map(i=>p.receipt(f.run, 'examination', i, examinationId).executionEvidence), examinationId) };
+          examinationReceipts(f.run, items, examinationId), examinationId) };
       const { privateKey } = generateKeyPairSync('ed25519');
       const evidence = { examinationId, subjectId: f.run.agentLearnerKey, subjectFingerprint: f.run.configurationFingerprint,
         packageId: f.run.package.id, packageVersion: f.run.package.version, packageDigest: f.run.package.digest,

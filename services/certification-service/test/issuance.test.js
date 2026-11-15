@@ -302,7 +302,7 @@ test('origin storage uncertainty returns unavailable without exposing errors or 
 
 
 const provenance = require('../../../packages/execution-provenance');
-const { fixture: provenanceFixture } = require('../../../packages/execution-provenance/test/fixtures');
+const { fixture: provenanceFixture, examinationReceipts } = require('../../../packages/execution-provenance/test/fixtures');
 function authoritativeEvidence(mode) {
   const f = provenanceFixture(mode, 'agent-1');
   const e = evidence({ package: structuredClone(f.run.package), configurationFingerprint: f.run.configurationFingerprint });
@@ -314,7 +314,7 @@ function authoritativeEvidence(mode) {
   e.provenance = { schemaVersion: 'certification-provenance/1.0.0', run: f.run,
     training: { eventId: f.completion.eventId, completionDigest: provenance.hash(f.completion), coverage: f.completion.executionCoverage },
     examination: provenance.coverage(f.run, 'examination', items.map((i) => i.id),
-      items.map((i) => provenance.receipt(f.run, 'examination', i, e.attemptId).executionEvidence), e.attemptId) };
+      examinationReceipts(f.run, items, e.attemptId), e.attemptId) };
   return e;
 }
 for (const mode of ['synthetic','replay']) {
