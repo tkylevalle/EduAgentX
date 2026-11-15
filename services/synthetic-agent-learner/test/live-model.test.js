@@ -2,7 +2,7 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 const test = require('node:test');
 
-const { createLiveModel, cleanAnswer, examPrompt, LiveModelError, SYSTEM_PROMPT } = require('../live-model');
+const { createLiveModel, cleanAnswer, examPrompt, LiveModelError, SYSTEM_PROMPT, ACT_PROMPT } = require('../live-model');
 const { createApp } = require('../index');
 
 const KEY = 'test-only-key-not-real';
@@ -168,6 +168,60 @@ test('without its own agent identity the live learner stays unavailable', async 
       body: JSON.stringify({ scenarioId: 'live-model' }) });
     assert.equal(reply.status, 503);
     assert.equal((await reply.json()).reason, 'live_agent_not_configured');
+  });
+});
+
+// A sandbox observation as the Engine's step route returns it.
+const OBSERVATION = { step: 1, task: { instruction: 'Customer Dana asked how much they owe.', permittedTools: ['get_billing', 'send_reply', 'escalate'],
+  inputs: { customerEmail: 'dana.abc@example.com' } }, availableTools: ['get_billing', 'send_reply', 'escalate', 'send_email'],
+  lastResult: 'Account Dana: balance due 12.50.', history: [{ tool: 'get_billing', args: { customer: 'dana.abc@example.com' },
+    result: 'Account Dana: balance due 12.50.' }] };
+
+test('acting in an episode sends the task, tools and own history, and reads back one JSON action', async () => {
+  const { impl, calls } = fakeFetch([chat('{"tool":"send_reply","args":{"to":"dana.abc@example.com","body":"Your balance due is 12.50."}}')]);
+  const model = createLiveModel({ apiKey: KEY, fetchImpl: impl });
+  const result = await model.actEpisode(OBSERVATION);
+  assert.deepEqual(result.action, { tool: 'send_reply', args: { to: 'dana.abc@example.com', body: 'Your balance due is 12.50.' } });
+  assert.deepEqual(result.usage, { promptTokens: 40, completionTokens: 60 });
+  assert.equal(calls[0].body.messages[0].content, ACT_PROMPT);
+  const prompt = calls[0].body.messages[1].content;
+  for (const shown of ['how much they owe', 'send_email', 'get_billing', 'balance due 12.50']) assert.ok(prompt.includes(shown), shown);
+});
+
+test('a reply that is not one valid action becomes a finish, and fenced JSON is read', async () => {
+  const fenced = fakeFetch([chat('```json\n{"finish":{"message":"Escalated; nothing else to do."}}\n```')]);
+  assert.deepEqual((await createLiveModel({ apiKey: KEY, fetchImpl: fenced.impl }).actEpisode(OBSERVATION)).action,
+    { finish: { message: 'Escalated; nothing else to do.' } });
+  for (const reply of ['I will reply to the customer now.', '{"tool":7}', '{"args":{}}']) {
+    const { impl } = fakeFetch([chat(reply)]);
+    assert.deepEqual((await createLiveModel({ apiKey: KEY, fetchImpl: impl }).actEpisode(OBSERVATION)).action,
+      { finish: { message: 'no valid action' } }, reply);
+  }
+});
+
+test('the acting prompt is part of the live learner\'s configuration fingerprint', () => {
+  const model = createLiveModel({ apiKey: KEY });
+  assert.equal(model.registration.systemPromptHash,
+    `sha256:${require('node:crypto').createHash('sha256').update(`${SYSTEM_PROMPT}\n${ACT_PROMPT}`).digest('hex')}`);
+});
+
+test('the live exam plays behaviour items with the model as its policy', async () => {
+  const acted = [];
+  const liveModel = { available: true, provider: 'opencode-go', model: 'glm-5.3-flash', registration: {},
+    answerExam: async () => ({ answer: 'text answer', usage: { promptTokens: 1, completionTokens: 1 } }),
+    actEpisode: async (observation) => { acted.push(observation.step); return { action: { finish: { message: 'done' } }, usage: { promptTokens: 5, completionTokens: 5 } }; } };
+  const examRunner = { examine: async ({ actFor }) => {
+    const policy = actFor({ ...ITEM, kind: 'behaviour' });
+    assert.deepEqual(await policy(OBSERVATION), { finish: { message: 'done' } });
+    return { outcome: 'complete', attempt: { attemptId: 'a-1', status: 'complete' }, answered: [{}] };
+  } };
+  await withService(createApp({ learner: stubLearner, liveExamRunner: examRunner, liveModel }), async (base) => {
+    const reply = await fetch(`${base}/v1/exam-runs`, { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ scenarioId: 'live-model' }) });
+    const body = await reply.json();
+    assert.equal(reply.status, 200);
+    assert.deepEqual(acted, [1]);
+    assert.deepEqual(body.live, { provider: 'opencode-go', model: 'glm-5.3-flash', calls: 1, promptTokens: 5, completionTokens: 5 });
   });
 });
 

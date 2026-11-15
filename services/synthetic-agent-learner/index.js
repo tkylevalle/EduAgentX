@@ -173,6 +173,12 @@ function createApp({ learner = createDefaultLearner(), examRunner = null, liveMo
         try {
           const result = await liveRunner().examine({
             answerFor: async (item) => record(usage, await liveModel.answerExam(item)),
+            // Behaviour items: the model chooses each action from what the step route shows it.
+            actFor: () => async (observation) => {
+              const { action, usage: used } = await liveModel.actEpisode(observation);
+              record(usage, { answer: null, usage: used });
+              return action;
+            },
             correlationId: req.correlationId || body.correlationId,
             gradingWaitMs: 90_000,
           });
