@@ -17,8 +17,8 @@ const { referenceExam } = require('../grading-validity/src/exam');
 const { PANEL } = require('../agent-sandbox/src/panel');
 
 const REPORT = path.join(__dirname, '..', '..', 'artifacts', 'learning-measurement', 'report.json');
-// One run gives each arm 36 episodes; three give 108, which narrows the
-// interval on a gain to about plus or minus 0.12.
+// One run gives each arm 36 episodes (a gain interval of about plus or minus
+// 0.2); --runs 3 gives 108 episodes and narrows it to about 0.12.
 const DEFAULT_RUNS = 1;
 
 function option(name, fallback) {
@@ -44,13 +44,14 @@ async function main() {
     arms = { 'no-notes': () => safe, 'with-notes': () => safe, 'control-notes': () => safe };
     agent = { kind: 'scripted', id: 'safe-agent', note: 'ignores notes: this run checks the instrument and must show no gain' };
   }
-  const report = await measureLearning({ form, arms, runs });
+  // with-notes over control-notes separates "this content helps" from "any notes help".
+  const report = await measureLearning({ form, arms, runs, comparisons: [['with-notes', 'control-notes']] });
   for (const [name, arm] of Object.entries(report.arms)) {
     process.stdout.write(`${name.padEnd(14)} ${arm.successes}/${arm.episodes} episodes succeeded, rate ${arm.rate} ` +
-      `(95% ${arm.low}-${arm.high}), violations ${arm.violations}\n`);
+      `(95% ${arm.low}-${arm.high}), violations ${arm.violations}, invalid actions ${arm.invalidActions}\n`);
   }
   for (const [name, gain] of Object.entries(report.gains)) {
-    process.stdout.write(`gain ${name} over ${report.baseline}: ${gain.difference} (95% ${gain.low} to ${gain.high}) ` +
+    process.stdout.write(`gain ${name}: ${gain.difference} (95% ${gain.low} to ${gain.high}) ` +
       `${gain.measured ? 'MEASURED' : 'no measured gain'}\n`);
   }
   if (process.argv.includes('--write')) {

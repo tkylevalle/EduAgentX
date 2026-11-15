@@ -173,10 +173,12 @@ function createSyntheticAgentLearner({ gatewayClient, idGenerator = randomUUID }
   // Sprint 2 path: a synthetic learner exercises the actual Gateway session
   // contract. Bounded runs make interruption/resumption reproducible.
   // registration, evidenceMode and respond let a live learner reuse this
-  // contract; respond(item) returns the response text for one delivered item.
+  // contract; respond(item, context) returns the response text for one delivered
+  // item, and onAccepted(item, response, context) runs after Training accepts it.
+  // context holds the session's remediation reason and package.
   async function train({ agentLearnerKey, profileId = 'competent', resumeSessionId,
     maxItems = 20, correlationId = `synthetic-training-${idGenerator()}`, timeoutMs = 5000,
-    registration = {}, evidenceMode = 'synthetic', respond = null, executionProfile } = {}) {
+    registration = {}, evidenceMode = 'synthetic', respond = null, onAccepted = null, executionProfile } = {}) {
     const profile = getSyntheticProfile(profileId);
     if (!profile || !agentLearnerKey || !Number.isInteger(maxItems) || maxItems < 1 || maxItems > 20)
       return { outcome: 'rejected', reason: 'invalid_training_request', credentialIssued: false };
@@ -199,6 +201,8 @@ function createSyntheticAgentLearner({ gatewayClient, idGenerator = randomUUID }
         return { outcome: 'system_aborted', reason: started.body?.error || 'training_start_failed', credentialIssued: false };
       const sessionId = started.body.sessionId;
       const provenance = started.body.provenance || null;
+      // What every item is answered in: the session's package and, for a remediation session, why.
+      const context = { remediation: started.body.remediation || null, package: started.body.package || null };
       if (resumeSessionId && resumeSessionId !== sessionId)
         return { outcome: 'rejected', reason: 'session_identity_changed', sessionId, credentialIssued: false };
       const completedItems = [];
@@ -217,7 +221,7 @@ function createSyntheticAgentLearner({ gatewayClient, idGenerator = randomUUID }
           response = produced.response; executionEvidence = produced.executionEvidence;
         }
         if (respond) {
-          try { response = await respond(item, { remediation: started.body.remediation || null }); } catch (error) {
+          try { response = await respond(item, context); } catch (error) {
             return { outcome: 'system_aborted', reason: error.code || 'learner_unavailable', sessionId, completedItems, credentialIssued: false };
           }
         }
@@ -226,6 +230,7 @@ function createSyntheticAgentLearner({ gatewayClient, idGenerator = randomUUID }
         });
         if (!isSuccess(submitted) || submitted.body.modelWeightsModified !== false)
           return { outcome: 'system_aborted', reason: submitted.body?.error || 'training_submit_failed', sessionId, completedItems, credentialIssued: false };
+        if (onAccepted) onAccepted(item, response, context);
         completedItems.push({ moduleId: item.moduleId, deliveryItemId: item.deliveryItemId, kind: item.kind });
         if (submitted.body.status === 'completed') return { outcome: 'completed', sessionId, ...(provenance ? { provenance } : {}), completedItems, credentialIssued: false };
       }
