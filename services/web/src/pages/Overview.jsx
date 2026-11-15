@@ -38,9 +38,9 @@ export default function Overview() {
         <Fact label="Credentials issued" value={data ? <CountUp value={credentials.length} /> : null} foot={`${agents.size} certified agent${agents.size === 1 ? '' : 's'}`} />
         <Fact label="Issuance p95" value={kpi?.sampleCount ? <CountUp value={kpi.p95Ms} /> : data ? '—' : null} unit={kpi?.sampleCount ? 'ms' : ''}
           foot={kpi?.sampleCount ? `Target ${kpi.targetMs} ms · ${kpi.targetMet ? 'met' : 'missed'}` : 'No samples yet'} />
-        <Fact label="Training completion" value={data?.training?.completionRate != null ? <CountUp value={data.training.completionRate * 100} /> : data ? '—' : null}
+        <Fact label="Training delivered" value={data?.training?.completionRate != null ? <CountUp value={data.training.completionRate * 100} /> : data ? '—' : null}
           unit={data?.training?.completionRate != null ? '%' : ''}
-          foot={data?.training?.counts ? `${data.training.counts.completed} of ${data.training.sessions} sessions` : ' '} />
+          foot={data?.training?.counts ? `${data.training.counts.completed} of ${data.training.sessions} sessions · delivery, not learning` : ' '} />
         <Fact label="Validation gates" value={pkg ? <CountUp value={pkg.gates.filter((gate) => gate.passed).length} /> : data ? '—' : null} unit={pkg ? '/ 6' : ''}
           foot={pkg ? `${pkg.modules.length} modules · 2 reviewers` : 'Run a lifecycle to activate'} />
         <Fact label="Latest overall" value={latest ? <CountUp value={latest.overallPercent} decimals={1} /> : data ? '—' : null} unit={latest ? '%' : ''}
