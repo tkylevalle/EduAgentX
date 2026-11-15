@@ -132,8 +132,21 @@ function validatedEvidence(attempt, trustedPackage = null, issuanceEnvironment =
   };
 }
 
+// The credential's entries in the signed status lists (assurance audit D2):
+// its bit in the revocation list and in the suspension list.
+// Bits in one status list: the W3C minimum, 16 KB (credential-verification status-list.js).
+const STATUS_LIST_BITS = 131072;
+function statusEntries(statusListBase, statusListIndex) {
+  if (!statusListBase) return null;
+  if (!Number.isSafeInteger(statusListIndex) || statusListIndex < 0) throw fail('status_list_index_unavailable', 503);
+  if (statusListIndex >= STATUS_LIST_BITS) throw fail('status_list_full', 503);
+  return ['revocation', 'suspension'].map((purpose) => ({ id: `${statusListBase}/${purpose}#${statusListIndex}`,
+    type: 'BitstringStatusListEntry', statusPurpose: purpose, statusListIndex: String(statusListIndex),
+    statusListCredential: `${statusListBase}/${purpose}` }));
+}
+
 function issueCredential(evidence, { privateKey, keyId, issuer = 'https://eduagentx.example/issuers/eduagentx',
-  credentialBase = 'https://eduagentx.example/credentials', decisionId,
+  credentialBase = 'https://eduagentx.example/credentials', decisionId, statusListBase = null, statusListIndex = null,
   now = () => new Date().toISOString(), validityDays = 365, environment = process.env.CERTIFICATION_ENVIRONMENT }) {
   if (!privateKey || !text(keyId)) throw fail('signing_not_configured', 503);
   if (evidence.provenance && (!execution.validSummary(evidence.provenance, { subjectId: evidence.subjectId,
@@ -141,6 +154,7 @@ function issueCredential(evidence, { privateKey, keyId, issuer = 'https://eduage
     evidence.provenance.run.environment !== environment || !execution.issuerPermits(environment, issuer))) throw fail('examination_provenance_invalid');
   const credentialId = randomUUID();
   const issuedAt = now();
+  const credentialStatus = statusEntries(statusListBase, statusListIndex);
   const credential = {
     '@context': ['https://www.w3.org/ns/credentials/v2', 'https://eduagentx.example/contexts/competency/v1'],
     id: `${credentialBase}/${credentialId}`,
@@ -155,6 +169,7 @@ function issueCredential(evidence, { privateKey, keyId, issuer = 'https://eduage
         result: 'pass', mode: evidence.mode, grader: evidence.grader, scores: evidence.scores, safetyResult: evidence.safetyResult,
         behaviour: evidence.behaviour ?? null } },
     credentialSchema: { id: evidence.provenance ? execution.SCHEMA : 'https://eduagentx.example/schemas/competency/v1.json', type: 'JsonSchema' },
+    ...(credentialStatus ? { credentialStatus } : {}),
     evidence: { type: 'EduAgentXAssessmentEvidence', ...evidence.examinationEvidence,
       ...(decisionId ? { certificationDecisionId: decisionId } : {}) },
     termsOfUse: { type: 'EduAgentXProjectCredentialPolicy',

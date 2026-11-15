@@ -2,7 +2,8 @@
 const express = require('express');
 const fs = require('node:fs');
 const { timingSafeEqual } = require('node:crypto');
-const { verifyCredential, TEST_KEY_PREFIX, keyIdOf } = require('./verifier');
+const { verifyCredential, TEST_KEY_PREFIX, keyIdOf, trustedIssuers } = require('./verifier');
+const { LIST_BITS, PURPOSES, statusListCredential } = require('./status-list');
 const { statusStore, StatusTransitionError } = require('./statusStore');
 const { issuerJwks, publicKeyForKid } = require('./issuer-keys');
 
@@ -88,10 +89,15 @@ app.post('/verify', (req, res) => {
 
 // POST /status/register — certification-service records a newly issued credential.
 app.post('/status/register', requireInternalKey, (req, res) => {
-  const { credentialId } = req.body || {};
+  const { credentialId, statusListIndex = null } = req.body || {};
   if (!credentialId || typeof credentialId !== 'string') return res.status(400).json({ error: 'missing_credentialId' });
+  if (statusListIndex !== null && (!Number.isSafeInteger(statusListIndex) || statusListIndex < 0 || statusListIndex >= LIST_BITS))
+    return res.status(400).json({ error: 'invalid_statusListIndex' });
   const known = statusStore.isKnown(credentialId);
-  try { statusStore.register(credentialId); } catch (error) { return notPersisted(res, error); }
+  try { statusStore.register(credentialId, statusListIndex); } catch (error) {
+    if (error instanceof StatusTransitionError) return res.status(409).json({ error: 'status_list_index_conflict', message: error.message });
+    return notPersisted(res, error);
+  }
   res.status(known ? 200 : 201).json({ credentialId, status: statusStore.getStatus(credentialId),
     history: statusStore.getHistory(credentialId) });
 });
@@ -126,6 +132,23 @@ app.get('/status/:credentialId', (req, res) => {
   const status = statusStore.getStatus(req.params.credentialId);
   if (status === null) return res.status(404).json({ error: 'not_found', status: 'INDETERMINATE_STATUS' });
   res.json({ credentialId: req.params.credentialId, status, history: statusStore.getHistory(req.params.credentialId) });
+});
+
+// The signed status lists (assurance audit D2), open to anyone: a set bit is
+// a revoked (or currently suspended) credential. Signed on each request with
+// the status key, which the JWKS publishes.
+const STATUS_STATE = Object.freeze({ revocation: 'revoked', suspension: 'suspended' });
+app.get('/status-lists/:purpose', (req, res) => {
+  const { purpose } = req.params;
+  if (!PURPOSES.includes(purpose)) return res.status(404).json({ error: 'not_found' });
+  const keyPath = process.env.STATUS_LIST_PRIVATE_KEY_PATH;
+  const base = process.env.STATUS_LIST_BASE_URL;
+  if (!keyPath || !fs.existsSync(keyPath) || !process.env.STATUS_LIST_KEY_ID || !base)
+    return res.status(503).json({ error: 'status_list_not_configured' });
+  const issuer = process.env.STATUS_LIST_ISSUER || [...trustedIssuers()][0];
+  const signed = statusListCredential({ purpose, listUrl: `${base}/${purpose}`, issuer, indices: statusStore.indicesWith(STATUS_STATE[purpose]),
+    validFrom: new Date().toISOString(), privateKeyPem: fs.readFileSync(keyPath, 'utf8'), keyId: process.env.STATUS_LIST_KEY_ID });
+  res.set('cache-control', 'no-store').type('application/vc+jwt').send(signed.compactJws);
 });
 
 // The issuer's public keys (assurance audit D3), open to anyone.

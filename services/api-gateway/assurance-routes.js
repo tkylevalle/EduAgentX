@@ -61,6 +61,16 @@ function registerAssuranceRoutes(app, {
     await proxyJson(req, res, `${credentialVerificationUrl}/.well-known/jwks.json`);
   });
 
+  // The signed status lists (assurance audit D2): open to anyone, passed through as signed.
+  app.get('/status-lists/:purpose', async (req, res) => {
+    if (!['revocation', 'suspension'].includes(req.params.purpose)) return res.status(404).json({ apiVersion: 'v1', error: 'not_found' });
+    if (!credentialVerificationUrl) return unavailable(req, res, 'verification_unavailable');
+    try {
+      const upstream = await fetch(`${credentialVerificationUrl}/status-lists/${req.params.purpose}`, { signal: AbortSignal.timeout(5000) });
+      res.status(upstream.status).type(upstream.headers.get('content-type') || 'application/json').send(await upstream.text());
+    } catch { return unavailable(req, res, 'verification_unavailable'); }
+  });
+
   app.get('/v1/credentials/:credentialId/status', requireRole('agent', ...ASSURANCE_READERS), async (req, res) => {
     if (!UUID.test(req.params.credentialId)) return invalid(req, res, ['credentialId']);
     if (!credentialVerificationUrl) return unavailable(req, res, 'verification_unavailable');

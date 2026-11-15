@@ -25,6 +25,8 @@ function keySources(env = process.env) {
   return [
     ...(env.CREDENTIAL_PUBLIC_KEY_PATH ? [{ kid: env.CREDENTIAL_KEY_ID || DEFAULT_KEY_ID, path: env.CREDENTIAL_PUBLIC_KEY_PATH, status: 'active' }] : []),
     ...(env.CREDENTIAL_TEST_PUBLIC_KEY_PATH ? [{ kid: env.CREDENTIAL_TEST_KEY_ID || DEFAULT_TEST_KEY_ID, path: env.CREDENTIAL_TEST_PUBLIC_KEY_PATH, status: 'active' }] : []),
+    // The key that signs the status lists (assurance audit D2).
+    ...(env.STATUS_LIST_PUBLIC_KEY_PATH && env.STATUS_LIST_KEY_ID ? [{ kid: env.STATUS_LIST_KEY_ID, path: env.STATUS_LIST_PUBLIC_KEY_PATH, status: 'active' }] : []),
     ...retired.map((key) => ({ kid: key.kid, path: key.path, status: 'retired', retiredAt: new Date(key.retiredAt).toISOString() })),
   ];
 }

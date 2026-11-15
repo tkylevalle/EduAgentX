@@ -520,6 +520,8 @@ services:
       CERTIFICATION_PRIVATE_KEY_PATH: ${CERTIFICATION_PRIVATE_KEY_PATH:-/app/keys/certification-test-ed25519-private.pem}
       CERTIFICATION_ISSUER: ${CERTIFICATION_ISSUER:-https://eduagentx.example/issuers/eduagentx-test}
       CREDENTIAL_BASE_URL: ${CREDENTIAL_BASE_URL:-https://eduagentx.example/credentials}
+      # Where credentials point for their status (credential-verification's STATUS_LIST_BASE_URL).
+      CERTIFICATION_STATUS_LIST_BASE: ${STATUS_LIST_BASE_URL:-http://localhost:4000/status-lists}
       CERTIFICATION_SWEEP_INTERVAL_MS: ${CERTIFICATION_SWEEP_INTERVAL_MS:-1000}
       EXAMINATION_ENGINE_URL: http://examination-engine:4005
       EXAMINATION_INTERNAL_KEY: ${EXAMINATION_INTERNAL_KEY:?Run node scripts/setup-dev.js}
@@ -753,6 +755,12 @@ services:
       CREDENTIAL_PUBLIC_KEY_PATH: /keys/certification-ed25519-public.pem
       CREDENTIAL_TEST_PUBLIC_KEY_PATH: /keys/certification-test-ed25519-public.pem
       CREDENTIAL_INTERNAL_KEY: ${CREDENTIAL_INTERNAL_KEY:?Run node scripts/setup-dev.js}
+      # Signed Bitstring Status Lists (assurance audit D2), served at /status-lists/{revocation,suspension}.
+      STATUS_LIST_PRIVATE_KEY_PATH: /keys/status-list-ed25519-private.pem
+      STATUS_LIST_PUBLIC_KEY_PATH: /keys/status-list-ed25519-public.pem
+      STATUS_LIST_KEY_ID: ${CERTIFICATION_ISSUER:-https://eduagentx.example/issuers/eduagentx-test}#status-ed25519-1
+      STATUS_LIST_ISSUER: ${CERTIFICATION_ISSUER:-https://eduagentx.example/issuers/eduagentx-test}
+      STATUS_LIST_BASE_URL: ${STATUS_LIST_BASE_URL:-http://localhost:4000/status-lists}
       CREDENTIAL_STATUS_PATH: /data/credential-status.json
       MONITORING_URL: http://monitoring-service:4040
     volumes:
