@@ -2,7 +2,9 @@
 
 const { createHash } = require('node:crypto');
 const fs = require('node:fs');
+const path = require('node:path');
 const reference = require('./reference');
+const { PANEL } = require('../agent-sandbox/src/panel');
 const remediable = require('./remediable-v1');
 const POLICY = 'reference-execution/1.0.0';
 const RUN = 'execution-provenance/1.0.0';
@@ -13,7 +15,15 @@ const SCHEMA = require('./credential.schema.json').$id;
 const SIMULATION_ISSUER = 'https://eduagentx.example/issuers/eduagentx-test';
 const REPLAY_REVIEW = 'execution-replay-review/1.0.0';
 const REQUIRED_FIXTURE_REVIEWS = 2;
+const SANDBOX_POLICIES = Object.freeze(Object.fromEntries(PANEL.map((entry) => [entry.id, entry.agent])));
+// The sandbox code that builds worlds, runs and grades episodes and defines
+// the reference policies, with line endings normalised so the digest is the
+// same on every checkout.
+const SANDBOX_DIR = path.join(__dirname, '..', 'agent-sandbox', 'src');
+const SANDBOX_DIGEST = `sha256:${createHash('sha256').update(fs.readdirSync(SANDBOX_DIR).filter((name) => name.endsWith('.js')).sort()
+  .map((name) => `${name}\n${fs.readFileSync(path.join(SANDBOX_DIR, name), 'utf8').replace(/\r\n/g, '\n')}`).join('\n')).digest('hex')}`;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const HASH = /^sha256:[0-9a-f]{64}$/;
 const text = (v) => typeof v === 'string' && v.length > 0 && v.length <= 256;
 const object = (v) => Boolean(v && typeof v === 'object' && !Array.isArray(v));
@@ -74,6 +84,11 @@ function source(id) {
       (!reference.listExamScenarios().includes(parts[2]) && id !== remediable.ID)) throw fail('source_not_supported');
   return { id, version: '1.0.0', digest: hash({ id, version: '1.0.0', referenceDigest,
     ...(id === remediable.ID ? { recipeDigest: remediableDigest, recipeVersion: remediable.VERSION } : {}) }) };
+}
+/** @returns {{ profile: string, scenario: string }} the parts of a synthetic run's source id */
+function sourceParts(run) {
+  const [, profile = '', scenario = ''] = String(run?.source?.id || '').split(':');
+  return { profile, scenario };
 }
 function sourceMode(s) { return s?.id?.startsWith('synthetic:') ? 'synthetic' : s?.id === 'replay:reference-safe' ? 'replay' : null; }
 function validSource(s) {
@@ -170,38 +185,39 @@ function receipt(run, phase, item, attemptId = null, now = new Date().toISOStrin
 function validateReceipt(run, a, evidence, rec, phase, item, response, attemptId = null) {
   if (!matchesAuthority(run, a, evidence) || !exact(rec, ['schemaVersion','runId','phase','itemId','attemptId','executorId',
     'source','entryId','contextDigest','responseDigest','receiptId','executedAt']) ||
-    typeof rec.executedAt !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(rec.executedAt) ||
+    typeof rec.executedAt !== 'string' || !ISO_TIME.test(rec.executedAt) ||
     !Number.isFinite(Date.parse(rec.executedAt))) throw fail();
   const expected = receipt(run, phase, item, attemptId, rec.executedAt);
   if (!same(rec, expected.executionEvidence) || response !== expected.response) throw fail();
   return structuredClone(rec);
 }
 // Behaviour items (recorded sandbox episodes). A provenance run does not
-// answer them with a reference text: it plays the reference policy for its
-// source, and the Examination Engine, which runs and records every step,
-// checks each step against that policy in the attempt's world and issues the
-// item's receipt itself. The receipt keeps the ordinary format, so coverage,
-// Certification and Verification are unchanged.
-const { PANEL } = require('../agent-sandbox/src/panel');
-const SANDBOX_POLICIES = Object.freeze(Object.fromEntries(PANEL.map((entry) => [entry.id, entry.agent])));
-
-// The scenario's unsafe policy on its target slot, otherwise the safe agent.
-function episodePolicy(run, item) {
-  const [, , scenario] = String(run?.source?.id || '').split(':');
-  const target = reference.EXAM_SCENARIOS[scenario];
-  const unsafe = target && target.slotId === item.slotId && target.expected.status === 'agent_failed';
-  return SANDBOX_POLICIES[unsafe ? 'instruction-follower' : 'safe-agent'];
+// answer them with a reference text, and no captured replay covers them: the
+// Examination Engine plays the source's reference policy itself, refuses any
+// step that departs from it while holding the attempt's lock, and issues the
+// item's receipt over the recorded steps. The receipt keeps the ordinary
+// format; its entryId names the policy and its contextDigest binds the
+// sandbox code, so a policy or world change cannot reuse an old receipt.
+// Only the Engine holds the world seed, so only it can check the steps; a
+// receipt shows which policy the Engine ran, not that anyone else re-checked it.
+function episodePolicyId(run, item) {
+  const scenario = reference.EXAM_SCENARIOS[sourceParts(run).scenario];
+  return scenario && scenario.slotId === item.slotId && scenario.expected.status === 'agent_failed' ? 'instruction-follower' : 'safe-agent';
 }
-// executedAt is the attempt's start, so a retried step yields the same receipt.
+/** @returns {Function} the sandbox agent the Engine plays for this run's behaviour item */
+const episodePolicy = (run, item) => SANDBOX_POLICIES[episodePolicyId(run, item)];
+/** @returns {object} the receipt for one Engine-recorded episode; executedAt is when it ended */
 function episodeReceipt(run, item, attemptId, response, executedAt) {
-  if (!validRun(run)) throw fail();
+  if (!validRun(run) || !ISO_TIME.test(String(executedAt)) || !Number.isFinite(Date.parse(executedAt))) throw fail();
+  const policy = episodePolicyId(run, item);
   const fields = { schemaVersion: RECEIPT, runId: run.runId, phase: 'examination', itemId: item.id, attemptId,
-    executorId: run.executorId, source: run.source, entryId: `examination:${item.slotId}:episode`,
-    contextDigest: hash({ phase: 'examination', itemId: item.id, attemptId, kind: 'behaviour' }), responseDigest: responseHash(response) };
+    executorId: run.executorId, source: run.source, entryId: `examination:${item.slotId}:episode:${policy}`,
+    contextDigest: hash({ phase: 'examination', itemId: item.id, attemptId, kind: 'behaviour', policy, sandbox: SANDBOX_DIGEST }),
+    responseDigest: responseHash(response) };
   return { ...fields, receiptId: hash(fields), executedAt };
 }
 function validateEpisodeReceipt(run, rec, item, response, attemptId) {
-  if (!rec || typeof rec.executedAt !== 'string' || !same(rec, episodeReceipt(run, item, attemptId, response, rec.executedAt))) throw fail();
+  if (!object(rec) || !same(rec, episodeReceipt(run, item, attemptId, response, rec.executedAt))) throw fail();
   return structuredClone(rec);
 }
 

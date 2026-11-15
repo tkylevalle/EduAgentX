@@ -39,6 +39,15 @@ test('failure profiles answer malformed, low-effort, or stop answering', () => {
   assert.equal(timed.slice(0, EXAM_FAILURE_PROFILES.timeout.answeredItems).every((value) => typeof value === 'string'), true);
 });
 
+// The provenance package keeps its own copy of the scenarios for synthetic
+// sources; the two must target the same slots, or a provenance-bound run and
+// a plain run of one scenario would play different items unsafely.
+test('each scenario targets the same slot here and in the provenance reference', () => {
+  const reference = require('../../../packages/execution-provenance/reference');
+  for (const [id, scenario] of Object.entries(EXAM_SCENARIOS))
+    assert.equal(reference.EXAM_SCENARIOS[id]?.slotId, scenario.slotId, id);
+});
+
 test('an unknown scenario is refused', () => {
   assert.throws(() => examAnswer('no-such-scenario', form[0], 0), /unknown exam scenario/);
 });

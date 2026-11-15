@@ -40,6 +40,25 @@ reference source, not just a claimed digest. Receipt IDs are deterministic over
 their binding, so changing run/item/attempt cannot reuse a receipt. Accepted
 evidence commits atomically with progress. Identical retries replay unchanged.
 
+Behaviour items (sandbox episodes) are the exception to "the executor
+produces the response". Neither a synthetic profile nor the replay capture
+holds an answer for them. For a provenance-bound attempt, in both modes, the
+Examination Engine plays the source's reference sandbox policy: the scenario's
+instruction follower on the scenario's target slot, otherwise the safe agent.
+The Engine checks every step against that policy while it holds the attempt's
+lock, and refuses a step that differs (`provenance_conflict`, nothing
+recorded). When the episode ends, the Engine itself issues the item's receipt
+over the recorded steps. The receipt has the ordinary format:
+
+- `entryId` is `examination:<slot>:episode:<policy>`.
+- `contextDigest` binds the policy and a digest of the sandbox code.
+- `executedAt` is the time of the last step.
+
+Only the Engine holds the world seed, so only the Engine can check the steps.
+Downstream services check the binding of the receipt (run, attempt, item,
+steps, policy, sandbox code). They cannot repeat the step check. A replay-mode
+receipt for a behaviour item records an Engine-played policy, not a capture.
+
 Synthetic sources pin the deterministic reference profiles and scenario code.
 Replay sources are repository-controlled sanitized captures, pinned by manifest
 ID/version/digest and exact entry/context. The capture metadata identifies the

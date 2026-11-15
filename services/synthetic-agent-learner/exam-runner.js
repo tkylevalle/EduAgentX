@@ -17,6 +17,13 @@ const TERMINAL = new Set(['complete', 'agent_failed', 'system_aborted']);
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// The policy that plays a behaviour item: the run's reference policy for a
+// provenance-bound attempt (the Engine refuses any other step), else actFor's.
+function policyFor(attempt, item, actFor) {
+  if (attempt.provenance) return execution.episodePolicy(attempt.provenance, item);
+  return actFor ? actFor(item) : null;
+}
+
 function createExamRunner({ gatewayClient, idGenerator = randomUUID, pollIntervalMs = POLL_INTERVAL_MS } = {}) {
   if (!gatewayClient || typeof gatewayClient.request !== 'function') {
     throw new TypeError('A gateway client with a request method is required');
@@ -43,7 +50,7 @@ function createExamRunner({ gatewayClient, idGenerator = randomUUID, pollInterva
       // attempt plays its source's reference policy, which the Engine checks step by step.
       const behaviour = item.kind === 'behaviour';
       const produced = attempt.provenance && !behaviour ? execution.receipt(attempt.provenance, 'examination', item, attempt.attemptId) : null;
-      const policy = !behaviour ? null : attempt.provenance ? execution.episodePolicy(attempt.provenance, item) : actFor ? actFor(item) : null;
+      const policy = behaviour ? policyFor(attempt, item, actFor) : null;
       if (policy) {
         // Each action is recorded by the Engine; the Engine answers the item.
         const episodePath = `/v1/examinations/${attempt.attemptId}/episodes/${encodeURIComponent(item.id)}`;

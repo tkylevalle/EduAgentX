@@ -44,7 +44,24 @@ function attachRemediation(record, command, terminalEventId) {
     correlationId: command.correlationId || record.attempt.correlationId, terminalEventId });
 }
 
-function execute(record, command) {
+// Steps already recorded for one behaviour item, in order.
+const stepsFor = (record, itemId) => record.events
+  .filter((e) => e.eventType === 'episode_step_recorded' && e.payload.itemId === itemId).map((e) => e.payload.action);
+
+// A provenance-bound attempt plays its source's reference policy: each step
+// must be that policy's next action. The check runs here, under the attempt's
+// lock, so two concurrent steps cannot both be checked at one position.
+// options.referenceActions(attempt, item) gives the policy's actions; only
+// the Engine can compute them, because only it holds the world seed.
+function checkReferenceStep(record, current, item, command, options) {
+  if (command.executionEvidence) throw fail('provenance_conflict');
+  if (!current.form.provenanceProfile) return;
+  if (typeof options.referenceActions !== 'function') throw fail('provenance_conflict');
+  const expected = options.referenceActions(current, item);
+  if (!execution.same(command.action, expected[stepsFor(record, item.id).length])) throw fail('provenance_conflict');
+}
+
+function execute(record, command, options = {}) {
   validateCommand(command);
   let current = snapshot(record);
   if (command.type === 'response') {
@@ -73,6 +90,7 @@ function execute(record, command) {
     if (command.type === 'episode_step') {
       if (!target || target.kind !== 'behaviour') throw fail('behaviour_item_not_found', 404);
       if (record.responses.some((r) => r.itemId === command.itemId)) throw fail('episode_ended');
+      checkReferenceStep(record, current, target, command, options);
     }
     if (command.type === 'response' && target?.kind === 'behaviour') throw fail('behaviour_item_requires_steps');
     // An item's first accepted answer is final, even across distinct command keys.
@@ -108,18 +126,14 @@ function execute(record, command) {
   }
   if (command.type === 'episode_step') {
     append('episode_step_recorded', { itemId: command.itemId, action: command.action });
-    const taken = record.events.filter((e) => e.eventType === 'episode_step_recorded' && e.payload.itemId === command.itemId)
-      .map((e) => e.payload.action);
+    const taken = stepsFor(record, command.itemId);
     // The episode ends at a finish or the step limit; the Engine then answers
     // the item with its own record of the steps.
     if (episodeEnded(taken)) {
       const responseText = actionsResponse(taken);
-      // A provenance-bound episode carries the Engine-issued receipt for it.
-      let evidence = null;
-      if (current.form.provenanceProfile) {
-        evidence = execution.validateEpisodeReceipt(current.form.provenance, command.executionEvidence,
-          current.form.items.find((item) => item.id === command.itemId), responseText, current.attemptId);
-      } else if (command.executionEvidence) throw fail('provenance_conflict');
+      // A provenance-bound episode carries the receipt the Engine issues for it.
+      const evidence = current.form.provenanceProfile ? execution.episodeReceipt(current.form.provenance,
+        current.form.items.find((item) => item.id === command.itemId), current.attemptId, responseText, command.now) : null;
       append('response_accepted', { itemId: command.itemId, responseDigest: sha256(responseText), ...(evidence ? { executionEvidence: evidence } : {}) });
       record.responses.push({ itemId: command.itemId, response: responseText, responseDigest: sha256(responseText),
         acceptedAt: command.now, seq: record.events.length });
@@ -162,7 +176,7 @@ function execute(record, command) {
 async function guardedExecute(record, command, options = {}) {
   // Validate and replay before consulting live dependencies: committed receipts survive outages.
   command = { ...command, now: options.clock ? options.clock() : command.now };
-  const preview = execute(structuredClone(record), command);
+  const preview = execute(structuredClone(record), command, options);
   if (!preview.replay && !preview.error && options.guard) {
     try { await options.guard(snapshot(record)); }
     catch (error) {
@@ -172,7 +186,7 @@ async function guardedExecute(record, command, options = {}) {
     }
   }
   const now = options.clock ? options.clock() : command.now;
-  const result = execute(record, { ...command, now });
+  const result = execute(record, { ...command, now }, options);
   if (result.replay && options.clock) {
     execute(record, { type: 'timeout', now, correlationId: command.correlationId });
     result.attempt = snapshot(record);
