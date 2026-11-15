@@ -92,8 +92,15 @@ does not yet support a competence claim. State on 16 November 2026, after Phase 
   ignore notes. The lookup returns lesson text, not the pinned source
   documents the exam names. No learning gain is measured or claimed.
 - **Training completion means delivery, not learning.** Training accepts any
-  non-empty response, and remediation re-sends the same lesson text without
-  saying which rule the agent broke.
+  non-empty response, and the Overview and console label it as delivery.
+  Remediation now tells the agent the failed objectives, failure reasons and
+  broken rule ids, but not the evidence, and offers no practice episodes:
+  practice in the sandbox's practice pool is not built.
+- **Learning gain is not measured yet.** `packages/learning-measurement` can
+  measure it (arms with no notes, own notes and off-topic control notes, with
+  intervals), but only its scripted instrument check has run, and that shows
+  no gain by construction. It is an arms design, not the pre-test and
+  post-test the target design describes.
 - **The curriculum is a draft** (`0.1.6-draft`, five lessons of about 80
   words, sources pending independent review, OWASP licence review pending),
   and the demo driver approves it with the shared reviewer credentials. The

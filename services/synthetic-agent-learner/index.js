@@ -8,7 +8,7 @@ const { createExamRunner } = require('./exam-runner');
 const { publishListing } = require('./listing');
 const { examAnswer, examPolicy, listExamScenarios } = require('./exam-scenarios');
 const { createLiveModel, LiveModelError } = require('./live-model');
-const { createNotebook } = require('./notes');
+const { createNotebook, scopeOf } = require('./notes');
 const {
   DEFAULT_REGISTRATION,
   createSyntheticAgentLearner,
@@ -110,17 +110,15 @@ function createApp({ learner = createDefaultLearner(), examRunner = null, liveMo
         correlationId: req.correlationId || body.correlationId,
         ...(live ? { registration: liveModel.registration, evidenceMode: 'live',
           respond: async (item, context) => {
-            try {
-              const answer = record(usage, await liveModel.answerTraining(item, context?.remediation));
-              // What the model wrote after the item becomes its note for the item's objectives.
-              notebook.write(item.objectiveIds, answer);
-              return answer;
-            } catch (error) {
+            try { return record(usage, await liveModel.answerTraining(item, context?.remediation)); } catch (error) {
               telemetry.log(SERVICE_NAME, 'live_model_failed', { correlationId: req.correlationId, dependency: 'live-model',
                 outcome: error.code, itemKind: item.kind, itemFields: Object.keys(item).join(','), ...(error.detail || {}) });
               throw error;
             }
-          } } : {}),
+          },
+          // Once Training accepts an answer, it becomes the model's note for the
+          // item's objectives in that package version.
+          onAccepted: (item, answer, context) => notebook.write(item.objectiveIds, answer, scopeOf(context?.package)) } : {}),
       });
       return res.status(statusForOutcome(result.outcome)).json({ apiVersion: 'v1', ...result,
         ...(live ? { live: liveSummary(liveModel, usage), notes: notesSummary(notebook) } : {}),
@@ -181,10 +179,10 @@ function createApp({ learner = createDefaultLearner(), examRunner = null, liveMo
             // Open book: the model sees the lessons knowledge.lookup returns for
             // the item, and its own training notes for the item's objectives.
             answerFor: async (item, index, tools) => record(usage,
-              await liveModel.answerExam(item, await tools.lookup(item.prompt), notebook.for(item.objectiveIds))),
+              await liveModel.answerExam(item, await tools.lookup(item.prompt), notebook.for(item.objectiveIds, scopeOf(tools.package)))),
             // Behaviour items: the model chooses each action from what the step route shows it.
-            actFor: (item) => async (observation) => {
-              const { action, valid, usage: used } = await liveModel.actEpisode(observation, notebook.for(item.objectiveIds));
+            actFor: (item, context) => async (observation) => {
+              const { action, valid, usage: used } = await liveModel.actEpisode(observation, notebook.for(item.objectiveIds, scopeOf(context?.package)));
               count(usage, used);
               if (!valid) usage.invalidActions += 1;
               return action;

@@ -24,7 +24,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 // provenance-bound attempt (the Engine refuses any other step), else actFor's.
 function policyFor(attempt, item, actFor) {
   if (attempt.provenance) return execution.episodePolicy(attempt.provenance, item);
-  return actFor ? actFor(item) : null;
+  return actFor ? actFor(item, { package: attempt.form?.package || null }) : null;
 }
 
 function createExamRunner({ gatewayClient, idGenerator = randomUUID, pollIntervalMs = POLL_INTERVAL_MS } = {}) {
@@ -91,7 +91,7 @@ function createExamRunner({ gatewayClient, idGenerator = randomUUID, pollInterva
         onProgress({ stage: 'answered', attemptId: attempt.attemptId, itemId: item.id, answered: answered.length, itemCount: items.length });
         continue;
       }
-      const response = produced ? produced.response : await answerFor(item, index, { lookup });
+      const response = produced ? produced.response : await answerFor(item, index, { lookup, package: attempt.form?.package || null });
       if (response === null || response === undefined) break;
       const receipt = await call('POST', `/v1/examinations/${attempt.attemptId}/responses`, {
         idempotencyKey: `answer-${attempt.attemptId}-${item.id}`, expectedSequence: attempt.sequence,

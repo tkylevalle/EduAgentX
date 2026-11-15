@@ -10,15 +10,24 @@ the notes the agent carries:
 |---|---|
 | `no-notes` | none |
 | `with-notes` | the agent's own notes, written after studying the lessons of the item's objectives |
-| `control-notes` | the agent's own notes from modules the behaviour items do not test (o1, o2): similar text, off topic |
+| `control-notes` | as many of the agent's own notes, from one module the behaviour items do not test (o1 or o2): same domain and length, other objectives |
+
+This is an arms design, not the pre-test, training, post-test sequence the
+target design describes: `no-notes` stands in for the pre-test, and the arms
+run in fresh held-out worlds rather than one agent before and after. The
+report gives each arm's gain over `no-notes` and the gain of `with-notes` over
+`control-notes`, which separates "these notes help" from "any notes help".
+The control is not content-free: the o1 and o2 lessons are about the same
+domain, so a gain over the control is a gain from topic-specific notes.
 
 Items are played the way the Examination Engine records them: one action at
 a time against `stepEpisode`, then graded by `behaviourGrade` over the
 recorded steps, in fresh held-out worlds for each run. An episode succeeds
 when it scores at the pass mark with no critical violation.
 
-The report gives each arm's episode success rate with a 95% Wilson interval,
-and each arm's gain over `no-notes` with a 95% Newcombe interval. A gain whose
+The report gives each arm's episode success rate with a 95% Wilson interval
+and the count of actions the agent failed to give, and each gain with a 95%
+Newcombe interval. A gain whose
 interval holds zero is reported as "no measured gain", including a zero gain.
 
 ```bash

@@ -26,9 +26,9 @@ test('an item is played and graded as the Engine records it, with async policies
 test('arms that behave the same show no measured gain, and the report says so', async () => {
   const same = () => agent('safe-agent');
   const report = await measureLearning({ form, runs: 2, seedKey: KEY,
-    arms: { 'no-notes': same, 'with-notes': same, 'control-notes': same } });
+    arms: { 'no-notes': same, 'with-notes': same, 'control-notes': same }, comparisons: [['with-notes', 'control-notes']] });
   assert.equal(report.arms['no-notes'].episodes, 2 * 4 * EPISODES_PER_ITEM);
-  for (const name of ['with-notes', 'control-notes']) {
+  for (const name of ['with-notes over no-notes', 'control-notes over no-notes', 'with-notes over control-notes']) {
     assert.equal(report.gains[name].measured, false, name);
     assert.ok(report.gains[name].low <= 0 && report.gains[name].high >= 0);
   }
@@ -37,8 +37,8 @@ test('arms that behave the same show no measured gain, and the report says so', 
 test('a real difference between arms is detected with an interval that excludes zero', async () => {
   const report = await measureLearning({ form, runs: 2, seedKey: KEY,
     arms: { 'no-notes': () => agent('instruction-follower'), 'with-notes': () => agent('safe-agent') } });
-  assert.equal(report.gains['with-notes'].measured, true);
-  assert.ok(report.gains['with-notes'].low > 0);
+  assert.equal(report.gains['with-notes over no-notes'].measured, true);
+  assert.ok(report.gains['with-notes over no-notes'].low > 0);
 });
 
 test('the Newcombe interval is symmetric for swapped arms and narrows with more episodes', () => {
@@ -65,10 +65,20 @@ test('live arms differ only in the notes the model carries: none, its own for th
   assert.deepEqual(seen[0], []);
   assert.ok(seen[1].length > 0 && seen[1].every((note) => note === 'note on m3'), 'v1 tests o3, taught in m3');
   assert.ok(seen[2].length > 0 && seen[2].every((note) => ['note on m1', 'note on m2'].includes(note)), 'o1 and o2 have no behaviour items');
+  assert.equal(seen[2].length, seen[1].length, 'the control carries as many notes as the notes arm');
   assert.notEqual(notes.own, notes.control);
 });
 
-test('a measurement needs runs and a baseline arm', async () => {
-  await assert.rejects(measureLearning({ form, runs: 0, arms: { 'no-notes': () => agent('safe-agent') } }), /runs/);
-  await assert.rejects(measureLearning({ form, runs: 1, arms: { other: () => agent('safe-agent') } }), /baseline/);
+test('a measurement needs runs, a baseline arm, known comparison arms and behaviour items', async () => {
+  const safe = () => agent('safe-agent');
+  await assert.rejects(measureLearning({ form, runs: 0, arms: { 'no-notes': safe } }), /runs/);
+  await assert.rejects(measureLearning({ form, runs: 1, arms: { other: safe } }), /baseline/);
+  await assert.rejects(measureLearning({ form, runs: 1, arms: { 'no-notes': safe }, comparisons: [['x', 'no-notes']] }), /unknown arm/);
+  await assert.rejects(measureLearning({ form: { items: form.items.filter((item) => item.kind !== 'behaviour') }, runs: 1,
+    arms: { 'no-notes': safe } }), /no behaviour items/);
+});
+
+test('a policy that returns no action is counted, not taken for a choice', async () => {
+  const report = await measureLearning({ form, runs: 1, seedKey: KEY, arms: { 'no-notes': () => () => null } });
+  assert.equal(report.arms['no-notes'].invalidActions, 4 * EPISODES_PER_ITEM);
 });

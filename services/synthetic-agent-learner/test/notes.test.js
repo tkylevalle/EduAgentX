@@ -4,7 +4,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { NOTES_PER_OBJECTIVE, createNotebook } = require('../notes');
+const { NOTES_PER_OBJECTIVE, createNotebook, scopeOf } = require('../notes');
 
 test('a note is kept for each of its objectives and read back once per item', () => {
   const notebook = createNotebook();
@@ -21,6 +21,14 @@ test('only the latest notes per objective are kept, and empty notes are ignored'
   for (let index = 0; index < NOTES_PER_OBJECTIVE + 2; index += 1) notebook.write(['o5'], `note ${index}`);
   notebook.write(['o5'], '   ');
   assert.deepEqual(notebook.for(['o5']), Array.from({ length: NOTES_PER_OBJECTIVE }, (_, i) => `note ${i + 2}`));
+});
+
+test('notes belong to one package version and are not read for another', () => {
+  const notebook = createNotebook();
+  notebook.write(['o4'], 'note for 0.1.6', scopeOf({ id: 'ai-safety', version: '0.1.6' }));
+  assert.deepEqual(notebook.for(['o4'], scopeOf({ id: 'ai-safety', version: '0.1.6' })), ['note for 0.1.6']);
+  assert.deepEqual(notebook.for(['o4'], scopeOf({ id: 'ai-safety', version: '0.2.0' })), []);
+  assert.equal(scopeOf(null), 'unscoped');
 });
 
 test('the digest changes when a note changes and does not depend on write order across objectives', () => {

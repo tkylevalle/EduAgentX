@@ -217,7 +217,27 @@ test('a remediation session\'s reason reaches the learner with every item', asyn
   } });
   await learner.train({ agentLearnerKey: 'live-agent-learner-dev', evidenceMode: 'live', registration: {},
     respond: async (item, context) => { seen.push(context); return 'answer'; } });
-  assert.deepEqual(seen, [{ remediation }]);
+  assert.deepEqual(seen, [{ remediation, package: null }]);
+});
+
+test('onAccepted runs only for an answer Training accepted', async () => {
+  const accepted = [];
+  for (const submitStatus of [200, 409]) {
+    const learner = createSyntheticAgentLearner({ gatewayClient: {
+      register: async () => ({ status: 200, body: {} }),
+      interact: async (message) => {
+        const { interactionType } = message.payload;
+        if (interactionType === 'training.session.start') return { status: 200, body: { sessionId: 's', package: { id: 'p', version: '1' } } };
+        if (interactionType === 'training.session.continue') return { status: 200, body: { sessionId: 's', status: 'open',
+          item: { deliveryItemId: 'm1-lesson', moduleId: 'm1', objectiveIds: ['o1'] }, bounds: { modelWeightsModified: false } } };
+        return submitStatus === 200 ? { status: 200, body: { sessionId: 's', status: 'completed', modelWeightsModified: false } }
+          : { status: 409, body: { error: 'response_too_long' } };
+      },
+    } });
+    await learner.train({ agentLearnerKey: 'live-agent-learner-dev', evidenceMode: 'live', registration: {}, maxItems: 1,
+      respond: async () => `answer ${submitStatus}`, onAccepted: (item, answer, context) => accepted.push([answer, context.package.version]) });
+  }
+  assert.deepEqual(accepted, [['answer 200', '1']]);
 });
 
 test('a live learner that cannot reach its model stops training as a system abort', async () => {

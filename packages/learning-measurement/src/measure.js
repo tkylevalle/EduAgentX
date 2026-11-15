@@ -19,42 +19,56 @@ const { wilson } = require('../../agent-sandbox/src/stats');
 
 const DECIMALS = 4;
 const round = (value) => Number(value.toFixed(DECIMALS));
+// A run's attempt id suffix and the default world seed key, in random bytes:
+// enough that runs never share worlds.
+const ATTEMPT_SUFFIX_BYTES = 6;
+const SEED_KEY_BYTES = 32;
 
 /**
  * Plays one behaviour item to its end, as the Engine's step route records it.
+ * A policy that returns no action ends its episode with an empty finish and
+ * is counted in invalidActions.
+ * @param {string} attemptId @param {object} item a behaviour item @param {string} seedKey
  * @param {(observation: object) => object | Promise<object>} policy
- * @returns {Promise<{ result: object, episodes: object[] }>} the graded item
+ * @returns {Promise<{ result: object, episodes: object[], invalidActions: number }>} the graded item
  */
 async function playItem(attemptId, item, seedKey, policy) {
   const taken = [];
+  let invalidActions = 0;
   for (;;) {
     const view = stepEpisode(attemptId, item, taken, seedKey);
     if (view.done) break;
     const action = await policy(view.observation);
-    taken.push(action?.finish || !action ? { finish: { message: String(action?.finish?.message ?? '') } } : action);
+    if (!action || typeof action !== 'object') invalidActions += 1;
+    taken.push(!action || action.finish ? { finish: { message: String(action?.finish?.message ?? '') } } : action);
   }
-  return behaviourGrade(attemptId, item, actionsResponse(episodesOf(taken)), seedKey);
+  return { ...behaviourGrade(attemptId, item, actionsResponse(episodesOf(taken)), seedKey), invalidActions };
 }
 
 const succeeded = (episode) => episode.score >= PASS_SCORE && episode.criticalViolationRuleIds.length === 0;
 
 /**
- * @param {{ items: object[] }} form  an exam form; only its behaviour items are played
- * @param {(item: object) => Function} policyFor  the arm's policy for one item
- * @param {number} runs  repeated runs, each a fresh set of worlds
- * @returns {Promise<object>} the arm's episode count, successes, violations and 95% interval
+ * @param {{ form: { items: object[] }, policyFor: (item: object) => Function, runs: number, seedKey?: string }} input
+ *   form: an exam form, only its behaviour items are played; policyFor: the arm's policy for one item;
+ *   runs: repeated runs, each a fresh set of worlds
+ * @returns {Promise<object>} the arm's episode count, successes, violations, invalid actions and 95% interval
  */
-async function runArm({ form, policyFor, runs, seedKey = randomBytes(32).toString('hex') }) {
+async function runArm({ form, policyFor, runs, seedKey = randomBytes(SEED_KEY_BYTES).toString('hex') }) {
   const items = form.items.filter((item) => item.kind === 'behaviour');
   const episodes = [];
+  let invalidActions = 0;
   for (let run = 0; run < runs; run += 1) {
-    const attemptId = `learning-${run}-${randomBytes(6).toString('hex')}`;
-    for (const item of items) episodes.push(...(await playItem(attemptId, item, seedKey, policyFor(item))).episodes);
+    const attemptId = `learning-${run}-${randomBytes(ATTEMPT_SUFFIX_BYTES).toString('hex')}`;
+    for (const item of items) {
+      const played = await playItem(attemptId, item, seedKey, policyFor(item));
+      episodes.push(...played.episodes);
+      invalidActions += played.invalidActions;
+    }
   }
   const successes = episodes.filter(succeeded).length;
   const interval = wilson(successes, episodes.length);
   return { runs, episodes: episodes.length, successes, violations: episodes.filter((e) => e.criticalViolationRuleIds.length).length,
-    rate: episodes.length ? round(successes / episodes.length) : 0, low: round(interval.low), high: round(interval.high) };
+    invalidActions, rate: episodes.length ? round(successes / episodes.length) : 0, low: round(interval.low), high: round(interval.high) };
 }
 
 /**
@@ -74,16 +88,20 @@ function gainOf(treated, baseline) {
 }
 
 /**
- * @param {{ form: object, arms: Record<string, (item: object) => Function>, runs: number, baseline?: string, seedKey?: string }} input
- * @returns {Promise<{ arms: Record<string, object>, gains: Record<string, object> }>} every arm, and each arm's gain over the baseline
+ * @param {{ form: object, arms: Record<string, (item: object) => Function>, runs: number, baseline?: string,
+ *   comparisons?: [string, string][], seedKey?: string }} input
+ *   comparisons: extra [treated, baseline] pairs, such as with-notes over control-notes
+ * @returns {Promise<{ arms: Record<string, object>, gains: Record<string, object> }>} every arm, and each gain with its interval
  */
-async function measureLearning({ form, arms, runs, baseline = 'no-notes', seedKey }) {
+async function measureLearning({ form, arms, runs, baseline = 'no-notes', comparisons = [], seedKey }) {
   if (!Number.isSafeInteger(runs) || runs < 1) throw new RangeError('runs must be a positive integer');
   if (!arms[baseline]) throw new RangeError(`no baseline arm ${baseline}`);
+  if (!form?.items?.some((item) => item.kind === 'behaviour')) throw new RangeError('the form has no behaviour items to measure');
+  if (comparisons.some(([treated, base]) => !arms[treated] || !arms[base])) throw new RangeError('a comparison names an unknown arm');
   const results = {};
   for (const [name, policyFor] of Object.entries(arms)) results[name] = await runArm({ form, policyFor, runs, seedKey });
-  const gains = Object.fromEntries(Object.keys(arms).filter((name) => name !== baseline)
-    .map((name) => [name, gainOf(results[name], results[baseline])]));
+  const pairs = [...Object.keys(arms).filter((name) => name !== baseline).map((name) => [name, baseline]), ...comparisons];
+  const gains = Object.fromEntries(pairs.map(([treated, base]) => [`${treated} over ${base}`, gainOf(results[treated], results[base])]));
   return { baseline, arms: results, gains };
 }
 
