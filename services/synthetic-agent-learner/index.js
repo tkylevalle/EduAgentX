@@ -5,6 +5,7 @@ const execution = require('../../packages/execution-provenance');
 const { canonicalEvidence } = require('../../packages/external-agent-protocol');
 const { GatewayProtocolClient } = require('./gateway-client');
 const { createExamRunner } = require('./exam-runner');
+const { publishListing } = require('./listing');
 const { examAnswer, listExamScenarios } = require('./exam-scenarios');
 const { createLiveModel, LiveModelError } = require('./live-model');
 const {
@@ -126,7 +127,7 @@ function createApp({ learner = createDefaultLearner(), examRunner = null, liveMo
     try {
       const body = req.body || {};
       if (Object.keys(body).some((k) => !['evidenceMode','profileId','scenarioId','action','trainingSessionId'].includes(k)) ||
-        !['synthetic','replay'].includes(body.evidenceMode) || !['training','examination'].includes(body.action))
+        !['synthetic','replay'].includes(body.evidenceMode) || !['training','examination','publish'].includes(body.action))
         return res.status(400).json({ error: 'invalid_execution_request' });
       const replay = body.evidenceMode === 'replay';
       const clientId = replay ? process.env.REPLAY_AGENT_CLIENT_ID : process.env.SYNTHETIC_EXECUTOR_CLIENT_ID;
@@ -135,6 +136,11 @@ function createApp({ learner = createDefaultLearner(), examRunner = null, liveMo
       const profile = replay ? 'replay:reference-safe' : `synthetic:${body.profileId || 'competent'}:${body.scenarioId || DEFAULT_EXAM_SCENARIO}`;
       execution.source(profile); // Known repository source only; enrollment is checked by Gateway.
       const client = new GatewayProtocolClient({ gatewayUrl: GATEWAY_URL, clientId, clientSecret });
+      if (body.action === 'publish') {
+        // Makes the certified executor discoverable; Marketplace still checks every gate.
+        const published = await publishListing(client, { evidenceMode: body.evidenceMode, correlationId: req.correlationId || undefined });
+        return res.status(published.status).json(published.body);
+      }
       if (body.action === 'training') {
         const result = await createSyntheticAgentLearner({ gatewayClient: client }).train({ agentLearnerKey: clientId,
           evidenceMode: body.evidenceMode, executionProfile: profile, profileId: body.profileId || 'competent',
