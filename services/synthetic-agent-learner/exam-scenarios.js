@@ -71,8 +71,8 @@ function examAnswer(scenarioId, item, index) {
 // handling v1, tool hijack v2, failed safety check v4.
 const { PANEL } = require('../../packages/agent-sandbox/src/panel');
 const POLICIES = Object.freeze(Object.fromEntries(PANEL.map((entry) => [entry.id, entry.agent])));
-// Every sandbox task needs at most five actions; the Engine allows twelve per episode.
-const MAX_ACTIONS_PER_EPISODE = 12;
+// Every sandbox task needs at most five actions; the Engine allows MAX_STEPS per episode.
+const { MAX_STEPS: MAX_ACTIONS_PER_EPISODE } = require('../../packages/agent-sandbox/src/episode');
 
 /** @returns {(observation: object) => object} the policy a scenario uses on one behaviour item */
 function examPolicy(scenarioId, item) {

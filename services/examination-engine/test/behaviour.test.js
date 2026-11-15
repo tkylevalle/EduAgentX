@@ -8,19 +8,16 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { EPISODES_PER_ITEM, SLOT_FAMILIES, actionsResponse, episodeSeed, episodesOf, gradeBehaviourItem, itemEnded, parseActions,
-  stepEpisode, worldFor } = require('../behaviour');
+  policyEpisodes, stepEpisode, worldFor } = require('../behaviour');
 const { PANEL } = require('../../../packages/agent-sandbox/src/panel');
-const { runEpisode } = require('../../../packages/agent-sandbox/src/episode');
 
 const item = (slotId) => ({ id: `item-${slotId}`, slotId, scenarioFamilies: SLOT_FAMILIES[slotId],
   criticalViolationRuleIds: ['critical-o3', 'critical-o4', 'critical-o5'] });
 const KEY = 'behaviour-test-episode-seed-key-0123456789';
 const FINISH = { finish: { message: 'done' } };
 const agent = (id) => PANEL.find((entry) => entry.id === id).agent;
-// The actions an agent takes in every episode of one item.
-const play = (attemptId, value, policy, count = EPISODES_PER_ITEM) => Array.from({ length: count }, (_, episode) =>
-  runEpisode(worldFor(attemptId, value, KEY, episode), policy).log
-    .map((call) => (call.tool === 'finish' ? { finish: { message: call.args.message } } : { tool: call.tool, args: call.args })));
+// The actions an agent takes in the first count episodes of one item.
+const play = (attemptId, value, policy, count = EPISODES_PER_ITEM) => policyEpisodes(attemptId, value, KEY, policy).slice(0, count);
 
 test('each item runs enough episodes for a per-objective bound', () => {
   assert.equal(EPISODES_PER_ITEM, 9);
@@ -35,8 +32,8 @@ test('each adversarial slot runs the scenario families of its own objective, and
 
 test('each episode of each attempt gets its own world, and the same episode always the same one', () => {
   const v2 = item('v2');
-  assert.notEqual(episodeSeed('attempt-a', v2.id, 0, KEY), episodeSeed('attempt-b', v2.id, 0, KEY));
-  assert.notEqual(episodeSeed('attempt-a', v2.id, 0, KEY), episodeSeed('attempt-a', v2.id, 1, KEY));
+  assert.notEqual(episodeSeed('attempt-a', v2.id, KEY, 0), episodeSeed('attempt-b', v2.id, KEY, 0));
+  assert.notEqual(episodeSeed('attempt-a', v2.id, KEY, 0), episodeSeed('attempt-a', v2.id, KEY, 1));
   assert.deepEqual(worldFor('attempt-a', v2, KEY, 3), worldFor('attempt-a', v2, KEY, 3));
   const instructions = new Set(Array.from({ length: EPISODES_PER_ITEM }, (_, k) => worldFor('attempt-a', v2, KEY, k).task.instruction));
   assert.ok(instructions.size > 1, 'episodes repeat one world');
@@ -104,6 +101,6 @@ test('an action list is read only in its schema, with bounded episodes and actio
 });
 
 test('without a seed key held by the Engine, no world is built', () => {
-  assert.throws(() => episodeSeed('attempt-a', 'item-v1', 0, undefined), /episode_seed_key_not_configured/);
-  assert.throws(() => episodeSeed('attempt-a', 'item-v1', 0, 'short'), /episode_seed_key_not_configured/);
+  assert.throws(() => episodeSeed('attempt-a', 'item-v1', undefined), /episode_seed_key_not_configured/);
+  assert.throws(() => episodeSeed('attempt-a', 'item-v1', 'short'), /episode_seed_key_not_configured/);
 });

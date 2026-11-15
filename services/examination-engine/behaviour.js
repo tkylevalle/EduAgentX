@@ -9,7 +9,7 @@
 // agent, so they cannot be forged.
 
 const { createHmac } = require('node:crypto');
-const { buildWorld } = require('../../packages/agent-sandbox/src/families');
+const { EXAM_POOL, buildWorld } = require('../../packages/agent-sandbox/src/families');
 const { MAX_STEPS, runEpisode } = require('../../packages/agent-sandbox/src/episode');
 const { MIN_EPISODES_PER_OBJECTIVE } = require('../../packages/agent-sandbox/src/panel');
 
@@ -27,23 +27,29 @@ const SANDBOX_GRADER = Object.freeze({ id: 'agent-sandbox', version: '2.0.0' });
 // One action's JSON: a tool name and arguments; 4000 characters fits any
 // sandbox task's arguments with room for a long reply body.
 const MAX_ACTION_CHARS = 4000;
-// Exam worlds always come from the held-out pool; practice never draws from it.
-const EXAM_POOL = 'held-out';
 
 // The seed is an HMAC under a key only the Engine holds (EPISODE_SEED_KEY):
 // the world-building code is public, so a seed anyone could compute would let
 // an agent build the world itself and read its hidden part.
 const MIN_SEED_KEY_LENGTH = 32;
 
-/** @returns {string} the world seed for one episode of one item of one attempt */
-function episodeSeed(attemptId, itemId, episode, seedKey) {
+/**
+ * @param {string} attemptId @param {string} itemId @param {string} seedKey the Engine's EPISODE_SEED_KEY
+ * @param {number} episode zero-based episode number within the item
+ * @returns {string} the world seed for one episode of one item of one attempt
+ */
+function episodeSeed(attemptId, itemId, seedKey, episode = 0) {
   if (typeof seedKey !== 'string' || seedKey.length < MIN_SEED_KEY_LENGTH) throw Object.assign(new Error('episode_seed_key_not_configured'), { code: 'episode_seed_key_not_configured', status: 503 });
   return createHmac('sha256', seedKey).update(`episode:${attemptId}:${itemId}:${episode}`).digest('hex').slice(0, 32);
 }
-/** @returns {object} the world for one episode of one item of one attempt */
+/**
+ * @param {string} attemptId @param {{ id: string, scenarioFamilies: string[] }} item @param {string} seedKey
+ * @param {number} episode zero-based episode number; the family rotates through the item's families
+ * @returns {object} the world for one episode of one item of one attempt
+ */
 function worldFor(attemptId, item, seedKey, episode = 0) {
   const families = item.scenarioFamilies;
-  return buildWorld(families[episode % families.length], episodeSeed(attemptId, item.id, episode, seedKey), EXAM_POOL);
+  return buildWorld(families[episode % families.length], episodeSeed(attemptId, item.id, seedKey, episode), EXAM_POOL);
 }
 
 /** @returns {boolean} whether value is one well-formed action */
@@ -70,9 +76,15 @@ const itemEnded = (actions) => endedCount(actions) >= EPISODES_PER_ITEM;
 
 /** @returns {object} one sandbox log entry as the action the Engine records for it */
 const toAction = (call) => (call.tool === 'finish' ? { finish: { message: call.args.message } } : { tool: call.tool, args: call.args });
-/** @returns {object[]} the actions a policy takes in every episode of this item, in order */
-const policyActions = (attemptId, item, seedKey, policy) => Array.from({ length: EPISODES_PER_ITEM }, (_, episode) =>
-  runEpisode(worldFor(attemptId, item, seedKey, episode), policy).log.map(toAction)).flat();
+/**
+ * @param {string} attemptId @param {object} item @param {string} seedKey
+ * @param {(observation: object) => object} policy  a sandbox agent: observation in, action out
+ * @returns {object[][]} the actions the policy takes in each episode of this item
+ */
+const policyEpisodes = (attemptId, item, seedKey, policy) => Array.from({ length: EPISODES_PER_ITEM }, (_, episode) =>
+  runEpisode(worldFor(attemptId, item, seedKey, episode), policy).log.map(toAction));
+/** @returns {object[]} the same actions as one list, in the order the Engine records them */
+const policyActions = (attemptId, item, seedKey, policy) => policyEpisodes(attemptId, item, seedKey, policy).flat();
 
 /** @returns {string} the response an Engine-recorded run of episodes stands for */
 const actionsResponse = (episodes) => JSON.stringify({ schemaVersion: ACTIONS_SCHEMA, episodes });
@@ -142,4 +154,4 @@ function gradeBehaviourItem(attemptId, item, response, seedKey) {
 }
 
 module.exports = { ACTIONS_SCHEMA, EPISODES_PER_ITEM, SANDBOX_GRADER, SLOT_FAMILIES, actionsResponse, episodeEnded, episodeResults, episodeSeed,
-  episodesOf, gradeBehaviourItem, isAction, itemEnded, parseActions, policyActions, stepEpisode, worldFor };
+  episodesOf, gradeBehaviourItem, isAction, itemEnded, parseActions, policyActions, policyEpisodes, stepEpisode, worldFor };

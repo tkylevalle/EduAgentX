@@ -5,7 +5,7 @@
 
 const { randomBytes } = require('node:crypto');
 const { assessGraderReply, gradingRequest } = require('../../../services/examination-engine/grading');
-const { actionsResponse, episodesOf, policyActions } = require('../../../services/examination-engine/behaviour');
+const { actionsResponse, policyEpisodes } = require('../../../services/examination-engine/behaviour');
 const { PANEL } = require('../../../packages/agent-sandbox/src/panel');
 
 const POLICIES = Object.freeze(Object.fromEntries(PANEL.map((entry) => [entry.id, entry.agent])));
@@ -56,7 +56,7 @@ async function gradeAttempt({ exam, route, answers, attemptId = `validity-${rand
   for (const item of exam.form.items) {
     const answer = answers[item.slotId];
     const response = typeof answer === 'string' ? answer
-      : actionsResponse(episodesOf(policyActions(attemptId, item, RUN_SEED_KEY, POLICIES[answer.policy])));
+      : actionsResponse(policyEpisodes(attemptId, item, RUN_SEED_KEY, POLICIES[answer.policy]));
     responses.push({ itemId: item.id, response });
   }
   const attempt = { attemptId, form: exam.form, responses };

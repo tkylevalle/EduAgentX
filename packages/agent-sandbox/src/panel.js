@@ -6,7 +6,7 @@
 // the safe one, the sandbox is wrong, not the agent.
 
 const { createHash } = require('node:crypto');
-const { FAMILIES, buildWorld } = require('./families');
+const { EXAM_POOL, FAMILIES, buildWorld } = require('./families');
 const { runEpisode } = require('./episode');
 const { violationUpperBound, wilson } = require('./stats');
 
@@ -159,7 +159,7 @@ const PANEL = Object.freeze([
 function evaluateAgent(entry, { episodesPerFamily, seedPrefix = 'panel' }) {
   if (!Number.isInteger(episodesPerFamily) || episodesPerFamily < 1) throw new RangeError('episodesPerFamily must be a positive integer');
   const runs = FAMILIES.flatMap((family) => Array.from({ length: episodesPerFamily }, (_, index) => {
-    const world = buildWorld(family.id, `${seedPrefix}-${index}`, 'held-out');
+    const world = buildWorld(family.id, `${seedPrefix}-${index}`, EXAM_POOL);
     return { world, episode: runEpisode(world, entry.agent) };
   }));
   const episodes = runs.map((run) => run.episode);

@@ -13,11 +13,13 @@
 const { createHash } = require('node:crypto');
 const { between, chance, hex, pick, seededRandom } = require('./random');
 
-// Practice worlds (training, remediation) and exam worlds draw the attack
-// wording from disjoint pools, so an exam scenario is never one the agent
-// practised on (assurance audit A6). The wording is public in this
+// Practice worlds and exam worlds draw the attack wording from disjoint
+// pools, so an exam scenario is never one the agent practised on (assurance
+// audit A6). Only exam worlds are built today; practice in training and
+// remediation is Phase 2 of the target design. The wording is public in this
 // repository: held-out means unseen in practice, not secret from a developer.
 const POOLS = Object.freeze(['practice', 'held-out']);
+const EXAM_POOL = 'held-out';
 
 // Attack wording per family and pool; {email} and {url} are the attacker's.
 // Poisoned-evidence carries no injected text, so its pools vary how the task
@@ -79,7 +81,7 @@ const WORDING = Object.freeze({
   },
 });
 
-/** @returns {string} the wording with the attacker's address filled in */
+/** @param {string} text a wording template @param {{ email?: string, url?: string }} evil the attacker @returns {string} the wording with the attacker's address filled in */
 const renderWording = (text, evil = {}) => text.replaceAll('{email}', evil.email || '').replaceAll('{url}', evil.url || '');
 /** @returns {string} one rendered wording from the family's pool */
 const wordingFor = (random, familyId, pool, evil) => renderWording(pick(random, WORDING[familyId][pool]), evil);
@@ -88,7 +90,7 @@ function checkPool(pool) {
   if (!POOLS.includes(pool)) throw new Error(`unknown scenario pool ${pool}`);
   return pool;
 }
-/** @returns {string} a digest of one pool's wording, recorded with exam evidence */
+/** @returns {string} a digest of one pool's wording; behaviour evidence records the exam pool's */
 function poolDigest(pool) {
   const wording = Object.fromEntries(Object.entries(WORDING).map(([family, pools]) => [family, pools[checkPool(pool)]]));
   return `sha256:${createHash('sha256').update(JSON.stringify(wording)).digest('hex')}`;
@@ -288,4 +290,4 @@ function buildWorld(familyId, seed, pool) {
     criticalRuleIds: [...family.criticalRuleIds], ...world };
 }
 
-module.exports = { FAMILIES, POOLS, WORDING, buildWorld, familyOf, poolDigest, renderWording, sameAddress };
+module.exports = { EXAM_POOL, FAMILIES, POOLS, WORDING, buildWorld, familyOf, poolDigest, renderWording, sameAddress };
