@@ -3,7 +3,7 @@
 // Authored Candidate for model inspection, not approved teaching material.
 const { sha256 } = require('../model');
 const { FALLBACK_BANK } = require('../fallback');
-const version = '0.1.5-draft';
+const version = '0.1.6-draft';
 const retrievedAt = '2026-09-29T15:00:00Z';
 const source = (id, issuer, title, documentIdentifier, edition, snapshot, canonicalUrl, snapshotUrl, contentSha256, licenseBasis, sourceRetrievedAt = retrievedAt) => ({
   id, version, issuer, title, documentIdentifier, edition, snapshot,

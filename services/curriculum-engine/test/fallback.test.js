@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { FALLBACK_BANK, POLICY, scoreBank, validateFallbackBank } = require('../fallback');
+const { FALLBACK_BANK, MIN_OPTIONS, POLICY, deliveryChoices, scoreBank, validateFallbackBank } = require('../fallback');
 const pkg = require('../examples/ai-safety-candidate');
 
 const ids = {
@@ -52,11 +52,20 @@ test('fallback score refuses a partial response set', () => {
 });
 
 // Assurance audit A10: the bank must test knowledge, not answer format.
-const { deliveryChoices } = require('../fallback');
 const SEEDS = Array.from({ length: 200 }, (_, index) => `attempt-${index}`);
-const MIN_OPTIONS = 4;
 
-test('every choice and ordered item offers at least four options, including every expected answer', () => {
+// A guessing agent that knows how many answers each item wants and takes the
+// first ones it is shown. On the old bank (answers listed first) it scored
+// every item. Measured on this bank: 0 passes in 20,000 delivery seeds.
+function firstShownAgent(orderFor) {
+  return FALLBACK_BANK.items.map((item) => {
+    const shown = orderFor(item);
+    const count = Array.isArray(item.expectedAnswer) ? item.expectedAnswer.length : 1;
+    return { itemId: item.id, answer: item.answerType === 'single_choice' ? shown[0] : shown.slice(0, count) };
+  });
+}
+
+test('every item offers at least four options, including every expected answer', () => {
   for (const item of FALLBACK_BANK.items) {
     assert.ok(Array.isArray(item.choices) && item.choices.length >= MIN_OPTIONS, `${item.id} offers too few options`);
     const expected = Array.isArray(item.expectedAnswer) ? item.expectedAnswer : [item.expectedAnswer];
@@ -72,19 +81,26 @@ test('delivery order is fixed for one attempt and differs between attempts', () 
   assert.deepEqual([...deliveryChoices(item.choices, 'attempt-1')].sort(), [...item.choices].sort());
 });
 
-test('an agent that always picks the first delivered option fails on every attempt', () => {
+test('the guessing agent can detect the old defect: it passes when answers are listed first', () => {
+  const answersFirst = (item) => {
+    const keyed = Array.isArray(item.expectedAnswer) ? item.expectedAnswer : [item.expectedAnswer];
+    return [...keyed, ...item.choices.filter((choice) => !keyed.includes(choice))];
+  };
+  assert.equal(scoreBank(FALLBACK_BANK, firstShownAgent(answersFirst)).passed, true);
+});
+
+test('the guessing agent fails on the stored order and on every attempt\'s delivered order', () => {
+  assert.equal(scoreBank(FALLBACK_BANK, firstShownAgent((item) => item.choices)).passed, false);
   for (const seed of SEEDS) {
-    const responses = FALLBACK_BANK.items.map((item) => {
-      const delivered = deliveryChoices(item.choices, `${seed}:${item.id}`);
-      const answer = item.answerType === 'ordered_actions' ? delivered
-        : item.answerType === 'multiple_choice' ? [delivered[0]] : delivered[0];
-      return { itemId: item.id, answer };
-    });
-    assert.equal(scoreBank(FALLBACK_BANK, responses).passed, false, `first-option agent passed on ${seed}`);
+    const result = scoreBank(FALLBACK_BANK, firstShownAgent((item) => deliveryChoices(item.choices, `${seed}:${item.id}`)));
+    assert.equal(result.passed, false, `guessing agent passed on ${seed}`);
   }
 });
 
-test('an agent that knows every answer passes on every attempt, whatever the delivery order', () => {
-  const responses = FALLBACK_BANK.items.map((item) => ({ itemId: item.id, answer: item.expectedAnswer }));
-  assert.equal(scoreBank(FALLBACK_BANK, responses).passed, true);
+test('answers are scored by value, so an agent that knows them passes whatever order it was shown', () => {
+  for (const seed of SEEDS.slice(0, 20)) {
+    const responses = FALLBACK_BANK.items.map((item) => ({ itemId: item.id,
+      answer: item.answerType === 'multiple_choice' ? deliveryChoices(item.expectedAnswer, seed) : item.expectedAnswer }));
+    assert.equal(scoreBank(FALLBACK_BANK, responses).passed, true);
+  }
 });

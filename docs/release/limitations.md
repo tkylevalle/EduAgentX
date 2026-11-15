@@ -59,7 +59,7 @@ does not yet support a competence claim. State on 15 November 2026:
 - **Training completion means delivery, not learning.** Training accepts any
   non-empty response, and remediation re-sends the same lesson text without
   saying which rule the agent broke.
-- **The curriculum is a draft** (`0.1.5-draft`, five lessons of about 80
+- **The curriculum is a draft** (`0.1.6-draft`, five lessons of about 80
   words, sources pending independent review, OWASP licence review pending),
   and the demo driver approves it with the shared reviewer credentials. The
   Sprint 3 and 4 gates refuse such approvals.

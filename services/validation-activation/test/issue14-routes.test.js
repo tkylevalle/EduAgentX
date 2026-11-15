@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createApp } = require('../src');
 const candidate = require('../../curriculum-engine/examples/ai-safety-candidate');
+const { deliveryChoices } = require('../../curriculum-engine/fallback');
 
 function fakePackageDb(activePackage) {
   const packages = new Map([[activePackage.id, structuredClone(activePackage)]]);
@@ -108,7 +109,6 @@ test('fallback selection requires prior passing validation, complete pinned bank
     assert.equal(selected.items.length, 15);
     assert.equal(selected.items.some((item) => Object.hasOwn(item, 'expectedAnswer')), false);
     // Audit A10: each attempt sees the options in its own shuffled order.
-    const { deliveryChoices } = require('../../curriculum-engine/fallback');
     const bank = active.fallbackBank || active.fallback_bank;
     for (const item of selected.items) {
       const authored = bank.items.find((value) => value.id === item.id).choices;

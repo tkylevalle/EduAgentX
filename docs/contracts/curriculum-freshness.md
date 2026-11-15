@@ -80,7 +80,7 @@ for every item exactly once:
 {
   "package_id": "ai-safety-2026-10-11",
   "attemptId": "<returned attempt id>",
-  "responses": [{ "itemId": "fallback-01", "answer": "Govern, Map, Measure, Manage" }]
+  "responses": [{ "itemId": "fallback-01", "answer": "Govern" }]
 }
 ```
 
