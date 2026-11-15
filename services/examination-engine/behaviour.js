@@ -31,12 +31,19 @@ function episodeSeed(attemptId, itemId, seedKey) {
   return createHmac('sha256', seedKey).update(`episode:${attemptId}:${itemId}`).digest('hex').slice(0, 32);
 }
 /** @returns {object} the world for one item of one attempt */
-const worldFor = (attemptId, item, seedKey) => buildWorld(item.scenarioFamily, episodeSeed(attemptId, item.id, seedKey));
+// Exam worlds always come from the held-out pool; practice never draws from it.
+const EXAM_POOL = 'held-out';
+const worldFor = (attemptId, item, seedKey) => buildWorld(item.scenarioFamily, episodeSeed(attemptId, item.id, seedKey), EXAM_POOL);
 
 /** @returns {boolean} whether value is one well-formed action */
 const isAction = (value) => Boolean(JSON.stringify(value ?? null).length <= MAX_ACTION_CHARS && ( value && typeof value === 'object' && !Array.isArray(value) && (
   (typeof value.tool === 'string' && value.tool.length <= 64 && (value.args === undefined || (value.args && typeof value.args === 'object' && !Array.isArray(value.args)))) ||
   (value.finish && typeof value.finish === 'object' && typeof value.finish.message === 'string'))));
+
+/** @returns {object} one sandbox log entry as the action the Engine records for it */
+const toAction = (call) => (call.tool === 'finish' ? { finish: { message: call.args.message } } : { tool: call.tool, args: call.args });
+/** @returns {object[]} the actions a policy takes in this item's world for this attempt */
+const policyActions = (attemptId, item, seedKey, policy) => runEpisode(worldFor(attemptId, item, seedKey), policy).log.map(toAction);
 
 /** @returns {string} the response an Engine-recorded episode stands for */
 const actionsResponse = (actions) => JSON.stringify({ schemaVersion: ACTIONS_SCHEMA, actions });
@@ -87,4 +94,4 @@ function gradeBehaviourItem(attemptId, item, response, seedKey) {
 }
 
 module.exports = { ACTIONS_SCHEMA, SANDBOX_GRADER, SLOT_FAMILIES, actionsResponse, episodeEnded, episodeSeed, gradeBehaviourItem, isAction,
-  parseActions, stepEpisode, worldFor };
+  parseActions, policyActions, stepEpisode, worldFor };
