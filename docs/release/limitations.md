@@ -108,11 +108,15 @@ does not yet support a competence claim. State on 16 November 2026, after Phase 
 - **Source checks are shallow.** The traceability gate hashes source
   metadata, not the documents, and never checks that a claim appears in its
   source; freshness relies on evidence the caller supplies.
-- **Fingerprints are declared by external agents.** Every credential now
-  states its attestation level: `L2-observed` for the agents the platform
-  runs itself (the synthetic and live learners), `L1-declared` for any other
-  agent, whose configuration nothing checks. There is no platform harness for
-  external agents, so an external agent cannot reach L2.
+- **Fingerprints are declared, except for the live learner, and even that is
+  not checkable.** New credentials state an attestation level: `L2-observed`
+  only for the live learner (`CERTIFICATION_PLATFORM_SUBJECTS`), whose model
+  and prompts are fixed in platform code; `L1-declared` for every other agent,
+  including the synthetic learner, which registers any configuration a caller
+  sends. L2 is decided by the subject identity alone: it rests on the live
+  learner's client secret staying in the platform, and nothing in the
+  credential lets a verifier check it. There is no harness for external
+  agents. Credentials issued before this change carry no attestation.
 - **Only scripted agents can be Eligible in the Marketplace.** Live
   provenance is disabled and the replay fixture has no reviews, so every
   Eligible candidate is a synthetic agent with scripted answers.

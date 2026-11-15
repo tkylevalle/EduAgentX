@@ -65,7 +65,7 @@ const statusStore = {
     return statusRecords.get(statusKey(credentialId))?.history || [];
   },
 
-  /** @returns {number | null} the credential's status list index, or null when it has none */
+  /** @param {string} credentialId @returns {number | null} the credential's status list index, or null when it has none */
   getIndex(credentialId) {
     const index = statusRecords.get(statusKey(credentialId))?.statusListIndex;
     return Number.isSafeInteger(index) ? index : null;

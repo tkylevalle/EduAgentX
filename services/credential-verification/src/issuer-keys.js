@@ -60,7 +60,7 @@ function issuerJwks(env = process.env) {
   }) };
 }
 
-/** @param {string} kid @returns {boolean} whether this kid names the status-list key, which never verifies a credential */
+/** @param {string} kid @param {NodeJS.ProcessEnv} env @returns {boolean} whether this kid names the status-list key, which never verifies a credential */
 const isStatusListKid = (kid, env = process.env) => keySources(env).some((source) => source.kid === kid && source.purpose === STATUS_LIST);
 
 /**

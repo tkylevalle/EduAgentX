@@ -72,6 +72,11 @@ test('verification checks a signature with the published key its kid names, reti
   assert.notEqual(await verify('2026-11-05T00:00:00.000Z'), 'PASS');
 });
 
+test('two configured keys may not share one kid', (t) => {
+  const { env } = withKeys(t);
+  assert.throws(() => issuerJwks({ ...env, CREDENTIAL_TEST_KEY_ID: env.CREDENTIAL_KEY_ID }), /share one kid/);
+});
+
 test('a missing key file or a malformed retired list is refused, not skipped', (t) => {
   const { env } = withKeys(t);
   assert.throws(() => issuerJwks({ ...env, CREDENTIAL_PUBLIC_KEY_PATH: '/no/such/key.pem' }), /issuer key/);
