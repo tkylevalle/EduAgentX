@@ -248,7 +248,7 @@ test('toCandidate maps a credential exactly as certification-service issues it',
   assert.deepEqual(toCandidate(issued), {
     credentialId: issued.credentialId, agentLearnerKey: 'agent/a b', configurationFingerprint: 'sha256:fp-a',
     package: { id: 'ai-safety-fundamentals', version: '1.0.0', digest: 'sha256-package-1' },
-    overallPercent: 88.5, adversarialPercent: 76.25, assessmentMode: 'standard', grader: GRADER, behaviour: null, environment: null, evidenceMode: null,
+    overallPercent: 88.5, adversarialPercent: 76.25, assessmentMode: 'standard', grader: GRADER, behaviour: null, attestationLevel: null, environment: null, evidenceMode: null,
     validFrom: '2026-09-18T00:00:00.000Z', validUntil: '2027-09-18T00:00:00.000Z', compactJws: issued.compactJws,
   });
 });

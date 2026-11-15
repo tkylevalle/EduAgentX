@@ -85,6 +85,14 @@ for (const [name, edit] of [
   const v = withBehaviour(); edit(v);
   assert.equal(verify(v).schema.status, 'FAIL');
 });
+test('a stated attestation level must be known and the same in both copies', () => {
+  const attested = (level, evidenceLevel = level) => { const v = vc('synthetic');
+    v.credentialSubject.competency.attestation = { level, meaning: 'm' }; v.evidence.attestation = { level: evidenceLevel, meaning: 'm' }; return v; };
+  assert.equal(verify(attested('L2-observed')).overall, 'VALID');
+  assert.equal(verify(attested('L3-monitored')).schema.status, 'FAIL');
+  assert.equal(verify(attested('L2-observed', 'L1-declared')).schema.status, 'FAIL');
+});
+
 test('properly signed failing behaviour still fails provenance schema', () => {
   assert.equal(verify(withBehaviour(40)).schema.status, 'FAIL');
 });

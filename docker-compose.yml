@@ -520,6 +520,8 @@ services:
       CERTIFICATION_PRIVATE_KEY_PATH: ${CERTIFICATION_PRIVATE_KEY_PATH:-/app/keys/certification-test-ed25519-private.pem}
       CERTIFICATION_ISSUER: ${CERTIFICATION_ISSUER:-https://eduagentx.example/issuers/eduagentx-test}
       CREDENTIAL_BASE_URL: ${CREDENTIAL_BASE_URL:-https://eduagentx.example/credentials}
+      # Agent identities the platform runs itself; their credentials state attestation L2-observed (assurance audit D1).
+      CERTIFICATION_PLATFORM_SUBJECTS: ${AGENT_CLIENT_ID},${LIVE_AGENT_CLIENT_ID:-live-agent-learner-dev},${SYNTHETIC_EXECUTOR_CLIENT_ID:-synthetic-executor-dev}
       # Where credentials point for their status (credential-verification's STATUS_LIST_BASE_URL).
       CERTIFICATION_STATUS_LIST_BASE: ${STATUS_LIST_BASE_URL:-http://localhost:4000/status-lists}
       CERTIFICATION_SWEEP_INTERVAL_MS: ${CERTIFICATION_SWEEP_INTERVAL_MS:-1000}
