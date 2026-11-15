@@ -735,24 +735,31 @@ function createApp({
   });
   // knowledge.lookup (assurance audit B3, B4): read-only retrieval over the
   // Active package's lessons, ranked by the curriculum index. It is the tool
-  // the agent's manifest declares; the exam is open book.
+  // the agent's manifest declares; the exam is open book. packageId and
+  // version, when given, pin the lookup to one package version (the exam's).
   app.get('/v1/knowledge', requireRole('agent'), async (req, res) => {
     const query = typeof req.query.query === 'string' ? req.query.query.trim() : '';
     const limit = req.query.limit === undefined ? KNOWLEDGE_DEFAULT_RESULTS : Number(req.query.limit);
+    const pin = ['packageId', 'version'].filter((name) => req.query[name] !== undefined);
     if (query.length < KNOWLEDGE_MIN_QUERY_CHARS || query.length > KNOWLEDGE_MAX_QUERY_CHARS ||
-      !Number.isSafeInteger(limit) || limit < 1 || limit > KNOWLEDGE_MAX_RESULTS)
+      !Number.isSafeInteger(limit) || limit < 1 || limit > KNOWLEDGE_MAX_RESULTS ||
+      pin.some((name) => typeof req.query[name] !== 'string' || !TRAINING_IDENTIFIER.test(req.query[name])))
       return res.status(400).json({ apiVersion: 'v1', error: 'invalid_request', correlationId: req.correlationId });
-    const unavailable = () => res.status(503).json({ apiVersion: 'v1', error: 'knowledge_unavailable', correlationId: req.correlationId });
+    const unavailable = (reason) => {
+      if (reason) telemetry.log(SERVICE_NAME, 'upstream_failed', { correlationId: req.correlationId, dependency: 'curriculum-index', outcome: reason });
+      return res.status(503).json({ apiVersion: 'v1', error: 'knowledge_unavailable', correlationId: req.correlationId });
+    };
     if (!curriculumIndexUrl || !curriculumInternalKey) return unavailable();
+    const pinned = pin.map((name) => `&${name}=${encodeURIComponent(req.query[name])}`).join('');
     try {
-      const upstream = await forwardJson(req, `${curriculumIndexUrl}/internal/index/query?text=${encodeURIComponent(query)}&limit=${limit}`,
+      const upstream = await forwardJson(req, `${curriculumIndexUrl}/internal/index/query?text=${encodeURIComponent(query)}&limit=${limit}${pinned}`,
         { headers: { 'x-internal-service-key': curriculumInternalKey } });
-      if (upstream.status !== 200 || !Array.isArray(upstream.body?.results)) return unavailable();
+      if (upstream.status !== 200 || !Array.isArray(upstream.body?.results)) return unavailable(`status_${upstream.status}`);
       return res.status(200).json({ apiVersion: 'v1', mode: upstream.body.mode === 'live' ? 'live' : 'cached-stale',
         results: upstream.body.results.slice(0, limit).map((chunk) => ({ moduleId: chunk.moduleId, objectiveIds: chunk.objectiveIds,
           packageId: chunk.packageId, version: chunk.version, text: chunk.text, digest: chunk.digest })),
         correlationId: req.correlationId });
-    } catch { return unavailable(); }
+    } catch (error) { return unavailable(error?.name || 'request_failed'); }
   });
   // A behaviour item's sandbox episode: the agent reads where it is, then
   // records one action at a time; the Engine runs and records each one.

@@ -193,5 +193,15 @@ table supersedes the Phase 0 rows it names.
 | Remaining Phase 1 work | Code: tools with end state the grader checks (target design 4.1). Needs people or a live run: labels from two people (A2, A4), live-model answers in the dataset, and a live model with a weak prompt in the panel (A9). | — |
 
 The Phase 1 claim, as it can be made today, is restated in the target
-design. The live learner can now act in episodes, but no live exam has run
+design.
+
+## Status during Phase 2 (16 November 2026)
+
+| Item | Status | Where |
+|---|---|---|
+| B3, B4 | Fixed for lessons. `GET /v1/knowledge` serves knowledge.lookup from the curriculum index, pinned to the exam's package version; the live learner looks up lessons for each text item. It returns lesson text, not the stored source sections, behaviour episodes do no lookup, and the Engine does not record lookups in the evidence. | `services/api-gateway`, `services/curriculum-index` |
+| B1 | Partly fixed. The live learner keeps what it wrote in training as notes per objective and sees them in the exam; the notes live in the learner process, are not stored or attested by the platform, and are not in the fingerprint. | `services/synthetic-agent-learner/notes.js` |
+| B6 | Fixed. A remediation session tells the agent the failed objectives and the Engine's summary of the failure reasons and broken rules, never an answer key. | `services/training-service/session.js` |
+| B2 | Open. Citations are not graded against `sourceLinks`. | — |
+| B5, B7 | Open. | — | The live learner can now act in episodes, but no live exam has run
 on this branch.

@@ -16,10 +16,12 @@ function fakeGateway({ startStatus = 201, knowledgeStatus = 200 } = {}) {
       calls.push({ method, path, body });
       if (method === 'POST' && path === '/v1/examinations') {
         if (startStatus !== 201) return { status: startStatus, body: { error: 'examination_unavailable' } };
-        return { status: 201, body: { attempt: { attemptId: 'attempt-1', status: 'in_progress', sequence, form: { items } } } };
+        return { status: 201, body: { attempt: { attemptId: 'attempt-1', status: 'in_progress', sequence,
+          form: { package: { id: 'ai-safety', version: '0.1.6' }, items } } } };
       }
       if (method === 'GET' && path.startsWith('/v1/knowledge')) {
-        return knowledgeStatus === 200 ? { status: 200, body: { results: [{ moduleId: 'm1', text: 'lesson' }] } }
+        if (knowledgeStatus === 'throw') throw new Error('gateway_timeout');
+        return knowledgeStatus === 200 ? { status: 200, body: { mode: 'live', results: [{ moduleId: 'm1', text: 'lesson' }] } }
           : { status: knowledgeStatus, body: { error: 'knowledge_unavailable' } };
       }
       if (method === 'POST' && path.endsWith('/responses')) {
@@ -46,15 +48,16 @@ test('exam runner answers every item in sequence and waits for the terminal stat
     'the agent never grades or finalizes its own attempt');
 });
 
-test('answers may use knowledge.lookup through the Gateway, and failed lookups are counted', async () => {
-  for (const [knowledgeStatus, lessons, failed] of [[200, 1, 0], [503, 0, 3]]) {
+test('answers may use knowledge.lookup pinned to the exam\'s package, and failed lookups are counted, not fatal', async () => {
+  for (const [knowledgeStatus, lessons, failed] of [[200, 1, 0], [503, 0, 3], ['throw', 0, 3]]) {
     const gateway = fakeGateway({ knowledgeStatus });
     const seen = [];
     const result = await createExamRunner({ gatewayClient: gateway, pollIntervalMs: 1 }).examine({
       answerFor: async (item, index, tools) => { seen.push((await tools.lookup(item.prompt)).length); return examAnswer('safe-escalation', item, index); } });
+    assert.equal(result.outcome, 'complete', String(knowledgeStatus));
     assert.deepEqual(seen, [lessons, lessons, lessons]);
-    assert.deepEqual(result.knowledge, { lookups: 3, failed });
-    assert.ok(gateway.calls.some((call) => call.path === '/v1/knowledge?query=Prompt%20a1&limit=3'));
+    assert.deepEqual(result.knowledge, { lookups: 3, failed, empty: 0, stale: 0 });
+    assert.ok(gateway.calls.some((call) => call.path === '/v1/knowledge?query=Prompt%20a1&limit=3&packageId=ai-safety&version=0.1.6'));
   }
 });
 
