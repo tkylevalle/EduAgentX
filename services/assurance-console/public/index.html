@@ -248,10 +248,11 @@ tr:hover td{background:var(--surface2);}
   <div class="section">
     <div class="section-header"><span class="section-title">Grading Evidence</span></div>
     <div class="section-body">
-      <table>
-        <thead><tr><th>Attempt ID</th><th>Subject</th><th>Score</th><th>Result</th><th>Graded At</th></tr></thead>
-        <tbody id="evidenceTable"><tr><td colspan="5" style="color:var(--muted);">Loading...</td></tr></tbody>
-      </table>
+      <p style="font-size:12px;">The grading service keeps no records. Each assessment, with the grader that produced it, is recorded on its examination attempt.</p>
+      <form id="evidenceLookup" style="margin-top:10px;display:flex;gap:8px;">
+        <input id="evidenceAttemptId" placeholder="Examination attempt ID" aria-label="Examination attempt ID" style="flex:1;" required>
+        <button type="submit">Open attempt</button>
+      </form>
     </div>
   </div>
 </div>
@@ -448,20 +449,17 @@ async function loadGovernance() {
 }
 
 // ── Evidence ───────────────────────────────────────────────────────
-async function loadEvidence() {
-  const evidence = await safeFetch(`${GRADE}/evidence`);
-  const tbl = document.getElementById('evidenceTable');
-  if (evidence && evidence.length > 0) {
-    tbl.innerHTML = evidence.map(e => `<tr>
-      <td><code style="font-size:11px;">${e.attemptId.slice(0,12)}…</code></td>
-      <td>${e.subject}</td>
-      <td>${(e.overallScore*100).toFixed(1)}%</td>
-      <td>${badge(e.passed ? 'PASS' : 'FAIL', e.passed ? 'green' : 'red')}</td>
-      <td style="font-size:11px;color:var(--muted);">${new Date(e.gradedAt).toLocaleString()}</td>
-    </tr>`).join('');
-  } else {
-    tbl.innerHTML = '<tr><td colspan="5" style="color:var(--muted);">No grading evidence yet</td></tr>';
-  }
+// Assessments live on examination attempts, so the lookup opens the
+// server-rendered attempt view instead of listing grading-service records.
+function loadEvidence() {
+  const form = document.getElementById('evidenceLookup');
+  if (form.dataset.bound) return;
+  form.dataset.bound = 'true';
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const attemptId = document.getElementById('evidenceAttemptId').value.trim();
+    if (attemptId) window.location.href = `/examinations/${encodeURIComponent(attemptId)}`;
+  });
 }
 
 // ── Operations ─────────────────────────────────────────────────────
