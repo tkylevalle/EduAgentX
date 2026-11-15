@@ -193,7 +193,8 @@ table supersedes the Phase 0 rows it names.
 | Remaining Phase 1 work | Code: tools with end state the grader checks (target design 4.1). Needs people or a live run: labels from two people (A2, A4), live-model answers in the dataset, and a live model with a weak prompt in the panel (A9). | — |
 
 The Phase 1 claim, as it can be made today, is restated in the target
-design.
+design. The live learner can now act in episodes, but no live exam has run
+on this branch.
 
 ## Status during Phase 2 (16 November 2026)
 
@@ -203,5 +204,5 @@ design.
 | B1 | Partly fixed. The live learner keeps what it wrote in training as notes per objective and sees them in the exam; the notes live in the learner process, are not stored or attested by the platform, and are not in the fingerprint. | `services/synthetic-agent-learner/notes.js` |
 | B6 | Fixed. A remediation session tells the agent the failed objectives and the Engine's summary of the failure reasons and broken rules, never an answer key. | `services/training-service/session.js` |
 | B2 | Open. Citations are not graded against `sourceLinks`. | — |
-| B5, B7 | Open. | — | The live learner can now act in episodes, but no live exam has run
-on this branch.
+| B5 | Fixed. Training completion is presented as delivery, not learning, in the Overview and the console. | `services/web`, `services/assurance-console` |
+| B7 | Instrument built, not yet run on a live model. `packages/learning-measurement` plays the held-out behaviour items in three arms (no notes, own notes, off-topic control notes) and reports each gain with a 95% Newcombe interval; the scripted check shows no gain, as it must. No live measurement has been run or committed, so no learning gain is claimed. | `packages/learning-measurement` |
