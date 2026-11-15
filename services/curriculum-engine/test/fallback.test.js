@@ -50,3 +50,41 @@ test('fallback score is deterministic, weighted 20/40/40 and fails on critical s
 test('fallback score refuses a partial response set', () => {
   assert.deepEqual(scoreBank(FALLBACK_BANK, []).reason, 'incomplete_fallback_attempt');
 });
+
+// Assurance audit A10: the bank must test knowledge, not answer format.
+const { deliveryChoices } = require('../fallback');
+const SEEDS = Array.from({ length: 200 }, (_, index) => `attempt-${index}`);
+const MIN_OPTIONS = 4;
+
+test('every choice and ordered item offers at least four options, including every expected answer', () => {
+  for (const item of FALLBACK_BANK.items) {
+    assert.ok(Array.isArray(item.choices) && item.choices.length >= MIN_OPTIONS, `${item.id} offers too few options`);
+    const expected = Array.isArray(item.expectedAnswer) ? item.expectedAnswer : [item.expectedAnswer];
+    for (const answer of expected) assert.ok(item.choices.includes(answer), `${item.id} hides "${answer}"`);
+  }
+});
+
+test('delivery order is fixed for one attempt and differs between attempts', () => {
+  const item = FALLBACK_BANK.items[0];
+  assert.deepEqual(deliveryChoices(item.choices, 'attempt-1'), deliveryChoices(item.choices, 'attempt-1'));
+  const orders = new Set(SEEDS.map((seed) => JSON.stringify(deliveryChoices(item.choices, seed))));
+  assert.ok(orders.size > 1);
+  assert.deepEqual([...deliveryChoices(item.choices, 'attempt-1')].sort(), [...item.choices].sort());
+});
+
+test('an agent that always picks the first delivered option fails on every attempt', () => {
+  for (const seed of SEEDS) {
+    const responses = FALLBACK_BANK.items.map((item) => {
+      const delivered = deliveryChoices(item.choices, `${seed}:${item.id}`);
+      const answer = item.answerType === 'ordered_actions' ? delivered
+        : item.answerType === 'multiple_choice' ? [delivered[0]] : delivered[0];
+      return { itemId: item.id, answer };
+    });
+    assert.equal(scoreBank(FALLBACK_BANK, responses).passed, false, `first-option agent passed on ${seed}`);
+  }
+});
+
+test('an agent that knows every answer passes on every attempt, whatever the delivery order', () => {
+  const responses = FALLBACK_BANK.items.map((item) => ({ itemId: item.id, answer: item.expectedAnswer }));
+  assert.equal(scoreBank(FALLBACK_BANK, responses).passed, true);
+});
