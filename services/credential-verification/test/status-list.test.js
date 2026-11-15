@@ -27,8 +27,12 @@ test('a revoked credential\'s bit is set in the signed revocation list, which ve
   const { publicKey, privateKey } = generateKeyPairSync('ed25519');
   fs.writeFileSync(path.join(dir, 'status.pem'), privateKey.export({ type: 'pkcs8', format: 'pem' }));
   fs.writeFileSync(path.join(dir, 'status-public.pem'), publicKey.export({ type: 'spki', format: 'pem' }));
+  const credentialKeys = generateKeyPairSync('ed25519');
+  fs.writeFileSync(path.join(dir, 'credential-public.pem'), credentialKeys.publicKey.export({ type: 'spki', format: 'pem' }));
   const env = { STATUS_LIST_PRIVATE_KEY_PATH: path.join(dir, 'status.pem'), STATUS_LIST_PUBLIC_KEY_PATH: path.join(dir, 'status-public.pem'),
     STATUS_LIST_KEY_ID: 'https://issuer.example/i#status-1', STATUS_LIST_BASE_URL: 'https://issuer.example/status-lists',
+    STATUS_LIST_ISSUER: 'https://issuer.example/i', CREDENTIAL_ISSUER: 'https://issuer.example/i',
+    CREDENTIAL_PUBLIC_KEY_PATH: path.join(dir, 'credential-public.pem'), CREDENTIAL_KEY_ID: 'https://issuer.example/i#key-1',
     CREDENTIAL_INTERNAL_KEY: 'status-list-test-key', CREDENTIAL_STATUS_PATH: '' };
   const saved = Object.fromEntries(Object.keys(env).map((key) => [key, process.env[key]]));
   Object.assign(process.env, env);
@@ -51,8 +55,26 @@ test('a revoked credential\'s bit is set in the signed revocation list, which ve
   const bits = decodeList(checked.credential.credentialSubject.encodedList);
   assert.equal(bits[42 >> 3] & (0x80 >> (42 % 8)), 0x80 >> (42 % 8));
   const jwks = await (await fetch(`${base}/.well-known/jwks.json`)).json();
-  assert.ok(jwks.keys.some((key) => key.kid === 'https://issuer.example/i#status-1'));
+  assert.deepEqual(jwks.keys.filter((key) => key.kid === 'https://issuer.example/i#status-1').map((key) => key.purpose), ['status-list']);
   assert.equal((await fetch(`${base}/status-lists/other`)).status, 404);
+  // The status key signs lists only: a credential it signs never verifies.
+  const { signCredential } = require('../src/signer');
+  const forged = signCredential({ '@context': ['https://www.w3.org/ns/credentials/v2'], type: ['VerifiableCredential'],
+    issuer: 'https://issuer.example/i', validFrom: '2026-11-16T00:00:00.000Z', credentialSubject: { id: 'x' } },
+  privateKey.export({ type: 'pkcs8', format: 'pem' }), 'https://issuer.example/i#status-1');
+  const report = await (await fetch(`${base}/verify`, { method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ jws: forged }) })).json();
+  assert.notEqual(report.signature.status, 'PASS');
+  assert.notEqual(report.overall, 'VALID');
+  // A credential whose own status entry names another index than it was registered with fails.
+  const mismatched = signCredential({ '@context': ['https://www.w3.org/ns/credentials/v2'], type: ['VerifiableCredential'], id: 'cred-list-a',
+    issuer: 'https://issuer.example/i', validFrom: '2026-11-16T00:00:00.000Z', credentialSubject: { id: 'x' },
+    credentialStatus: [{ type: 'BitstringStatusListEntry', statusPurpose: 'revocation', statusListIndex: '41' }] },
+  credentialKeys.privateKey.export({ type: 'pkcs8', format: 'pem' }), 'https://issuer.example/i#key-1');
+  const entryReport = await (await fetch(`${base}/verify`, { method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ jws: mismatched }) })).json();
+  assert.equal(entryReport.signature.status, 'PASS');
+  assert.ok(entryReport.reasonCodes.includes('STATUS_ENTRY_MISMATCH'), JSON.stringify(entryReport));
 });
 
 test('an index outside the list is refused', () => {

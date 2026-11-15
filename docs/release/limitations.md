@@ -108,14 +108,22 @@ does not yet support a competence claim. State on 16 November 2026, after Phase 
 - **Source checks are shallow.** The traceability gate hashes source
   metadata, not the documents, and never checks that a claim appears in its
   source; freshness relies on evidence the caller supplies.
-- **Fingerprints are declared by the agent.** Nothing checks that the running
-  agent matches its registered configuration.
+- **Fingerprints are declared by external agents.** Every credential now
+  states its attestation level: `L2-observed` for the agents the platform
+  runs itself (the synthetic and live learners), `L1-declared` for any other
+  agent, whose configuration nothing checks. There is no platform harness for
+  external agents, so an external agent cannot reach L2.
 - **Only scripted agents can be Eligible in the Marketplace.** Live
   provenance is disabled and the replay fixture has no reviews, so every
   Eligible candidate is a synthetic agent with scripted answers.
-- **Status and issuer are not independently checkable.** Suspension and
-  revocation are an unsigned store inside credential-verification, not a
-  signed status list, and the issuer (`did:example`) publishes no key.
+- **Status and keys are published, with limits.** Credentials carry W3C
+  Bitstring Status List entries, and the signed revocation and suspension
+  lists and the issuer's keys (JWKS, with each key's purpose) are open at
+  `/status-lists/*` and `/.well-known/jwks.json`. The issuer is still an
+  `https://eduagentx.example` URL, not a resolvable `did:web`; credentials
+  issued before this change carry no status entry; a leaked retired key can
+  back-date a forgery (see [key-rotation.md](key-rotation.md)); one list
+  holds 131,072 credentials.
 - **The credential names its grader** (since this audit), but Certification
   accepts any grader the assessment names; refusing graders that have not
   passed the validity measurement needs a grader registry. Credentials

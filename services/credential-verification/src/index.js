@@ -5,7 +5,7 @@ const { timingSafeEqual } = require('node:crypto');
 const { verifyCredential, TEST_KEY_PREFIX, keyIdOf, trustedIssuers } = require('./verifier');
 const { LIST_BITS, PURPOSES, statusListCredential } = require('./status-list');
 const { statusStore, StatusTransitionError } = require('./statusStore');
-const { issuerJwks, publicKeyForKid } = require('./issuer-keys');
+const { issuerJwks, isStatusListKid, publicKeyForKid } = require('./issuer-keys');
 
 const app = express();
 app.use(express.json({ limit: '64kb' }));
@@ -30,7 +30,11 @@ function issuedAtOf(jws) {
 // credential can never verify with the other key, or the reverse.
 function publicKeyFor(jws) {
   let published = null;
-  try { published = publicKeyForKid(keyIdOf(jws), issuedAtOf(jws)); } catch (error) {
+  try {
+    // The status-list key signs lists, never credentials.
+    if (isStatusListKid(keyIdOf(jws))) return null;
+    published = publicKeyForKid(keyIdOf(jws), issuedAtOf(jws));
+  } catch (error) {
     // Broken key configuration: log it and fail closed (the signature check fails).
     console.error(`[credential-verification] issuer keys unavailable: ${error.message}`);
     return null;
@@ -78,6 +82,13 @@ app.get('/health', (_req, res) => {
 app.post('/verify', (req, res) => {
   const { jws } = req.body || {};
   if (!jws) return res.status(400).json({ error: 'missing_jws' });
+  // A credential signed with the status-list key is invalid, whatever it says.
+  let statusKid = false;
+  try { statusKid = isStatusListKid(keyIdOf(jws)); } catch (error) {
+    console.error(`[credential-verification] issuer keys unavailable: ${error.message}`);
+  }
+  if (statusKid) return res.status(422).json({ signature: { status: 'FAIL', reason: 'key_not_for_credentials' },
+    overall: 'INVALID', reasonCodes: ['KEY_PURPOSE_MISMATCH'] });
 
   const publicKey = publicKeyFor(jws);
   if (!publicKey) return res.status(503).json({ error: 'no_public_key_configured' });
@@ -143,12 +154,18 @@ app.get('/status-lists/:purpose', (req, res) => {
   if (!PURPOSES.includes(purpose)) return res.status(404).json({ error: 'not_found' });
   const keyPath = process.env.STATUS_LIST_PRIVATE_KEY_PATH;
   const base = process.env.STATUS_LIST_BASE_URL;
-  if (!keyPath || !fs.existsSync(keyPath) || !process.env.STATUS_LIST_KEY_ID || !base)
+  // The list's issuer must be the credentials' issuer, so it is configured, never guessed.
+  const issuer = process.env.STATUS_LIST_ISSUER;
+  if (!keyPath || !fs.existsSync(keyPath) || !process.env.STATUS_LIST_KEY_ID || !base || !issuer || !trustedIssuers().has(issuer))
     return res.status(503).json({ error: 'status_list_not_configured' });
-  const issuer = process.env.STATUS_LIST_ISSUER || [...trustedIssuers()][0];
-  const signed = statusListCredential({ purpose, listUrl: `${base}/${purpose}`, issuer, indices: statusStore.indicesWith(STATUS_STATE[purpose]),
-    validFrom: new Date().toISOString(), privateKeyPem: fs.readFileSync(keyPath, 'utf8'), keyId: process.env.STATUS_LIST_KEY_ID });
-  res.set('cache-control', 'no-store').type('application/vc+jwt').send(signed.compactJws);
+  try {
+    const signed = statusListCredential({ purpose, listUrl: `${base}/${purpose}`, issuer, indices: statusStore.indicesWith(STATUS_STATE[purpose]),
+      validFrom: new Date().toISOString(), privateKeyPem: fs.readFileSync(keyPath, 'utf8'), keyId: process.env.STATUS_LIST_KEY_ID });
+    res.set('cache-control', 'no-store').type('application/vc+jwt').send(signed.compactJws);
+  } catch (error) {
+    console.error(`[credential-verification] status list not signed: ${error.message}`);
+    res.status(503).json({ error: 'status_list_unavailable' });
+  }
 });
 
 // The issuer's public keys (assurance audit D3), open to anyone.

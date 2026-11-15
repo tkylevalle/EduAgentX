@@ -10,6 +10,9 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const STATUS_ACTIONS = Object.freeze(['suspend', 'reinstate', 'revoke']);
 const MAX_REASON_CHARS = 500;
 const MAX_JWS_CHARS = 60000;
+// Signing a 16 KB status list takes milliseconds; the same budget as other upstream reads.
+const STATUS_LIST_TIMEOUT_MS = 5000;
+const telemetry = require('../../packages/telemetry');
 
 function registerAssuranceRoutes(app, {
   requireRole, proxyJson,
@@ -66,9 +69,14 @@ function registerAssuranceRoutes(app, {
     if (!['revocation', 'suspension'].includes(req.params.purpose)) return res.status(404).json({ apiVersion: 'v1', error: 'not_found' });
     if (!credentialVerificationUrl) return unavailable(req, res, 'verification_unavailable');
     try {
-      const upstream = await fetch(`${credentialVerificationUrl}/status-lists/${req.params.purpose}`, { signal: AbortSignal.timeout(5000) });
+      const upstream = await fetch(`${credentialVerificationUrl}/status-lists/${req.params.purpose}`,
+        { signal: AbortSignal.timeout(STATUS_LIST_TIMEOUT_MS) });
       res.status(upstream.status).type(upstream.headers.get('content-type') || 'application/json').send(await upstream.text());
-    } catch { return unavailable(req, res, 'verification_unavailable'); }
+    } catch (error) {
+      telemetry.log('api-gateway', 'upstream_failed', { correlationId: req.correlationId, dependency: 'credential-verification',
+        outcome: error?.name || 'request_failed' });
+      return unavailable(req, res, 'verification_unavailable');
+    }
   });
 
   app.get('/v1/credentials/:credentialId/status', requireRole('agent', ...ASSURANCE_READERS), async (req, res) => {

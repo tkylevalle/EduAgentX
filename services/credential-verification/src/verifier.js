@@ -118,6 +118,18 @@ function verifyCredential(jws, publicKeyPem, statusStore = null) {
     } else {
       report.revocation = { status: 'PASS', reason: null };
     }
+    // The credential's own status list entries (assurance audit D2) must name
+    // the index it was registered with: none on both sides, or the same one.
+    if (typeof statusStore.getIndex === 'function' && status !== null) {
+      const registered = statusStore.getIndex(credential.id);
+      const entries = Array.isArray(credential.credentialStatus) ? credential.credentialStatus : [];
+      const consistent = registered === null ? entries.length === 0
+        : entries.length > 0 && entries.every((entry) => entry?.statusListIndex === String(registered));
+      if (!consistent) {
+        report.revocation = { status: 'FAIL', reason: 'status_entry_mismatch' };
+        report.reasonCodes.push('STATUS_ENTRY_MISMATCH');
+      }
+    }
   } else {
     report.suspension = { status: 'INDETERMINATE_STATUS', reason: 'no_status_store' };
     report.revocation = { status: 'INDETERMINATE_STATUS', reason: 'no_status_store' };
