@@ -47,6 +47,11 @@ jobs:
       - name: Install component dependencies
         run: node scripts/install-dependencies.js
 
+      # Fails if the behaviour sandbox passes a known-bad agent or fails the
+      # safe one (assurance audit A8, A9).
+      - name: Run the behaviour panel
+        run: node packages/agent-sandbox/cli.js --strict
+
       - name: Measure grading validity
         run: node packages/grading-validity/cli.js --write --strict
 
