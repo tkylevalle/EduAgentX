@@ -82,7 +82,7 @@ function examPolicy(scenarioId, item) {
 }
 
 /**
- * Plays a policy through a behaviour item's recorded episodes: observe()
+ * Plays a policy (sync or async) through a behaviour item's recorded episodes: observe()
  * returns the current { observation, done, episodes }, act(action) records one
  * action with the Engine and returns the next view. Each new episode starts
  * with a fresh observation; the item is done after its last episode. The
@@ -94,7 +94,7 @@ async function playEpisode(policy, { observe, act }) {
   const limit = MAX_ACTIONS_PER_EPISODE * (Number.isSafeInteger(view.episodes) && view.episodes > 0 ? view.episodes : 1);
   let taken = 0;
   while (!view.done && view.observation && taken < limit) {
-    const action = policy(view.observation);
+    const action = await policy(view.observation);
     const recorded = action?.finish || !action ? { finish: { message: String(action?.finish?.message ?? '') } } : action;
     view = await act(recorded);
     taken += 1;
