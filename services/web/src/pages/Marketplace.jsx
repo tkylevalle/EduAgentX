@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Ban, Gauge, RefreshCw, Store, TriangleAlert } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Ban, BadgeCheck, Gauge, RefreshCw, Store, TriangleAlert } from 'lucide-react';
 import { PageHead, Panel, Pill } from '../ui.jsx';
 import { api, pct, short, stamp } from '../lib.js';
 
@@ -11,7 +11,8 @@ const MODES = ['standard', 'fallback'];
 const DEFAULT_FORM = {
   title: 'Tool-use operator, standard track',
   domain: SUPPORTED_DOMAIN,
-  requiredObjectiveIds: 'obj-tool-scoping, obj-secret-handling',
+  // Filled from the active package's objectives once it loads.
+  requiredObjectiveIds: '',
   preferredObjectiveIds: '',
   minOverallPercent: 80,
   minAdversarialPercent: 70,
@@ -112,6 +113,15 @@ export default function Marketplace({ health }) {
   const [matchResult, setMatchResult] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  const [candidate, setCandidate] = useState(null);
+
+  // Require every objective of the active package unless the user typed their own.
+  useEffect(() => {
+    api('/api/package').then(({ package: pkg }) => {
+      const ids = (pkg?.objectives || []).map((objective) => objective.id).join(', ');
+      if (ids) setForm((prev) => (prev.requiredObjectiveIds ? prev : { ...prev, requiredObjectiveIds: ids }));
+    }).catch(() => {});
+  }, []);
 
   const marketplaceHealthy = health?.find((service) => service.id === 'marketplace-service')?.healthy;
 
@@ -140,6 +150,13 @@ export default function Marketplace({ health }) {
       const opened = await api(`/api/marketplace/capability-requests/${created.request.id}/open`, { method: 'POST', body: { version } });
       setRequest(opened.request);
     } catch (reason) { setError(reason.data?.details ? `${reason.message}: ${reason.data.details.join(', ')}` : reason.message); }
+    finally { setBusy(false); }
+  }
+
+  async function certifyCandidate() {
+    setBusy(true); setError(null);
+    try { setCandidate(await api('/api/marketplace/candidate', { method: 'POST', body: {} })); }
+    catch (reason) { setError(reason.data?.step ? `Candidate ${reason.data.step} failed: ${reason.data.reason}` : reason.message); }
     finally { setBusy(false); }
   }
 
@@ -202,12 +219,22 @@ export default function Marketplace({ health }) {
           </select>
           <div className="drawer-actions">
             <button className="btn btn-primary" onClick={openRequest} disabled={busy || !form.title.trim()}>
-              <Store size={15} /> {request ? 'Open a new request version' : 'Create and open request'}
+              <Store size={15} /> {request ? 'Create and open another request' : 'Create and open request'}
             </button>
             {request && (
               <button className="btn" onClick={regenerate} disabled={busy}><RefreshCw size={15} /> Regenerate matches</button>
             )}
+            <button className="btn" onClick={certifyCandidate} disabled={busy}
+              title="Trains, examines and lists the synthetic executor, an agent with checkable execution evidence">
+              <BadgeCheck size={15} /> Certify a candidate agent
+            </button>
           </div>
+          {candidate && (
+            <p className="faint" style={{ fontSize: 12.5, marginTop: 10 }}>
+              <code>{candidate.agentLearnerKey}</code> examined ({candidate.terminalReason?.replaceAll('_', ' ')}) and
+              {candidate.discoverable ? ' listed. Regenerate matches to see it ranked.' : ' not listed.'}
+            </p>
+          )}
           {request && (
             <dl className="kv" style={{ marginTop: 14 }}>
               <dt>Request</dt><dd><code>{short(request.id, 10, 6)}</code> v{request.state.openVersion}</dd>
@@ -243,8 +270,8 @@ export default function Marketplace({ health }) {
                 ? <p className="faint" style={{ fontSize: 12.5 }}>Nothing excluded this run.</p>
                 : <ul className="feed">{matchResult.exclusions.map((item, index) => <ExclusionRow item={item} key={index} />)}</ul>}
               <p className="faint" style={{ fontSize: 11.5, marginTop: 14 }}>
-                Lifecycle-origin trust verification (the gate behind most current exclusions) is pending Issue #83/#84 — until that merges,
-                every real candidate is excluded upstream as <code>LIFECYCLE_ORIGIN_UNCHECKABLE</code>, by design, not a bug in this console.
+                Marketplace admits a credential only when it can check its lifecycle origin and execution evidence. A candidate it
+                cannot check is excluded with the reason shown, never guessed into a lane.
               </p>
             </>
           )}

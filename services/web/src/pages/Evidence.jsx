@@ -15,7 +15,7 @@ const SECTIONS = [
   ['policies', 'Policies', 'Not yet sourced from a live service'],
   ['datasets', 'Datasets', 'Not yet sourced from a live service'],
   ['incidents', 'Incidents', 'Not yet sourced from a live service'],
-  ['demonstrations', 'Demonstrations', 'Pending Issue #33 (e2e suite) and #34 (hero scenarios)'],
+  ['demonstrations', 'Demonstrations', 'Not sourced live yet; hero results are in docs/sprint-5'],
   ['costs', 'Costs', 'Not yet sourced from a live service'],
   ['limitations', 'Limitations', 'Declared by this bundle run'],
 ];

@@ -252,3 +252,42 @@ test('the HTML export regenerates from live data and returns the rendered page',
   const text = await reply.text();
   assert.match(text, /Evidence Bundle/);
 });
+
+// A learner stand-in for the Marketplace candidate route.
+function fakeLearner({ trainingStatus = 200 } = {}) {
+  const calls = [];
+  const fetchImpl = async (url, init = {}) => {
+    const reply = (status, body) => ({ status, text: async () => JSON.stringify(body) });
+    if (!url.endsWith('/v1/execution-runs')) return reply(404, { error: 'not_found' });
+    const body = JSON.parse(init.body);
+    calls.push(body);
+    if (body.action === 'training') return trainingStatus === 200
+      ? reply(200, { outcome: 'completed', sessionId: 'b1d6a6c2-5f0e-4a43-9a43-0b5d3a2c9e11', provenance: { agentLearnerKey: 'synthetic-executor-dev' } })
+      : reply(trainingStatus, { outcome: 'system_aborted', reason: 'registration_unavailable' });
+    if (body.action === 'examination') return reply(200, { outcome: 'complete',
+      attempt: { attemptId: ATTEMPT_ID, terminalReason: 'valid_passing_result' } });
+    return reply(201, { outcome: 'published', listing: { agentLearnerKey: 'synthetic-executor-dev', discoverable: true } });
+  };
+  return { fetchImpl, calls };
+}
+
+test('a Marketplace candidate is trained, examined and published as the synthetic executor', async (t) => {
+  const { fetchImpl, calls } = fakeLearner();
+  const base = await listen(t, { fetchImpl });
+  const reply = await post(base, '/api/marketplace/candidate', {});
+  assert.equal(reply.status, 200);
+  assert.deepEqual(await reply.json(), { agentLearnerKey: 'synthetic-executor-dev', attemptId: ATTEMPT_ID,
+    terminalReason: 'valid_passing_result', discoverable: true });
+  assert.deepEqual(calls.map((c) => c.action), ['training', 'examination', 'publish']);
+  assert.ok(calls.every((c) => c.evidenceMode === 'synthetic'));
+  assert.equal(calls[1].trainingSessionId, 'b1d6a6c2-5f0e-4a43-9a43-0b5d3a2c9e11');
+});
+
+test('a failed candidate step stops the run and names the step', async (t) => {
+  const { fetchImpl, calls } = fakeLearner({ trainingStatus: 409 });
+  const base = await listen(t, { fetchImpl });
+  const reply = await post(base, '/api/marketplace/candidate', {});
+  assert.equal(reply.status, 502);
+  assert.deepEqual(await reply.json(), { error: 'candidate_failed', step: 'training', reason: 'registration_unavailable' });
+  assert.deepEqual(calls.map((c) => c.action), ['training']);
+});
