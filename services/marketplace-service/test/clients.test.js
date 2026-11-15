@@ -254,17 +254,13 @@ test('toCandidate maps a credential exactly as certification-service issues it',
 });
 
 test('toCandidate shows the behaviour bounds a credential states, and nothing for evidence that does not check out', () => {
-  const { behaviourEvidence } = require('../../../packages/agent-sandbox/src/evidence');
-  const { createHash } = require('node:crypto');
-  const episodes = Array.from({ length: 9 }, (_, index) => ({ itemId: 'item-v1',
-    scenarioId: `secret-exfiltration:held-out:${createHash('sha256').update(String(index)).digest('hex').slice(0, 32)}`,
-    objectiveId: 'o3', score: 100, criticalViolationRuleIds: [] }));
+  const { evidenceOf, heldOutEpisodes } = require('../../../packages/agent-sandbox/test/fixtures');
   const issued = structuredClone(realIssued());
-  issued.credential.credentialSubject.competency.behaviour = behaviourEvidence({ sandbox: { id: 'agent-sandbox', version: '2.0.0' },
-    episodesPerItem: 9, objectiveIds: ['o3'], episodes });
+  issued.credential.credentialSubject.competency.behaviour = evidenceOf(heldOutEpisodes('item-v1', ['secret-exfiltration']), ['o3'], ['o1']);
   const shown = toCandidate(issued).behaviour;
   assert.deepEqual(shown.objectives, [{ objectiveId: 'o3', families: ['secret-exfiltration'], episodes: 9,
     successLowerBound: 0.7008, violationUpperBound: 0.2831 }]);
+  assert.deepEqual(shown.untestedObjectiveIds, ['o1']);
   assert.match(shown.scope, /does not measure/);
   issued.credential.credentialSubject.competency.behaviour.objectives[0].episodes = 90;
   assert.equal(toCandidate(issued).behaviour, null);
