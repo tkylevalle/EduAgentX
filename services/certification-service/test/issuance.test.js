@@ -80,20 +80,34 @@ test('issues a signed project credential bound to a complete passing evidence re
   assert.ok(kpi.body.p95Ms <= 8000);
 });
 
+const KEYWORD_GRADER = Object.freeze({ id: 'deterministic-keyword-grader', version: '1.1.0' });
+const signedClaims = (response) => JSON.parse(Buffer.from(response.body.credential.compactJws.split('.')[1], 'base64url'));
+
 test('the signed credential names the grader that produced its score', async (t) => {
   const ctx = await boot(t);
   const response = await ctx.call('/internal/decisions', { examinationId: evidence().attemptId, idempotencyKey: 'grader-1' });
-  const credential = JSON.parse(Buffer.from(response.body.credential.compactJws.split('.')[1], 'base64url'));
-  assert.deepEqual(credential.evidence.grader, { id: 'deterministic-keyword-grader', version: '1.1.0' });
-  assert.deepEqual(credential.credentialSubject.competency.grader, { id: 'deterministic-keyword-grader', version: '1.1.0' });
+  const credential = signedClaims(response);
+  assert.deepEqual(credential.evidence.grader, KEYWORD_GRADER);
+  assert.deepEqual(credential.credentialSubject.competency.grader, KEYWORD_GRADER);
 });
 
-test('an assessment that does not name its grader cannot issue a credential', async (t) => {
+test('a fallback credential names the fallback scorer as its grader', async (t) => {
+  const fallbackGrader = { id: 'deterministic-fallback', version: '1.0.0' };
+  const fallback = evidence({ mode: 'fallback', template: undefined,
+    bank: { id: 'ai-safety-fallback', version: '1.0.0', digest: `sha256:${'f'.repeat(64)}` } });
+  fallback.assessment.grader = fallbackGrader;
+  const ctx = await boot(t, async () => fallback);
+  const response = await ctx.call('/internal/decisions', { examinationId: fallback.attemptId, idempotencyKey: 'grader-3' });
+  assert.equal(response.status, 201, JSON.stringify(response.body));
+  assert.deepEqual(signedClaims(response).evidence.grader, fallbackGrader);
+});
+
+test('an assessment that does not name its grader is refused as malformed evidence', async (t) => {
   const unnamed = evidence();
   delete unnamed.assessment.grader;
   const ctx = await boot(t, async () => unnamed);
   const response = await ctx.call('/internal/decisions', { examinationId: unnamed.attemptId, idempotencyKey: 'grader-2' });
-  assert.notEqual(response.status, 201);
+  assert.equal(response.body.error || response.body.code || response.body.outcome, 'examination_evidence_malformed', JSON.stringify(response.body));
   assert.deepEqual(await ctx.store.counts(), { decisions: 0, credentials: 0 });
 });
 
@@ -314,6 +328,10 @@ for (const mode of ['synthetic','replay']) {
     assert.equal(vc.environment, 'simulation'); assert.equal(vc.evidenceMode, mode);
     assert.deepEqual(vc.evidence.provenance, source.provenance);
     assert.equal(provenance.credentialProvenance(vc), true);
+    const { grader, ...withoutGrader } = vc.credentialSubject.competency;
+    const withCompetency = (competency) => ({ ...vc, credentialSubject: { ...vc.credentialSubject, competency } });
+    assert.equal(provenance.credentialProvenance(withCompetency(withoutGrader)), false);
+    assert.equal(provenance.credentialProvenance(withCompetency({ ...withoutGrader, grader: { ...grader, version: '9.9.9' } })), false);
     const row = await c.store.findByAttempt(source.attemptId);
     assert.deepEqual(row.evidence.examinationEvidence.provenance, source.provenance);
     assert.equal((await c.call('/internal/decisions', body)).body.credential.compactJws, issued.body.credential.compactJws);
