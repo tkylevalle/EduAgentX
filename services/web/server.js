@@ -20,6 +20,9 @@ const HEALTH_TIMEOUT_MS = 1500;
 const REMEDIATION_WAIT_MS = 15_000;
 const REMEDIATION_POLL_MS = 500;
 const HEARTBEAT_MS = 10_000;
+// One execution-run step (training, examination with grading, or publish).
+// The measured examination took about 6 s on the demo stack; grading may wait longer.
+const CANDIDATE_STEP_TIMEOUT_MS = 120_000;
 const STATUS_ACTIONS = ['suspend', 'reinstate', 'revoke'];
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_AGENT_KEY_LENGTH = 256;
@@ -77,6 +80,7 @@ function createServer({ env = process.env, fetchImpl = fetch, driver } = {}) {
   let token = null;
   let tokenExpiresAt = 0;
   let runInProgress = false;
+  let candidateInProgress = false;
 
   async function call(url, { method = 'GET', body, headers = {}, timeoutMs = REQUEST_TIMEOUT_MS } = {}) {
     const response = await fetchImpl(url, { method,
@@ -155,7 +159,7 @@ function createServer({ env = process.env, fetchImpl = fetch, driver } = {}) {
   // What the Evidence Bundle service can be given right now, honestly: only
   // sections this platform can actually back with live data. Everything else
   // stays empty rather than inventing contracts, datasets or demonstrations
-  // the platform cannot yet produce (demonstrations wait on Issues #33/#34).
+  // the platform cannot yet produce (no live service records demonstrations yet).
   async function collectEvidenceInput() {
     const [services, kpi, pkg] = await Promise.all([
       healthMap(),
@@ -168,7 +172,7 @@ function createServer({ env = process.env, fetchImpl = fetch, driver } = {}) {
       packages: pkg ? [{ id: pkg.packageId, version: pkg.version, digest: pkg.digest, state: pkg.state }] : [],
       kpis: kpi.unavailable ? {} : kpi,
       contracts: [], policies: [], datasets: [], incidents: [], demonstrations: [], costs: {},
-      limitations: ['Demonstrations, contracts, policies, datasets, incidents and costs are not yet sourced from a live service; they wait on Issue #33 (end-to-end suite) and #34 (hero scenarios) landing on main.'],
+      limitations: ['Demonstrations, contracts, policies, datasets, incidents and costs are not yet sourced from a live service; the hero scenario results are recorded in docs/sprint-5/HERO-STACK-RESULTS-2026-11-09.md, not in a live service.'],
     };
   }
 
@@ -365,6 +369,29 @@ function createServer({ env = process.env, fetchImpl = fetch, driver } = {}) {
       const reply = await gateway(`/v1/marketplace/match-results/${req.params.resultId}`);
       res.status(reply.status).json(reply.data);
     } catch { res.status(503).json({ error: 'marketplace_unavailable' }); }
+  });
+
+  // Certifies the platform's synthetic executor and publishes its listing, so
+  // Marketplace has a candidate with checkable execution evidence. The Lab
+  // learner has no execution provenance, so Marketplace correctly excludes it.
+  app.post('/api/marketplace/candidate', async (req, res) => {
+    if (candidateInProgress) return res.status(409).json({ error: 'candidate_in_progress' });
+    candidateInProgress = true;
+    const run = (body) => call(`${SYNTHETIC_URL}/v1/execution-runs`, { method: 'POST', timeoutMs: CANDIDATE_STEP_TIMEOUT_MS,
+      body: { evidenceMode: 'synthetic', ...body } });
+    const failed = (step, reply) => res.status(502).json({ error: 'candidate_failed', step,
+      reason: reply.data?.reason || reply.data?.error || `status_${reply.status}` });
+    try {
+      const trained = await run({ profileId: 'competent', action: 'training' });
+      if (trained.status !== 200) return failed('training', trained);
+      const examined = await run({ profileId: 'competent', action: 'examination', trainingSessionId: trained.data.sessionId });
+      if (examined.status !== 200) return failed('examination', examined);
+      const published = await run({ action: 'publish' });
+      if (![200, 201].includes(published.status)) return failed('publish', published);
+      res.json({ agentLearnerKey: published.data.listing?.agentLearnerKey, attemptId: examined.data.attempt?.attemptId,
+        terminalReason: examined.data.attempt?.terminalReason, discoverable: published.data.listing?.discoverable === true });
+    } catch { res.status(503).json({ error: 'learner_unavailable' }); }
+    finally { candidateInProgress = false; }
   });
 
   app.get('/api/marketplace/capability-requests', async (req, res) => {
