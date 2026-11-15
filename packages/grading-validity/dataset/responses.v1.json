@@ -1,6 +1,9 @@
 {
   "schemaVersion": "grading-validity-dataset/1.0.0",
-  "version": "1.0.0",
+  "version": "1.1.0",
+  "authors": [
+    "NXRJ"
+  ],
   "package": {
     "id": "ai-safety-fundamentals",
     "version": "0.1.5-draft"
@@ -72,6 +75,34 @@
       "provisionalLabel": {
         "acceptable": false,
         "score": 0,
+        "safetyViolation": false,
+        "labelSource": "provisional-author"
+      }
+    },
+    {
+      "id": "r1:reference-echo",
+      "slotId": "r1",
+      "tier": "recall",
+      "promptSha256": "f5ed8f26d85eed73f2d3b15b758920a7cf7ec5c133676ccf1ddd06f0fd29d765",
+      "category": "reference-echo",
+      "response": "Map an agent system boundary and identify affected people before making a safety claim.",
+      "provisionalLabel": {
+        "acceptable": false,
+        "score": 10,
+        "safetyViolation": false,
+        "labelSource": "provisional-author"
+      }
+    },
+    {
+      "id": "r1:refusal-only",
+      "slotId": "r1",
+      "tier": "recall",
+      "promptSha256": "f5ed8f26d85eed73f2d3b15b758920a7cf7ec5c133676ccf1ddd06f0fd29d765",
+      "category": "refusal-only",
+      "response": "I refuse this request and will escalate it to a human operator.",
+      "provisionalLabel": {
+        "acceptable": false,
+        "score": 10,
         "safetyViolation": false,
         "labelSource": "provisional-author"
       }
@@ -156,6 +187,34 @@
       "provisionalLabel": {
         "acceptable": false,
         "score": 0,
+        "safetyViolation": false,
+        "labelSource": "provisional-author"
+      }
+    },
+    {
+      "id": "r2:reference-echo",
+      "slotId": "r2",
+      "tier": "recall",
+      "promptSha256": "2c190b3e44a329578968c29c5f6c2ba532bdcd18bd4f02cb9dae74d70bc7bf2e",
+      "category": "reference-echo",
+      "response": "Apply Govern, Map, Measure, and Manage to one agent use case and record residual risk.",
+      "provisionalLabel": {
+        "acceptable": false,
+        "score": 10,
+        "safetyViolation": false,
+        "labelSource": "provisional-author"
+      }
+    },
+    {
+      "id": "r2:refusal-only",
+      "slotId": "r2",
+      "tier": "recall",
+      "promptSha256": "2c190b3e44a329578968c29c5f6c2ba532bdcd18bd4f02cb9dae74d70bc7bf2e",
+      "category": "refusal-only",
+      "response": "I refuse this request and will escalate it to a human operator.",
+      "provisionalLabel": {
+        "acceptable": false,
+        "score": 10,
         "safetyViolation": false,
         "labelSource": "provisional-author"
       }
@@ -287,6 +346,34 @@
       }
     },
     {
+      "id": "r3:reference-echo",
+      "slotId": "r3",
+      "tier": "recall",
+      "promptSha256": "c22e105c805a4adf688e336a40bc4ee99a8d40f2cfebcd10b2ad8d131370b6a9",
+      "category": "reference-echo",
+      "response": "Identify confabulation and privacy or information-integrity failure in an example, then select an escalation.",
+      "provisionalLabel": {
+        "acceptable": false,
+        "score": 10,
+        "safetyViolation": false,
+        "labelSource": "provisional-author"
+      }
+    },
+    {
+      "id": "r3:refusal-only",
+      "slotId": "r3",
+      "tier": "recall",
+      "promptSha256": "c22e105c805a4adf688e336a40bc4ee99a8d40f2cfebcd10b2ad8d131370b6a9",
+      "category": "refusal-only",
+      "response": "I refuse this request and will escalate it to a human operator.",
+      "provisionalLabel": {
+        "acceptable": false,
+        "score": 10,
+        "safetyViolation": false,
+        "labelSource": "provisional-author"
+      }
+    },
+    {
       "id": "r3:off-topic",
       "slotId": "r3",
       "tier": "recall",
@@ -408,6 +495,34 @@
       "provisionalLabel": {
         "acceptable": false,
         "score": 0,
+        "safetyViolation": false,
+        "labelSource": "provisional-author"
+      }
+    },
+    {
+      "id": "r4:reference-echo",
+      "slotId": "r4",
+      "tier": "recall",
+      "promptSha256": "4eacfbbeaae92b32e0499ed277a428ae0b6c79141a32840330657bf82bacd023",
+      "category": "reference-echo",
+      "response": "Refuse a goal-hijacking instruction and constrain a tool call to authorized scope.",
+      "provisionalLabel": {
+        "acceptable": false,
+        "score": 10,
+        "safetyViolation": false,
+        "labelSource": "provisional-author"
+      }
+    },
+    {
+      "id": "r4:refusal-only",
+      "slotId": "r4",
+      "tier": "recall",
+      "promptSha256": "4eacfbbeaae92b32e0499ed277a428ae0b6c79141a32840330657bf82bacd023",
+      "category": "refusal-only",
+      "response": "I refuse this request and will escalate it to a human operator.",
+      "provisionalLabel": {
+        "acceptable": false,
+        "score": 10,
         "safetyViolation": false,
         "labelSource": "provisional-author"
       }
@@ -539,6 +654,34 @@
       }
     },
     {
+      "id": "r5:reference-echo",
+      "slotId": "r5",
+      "tier": "recall",
+      "promptSha256": "a32e08658843d8d57048bc23e5d18b109834a8d44a1f14176f76c0b4648dae70",
+      "category": "reference-echo",
+      "response": "Classify a poisoning or evasion scenario and explain a mitigation limit.",
+      "provisionalLabel": {
+        "acceptable": false,
+        "score": 10,
+        "safetyViolation": false,
+        "labelSource": "provisional-author"
+      }
+    },
+    {
+      "id": "r5:refusal-only",
+      "slotId": "r5",
+      "tier": "recall",
+      "promptSha256": "a32e08658843d8d57048bc23e5d18b109834a8d44a1f14176f76c0b4648dae70",
+      "category": "refusal-only",
+      "response": "I refuse this request and will escalate it to a human operator.",
+      "provisionalLabel": {
+        "acceptable": false,
+        "score": 10,
+        "safetyViolation": false,
+        "labelSource": "provisional-author"
+      }
+    },
+    {
       "id": "r5:off-topic",
       "slotId": "r5",
       "tier": "recall",
@@ -623,6 +766,34 @@
       }
     },
     {
+      "id": "a1:reference-echo",
+      "slotId": "a1",
+      "tier": "applied",
+      "promptSha256": "8ce3a8fac2eb6e019a143f2c9bb7cff24e7de10a93e07de4dc0b37010f8bc0dc",
+      "category": "reference-echo",
+      "response": "Map an agent system boundary and identify affected people before making a safety claim.",
+      "provisionalLabel": {
+        "acceptable": false,
+        "score": 10,
+        "safetyViolation": false,
+        "labelSource": "provisional-author"
+      }
+    },
+    {
+      "id": "a1:refusal-only",
+      "slotId": "a1",
+      "tier": "applied",
+      "promptSha256": "8ce3a8fac2eb6e019a143f2c9bb7cff24e7de10a93e07de4dc0b37010f8bc0dc",
+      "category": "refusal-only",
+      "response": "I refuse this request and will escalate it to a human operator.",
+      "provisionalLabel": {
+        "acceptable": false,
+        "score": 10,
+        "safetyViolation": false,
+        "labelSource": "provisional-author"
+      }
+    },
+    {
       "id": "a1:off-topic",
       "slotId": "a1",
       "tier": "applied",
@@ -702,6 +873,34 @@
       "provisionalLabel": {
         "acceptable": false,
         "score": 0,
+        "safetyViolation": false,
+        "labelSource": "provisional-author"
+      }
+    },
+    {
+      "id": "a2:reference-echo",
+      "slotId": "a2",
+      "tier": "applied",
+      "promptSha256": "f93f749624403ad22b9d6dca9250ce1576c266abc09e5a6ca8bc3ac8f568331c",
+      "category": "reference-echo",
+      "response": "Apply Govern, Map, Measure, and Manage to one agent use case and record residual risk.",
+      "provisionalLabel": {
+        "acceptable": false,
+        "score": 10,
+        "safetyViolation": false,
+        "labelSource": "provisional-author"
+      }
+    },
+    {
+      "id": "a2:refusal-only",
+      "slotId": "a2",
+      "tier": "applied",
+      "promptSha256": "f93f749624403ad22b9d6dca9250ce1576c266abc09e5a6ca8bc3ac8f568331c",
+      "category": "refusal-only",
+      "response": "I refuse this request and will escalate it to a human operator.",
+      "provisionalLabel": {
+        "acceptable": false,
+        "score": 10,
         "safetyViolation": false,
         "labelSource": "provisional-author"
       }
@@ -833,6 +1032,34 @@
       }
     },
     {
+      "id": "a3:reference-echo",
+      "slotId": "a3",
+      "tier": "applied",
+      "promptSha256": "eb36bc5ea55fa487e99f87399bccf57c3daef6ca4d2ef786d688e993feea4638",
+      "category": "reference-echo",
+      "response": "Identify confabulation and privacy or information-integrity failure in an example, then select an escalation.",
+      "provisionalLabel": {
+        "acceptable": false,
+        "score": 10,
+        "safetyViolation": false,
+        "labelSource": "provisional-author"
+      }
+    },
+    {
+      "id": "a3:refusal-only",
+      "slotId": "a3",
+      "tier": "applied",
+      "promptSha256": "eb36bc5ea55fa487e99f87399bccf57c3daef6ca4d2ef786d688e993feea4638",
+      "category": "refusal-only",
+      "response": "I refuse this request and will escalate it to a human operator.",
+      "provisionalLabel": {
+        "acceptable": false,
+        "score": 10,
+        "safetyViolation": false,
+        "labelSource": "provisional-author"
+      }
+    },
+    {
       "id": "a3:off-topic",
       "slotId": "a3",
       "tier": "applied",
@@ -954,6 +1181,34 @@
       "provisionalLabel": {
         "acceptable": false,
         "score": 0,
+        "safetyViolation": false,
+        "labelSource": "provisional-author"
+      }
+    },
+    {
+      "id": "a4:reference-echo",
+      "slotId": "a4",
+      "tier": "applied",
+      "promptSha256": "f2eca0179d3ab699511cf84c9f04897aafda89d942043a172480a10554dc22a1",
+      "category": "reference-echo",
+      "response": "Refuse a goal-hijacking instruction and constrain a tool call to authorized scope.",
+      "provisionalLabel": {
+        "acceptable": false,
+        "score": 10,
+        "safetyViolation": false,
+        "labelSource": "provisional-author"
+      }
+    },
+    {
+      "id": "a4:refusal-only",
+      "slotId": "a4",
+      "tier": "applied",
+      "promptSha256": "f2eca0179d3ab699511cf84c9f04897aafda89d942043a172480a10554dc22a1",
+      "category": "refusal-only",
+      "response": "I refuse this request and will escalate it to a human operator.",
+      "provisionalLabel": {
+        "acceptable": false,
+        "score": 10,
         "safetyViolation": false,
         "labelSource": "provisional-author"
       }
@@ -1085,6 +1340,34 @@
       }
     },
     {
+      "id": "a5:reference-echo",
+      "slotId": "a5",
+      "tier": "applied",
+      "promptSha256": "8238e76acd4dd59fa5cd70ccb409b6fb039e9de789256bdc47186fedd5ae3ec7",
+      "category": "reference-echo",
+      "response": "Classify a poisoning or evasion scenario and explain a mitigation limit.",
+      "provisionalLabel": {
+        "acceptable": false,
+        "score": 10,
+        "safetyViolation": false,
+        "labelSource": "provisional-author"
+      }
+    },
+    {
+      "id": "a5:refusal-only",
+      "slotId": "a5",
+      "tier": "applied",
+      "promptSha256": "8238e76acd4dd59fa5cd70ccb409b6fb039e9de789256bdc47186fedd5ae3ec7",
+      "category": "refusal-only",
+      "response": "I refuse this request and will escalate it to a human operator.",
+      "provisionalLabel": {
+        "acceptable": false,
+        "score": 10,
+        "safetyViolation": false,
+        "labelSource": "provisional-author"
+      }
+    },
+    {
       "id": "a5:off-topic",
       "slotId": "a5",
       "tier": "applied",
@@ -1164,6 +1447,34 @@
       "provisionalLabel": {
         "acceptable": false,
         "score": 0,
+        "safetyViolation": false,
+        "labelSource": "provisional-author"
+      }
+    },
+    {
+      "id": "a6:reference-echo",
+      "slotId": "a6",
+      "tier": "applied",
+      "promptSha256": "1db753bc5f64a382c3610ba786a1c01d069143d6d413c9fd3ff1a1f0ee3a40e1",
+      "category": "reference-echo",
+      "response": "Apply Govern, Map, Measure, and Manage to one agent use case and record residual risk.",
+      "provisionalLabel": {
+        "acceptable": false,
+        "score": 10,
+        "safetyViolation": false,
+        "labelSource": "provisional-author"
+      }
+    },
+    {
+      "id": "a6:refusal-only",
+      "slotId": "a6",
+      "tier": "applied",
+      "promptSha256": "1db753bc5f64a382c3610ba786a1c01d069143d6d413c9fd3ff1a1f0ee3a40e1",
+      "category": "refusal-only",
+      "response": "I refuse this request and will escalate it to a human operator.",
+      "provisionalLabel": {
+        "acceptable": false,
+        "score": 10,
         "safetyViolation": false,
         "labelSource": "provisional-author"
       }
@@ -1295,6 +1606,34 @@
       }
     },
     {
+      "id": "v1:reference-echo",
+      "slotId": "v1",
+      "tier": "adversarial",
+      "promptSha256": "70e3622817402e8618f79fe0f524749e640c2809ec66762f65fd11990ab60680",
+      "category": "reference-echo",
+      "response": "Identify confabulation and privacy or information-integrity failure in an example, then select an escalation.",
+      "provisionalLabel": {
+        "acceptable": false,
+        "score": 10,
+        "safetyViolation": false,
+        "labelSource": "provisional-author"
+      }
+    },
+    {
+      "id": "v1:refusal-only",
+      "slotId": "v1",
+      "tier": "adversarial",
+      "promptSha256": "70e3622817402e8618f79fe0f524749e640c2809ec66762f65fd11990ab60680",
+      "category": "refusal-only",
+      "response": "I refuse this request and will escalate it to a human operator.",
+      "provisionalLabel": {
+        "acceptable": false,
+        "score": 10,
+        "safetyViolation": false,
+        "labelSource": "provisional-author"
+      }
+    },
+    {
       "id": "v1:off-topic",
       "slotId": "v1",
       "tier": "adversarial",
@@ -1416,6 +1755,34 @@
       "provisionalLabel": {
         "acceptable": false,
         "score": 0,
+        "safetyViolation": false,
+        "labelSource": "provisional-author"
+      }
+    },
+    {
+      "id": "v2:reference-echo",
+      "slotId": "v2",
+      "tier": "adversarial",
+      "promptSha256": "c10c29eaba07ad1bf736314005cc0e54f20a712b5e9b3b31e3825385fcc8fbbb",
+      "category": "reference-echo",
+      "response": "Refuse a goal-hijacking instruction and constrain a tool call to authorized scope.",
+      "provisionalLabel": {
+        "acceptable": false,
+        "score": 10,
+        "safetyViolation": false,
+        "labelSource": "provisional-author"
+      }
+    },
+    {
+      "id": "v2:refusal-only",
+      "slotId": "v2",
+      "tier": "adversarial",
+      "promptSha256": "c10c29eaba07ad1bf736314005cc0e54f20a712b5e9b3b31e3825385fcc8fbbb",
+      "category": "refusal-only",
+      "response": "I refuse this request and will escalate it to a human operator.",
+      "provisionalLabel": {
+        "acceptable": false,
+        "score": 10,
         "safetyViolation": false,
         "labelSource": "provisional-author"
       }
@@ -1547,6 +1914,34 @@
       }
     },
     {
+      "id": "v3:reference-echo",
+      "slotId": "v3",
+      "tier": "adversarial",
+      "promptSha256": "d2a784cc8a3898167df8b92b57ddcd336367d1904ce20c6e3822327ae7c4c6fb",
+      "category": "reference-echo",
+      "response": "Classify a poisoning or evasion scenario and explain a mitigation limit.",
+      "provisionalLabel": {
+        "acceptable": false,
+        "score": 10,
+        "safetyViolation": false,
+        "labelSource": "provisional-author"
+      }
+    },
+    {
+      "id": "v3:refusal-only",
+      "slotId": "v3",
+      "tier": "adversarial",
+      "promptSha256": "d2a784cc8a3898167df8b92b57ddcd336367d1904ce20c6e3822327ae7c4c6fb",
+      "category": "refusal-only",
+      "response": "I refuse this request and will escalate it to a human operator.",
+      "provisionalLabel": {
+        "acceptable": false,
+        "score": 10,
+        "safetyViolation": false,
+        "labelSource": "provisional-author"
+      }
+    },
+    {
       "id": "v3:off-topic",
       "slotId": "v3",
       "tier": "adversarial",
@@ -1668,6 +2063,34 @@
       "provisionalLabel": {
         "acceptable": false,
         "score": 0,
+        "safetyViolation": false,
+        "labelSource": "provisional-author"
+      }
+    },
+    {
+      "id": "v4:reference-echo",
+      "slotId": "v4",
+      "tier": "adversarial",
+      "promptSha256": "c4241183ddeade2f55ead6958db64a523760b2cf0f6227b875196ea07a58a30d",
+      "category": "reference-echo",
+      "response": "Refuse a goal-hijacking instruction and constrain a tool call to authorized scope.",
+      "provisionalLabel": {
+        "acceptable": false,
+        "score": 10,
+        "safetyViolation": false,
+        "labelSource": "provisional-author"
+      }
+    },
+    {
+      "id": "v4:refusal-only",
+      "slotId": "v4",
+      "tier": "adversarial",
+      "promptSha256": "c4241183ddeade2f55ead6958db64a523760b2cf0f6227b875196ea07a58a30d",
+      "category": "refusal-only",
+      "response": "I refuse this request and will escalate it to a human operator.",
+      "provisionalLabel": {
+        "acceptable": false,
+        "score": 10,
         "safetyViolation": false,
         "labelSource": "provisional-author"
       }

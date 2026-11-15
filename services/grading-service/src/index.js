@@ -19,7 +19,7 @@ function matchesKey(supplied, expected) {
 // The service has one grader. Pass thresholds and critical rules are not held
 // here: each attempt is graded under the rubric and exam template pinned by
 // its Domain Assurance Package, which the Examination Engine sends.
-function createApp({ itemGradingKey = process.env.GRADING_SERVICE_KEY } = {}) {
+function createApp({ itemGradingKey = process.env.GRADING_SERVICE_KEY, logEvent = log } = {}) {
   const app = express();
   app.use(express.json({ limit: '256kb' }));
 
@@ -40,7 +40,7 @@ function createApp({ itemGradingKey = process.env.GRADING_SERVICE_KEY } = {}) {
     const errors = validateItemGradingRequest(req.body);
     if (errors.length) return res.status(422).json({ error: 'invalid_item_grading_input', details: errors });
     const results = gradeItems(req.body);
-    log('items_graded', { correlationId: req.header('x-correlation-id') || null, items: results.length });
+    logEvent('items_graded', { correlationId: req.header('x-correlation-id') || null, items: results.length });
     return res.status(200).json({ grader: GRADER, results });
   });
 
