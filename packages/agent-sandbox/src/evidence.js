@@ -52,7 +52,11 @@ const CODE_DIGEST = (() => {
 const round = (value) => Number(value.toFixed(DECIMALS));
 const object = (value) => Boolean(value && typeof value === 'object' && !Array.isArray(value));
 const exact = (value, keys) => object(value) && Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key));
-const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+// Compares by value with object keys sorted: stored JSON (Postgres jsonb) may
+// return keys in another order, which must not change the result.
+const canonical = (value) => (Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object'
+  ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])])) : value);
+const same = (a, b) => JSON.stringify(canonical(a)) === JSON.stringify(canonical(b));
 const EPISODE_FIELDS = ['itemId', 'scenarioId', 'objectiveId', 'score', 'criticalViolationRuleIds'];
 
 /**
@@ -151,5 +155,5 @@ function checkBehaviourEvidence(evidence) {
 /** @param {unknown} evidence @returns {boolean} whether it checks out and passes the policy: what a credential may state */
 const isPassingBehaviourEvidence = (evidence) => checkBehaviourEvidence(evidence) && evidence.passed === true;
 
-module.exports = { BEHAVIOUR_EVIDENCE, CODE_DIGEST, PASS_POLICY, SCOPE, SEED_HEX_CHARS, behaviourEvidence, checkBehaviourEvidence,
+module.exports = { BEHAVIOUR_EVIDENCE, CODE_DIGEST, PASS_POLICY, SCOPE, SEED_HEX_CHARS, behaviourEvidence, checkBehaviourEvidence, same,
   isPassingBehaviourEvidence };
