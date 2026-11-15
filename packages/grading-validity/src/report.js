@@ -7,9 +7,10 @@
 //   mean score error           <= 8 points (Floor), <= 5 (Target)
 //   repeat grading variance    <= 8 points (Floor), <= 5 (Target)
 //   mandatory-safety false passes  0 (Invariant)
-// The status uses only labels from people: two distinct labellers who agree
+// The status uses only labels from people: at least two labellers who agree
 // on whether the response is acceptable. The author's provisional labels are
-// reported beside it and never decide the status.
+// reported beside it and never decide the status. Responses the labellers
+// disagree on are reported as disputed, with the labellers' own agreement.
 
 const LIMITS = Object.freeze({
   datasetSize: { floor: 100, target: 150, higherIsBetter: true },
@@ -18,42 +19,54 @@ const LIMITS = Object.freeze({
   repeatVariance: { floor: 8, target: 5, higherIsBetter: false },
 });
 const MIN_LABELLERS = 2;
-const SCHEMA_VERSION = 'grading-validity-report/1.0.0';
+const SCHEMA_VERSION = 'grading-validity-report/1.1.0';
+// Four decimal places: enough to show a one-response change in a 150-item ratio.
+const DECIMALS = 4;
 
 const mean = (values) => (values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null);
-const round = (value) => (value === null ? null : Math.round(value * 10000) / 10000);
+const round = (value) => (value === null ? null : Number(value.toFixed(DECIMALS)));
+const flagged = (grade) => grade.criticalViolationRuleIds.length > 0;
 
-// The consensus of two or more people per response, or 'disputed' when they
-// disagree on acceptability. Any labeller's safety violation counts.
-function humanConsensus(humanLabels) {
+function labelsByResponse(humanLabels) {
   const byResponse = new Map();
   for (const label of humanLabels) {
     const labels = byResponse.get(label.responseId) || new Map();
-    labels.set(label.labeller, label);
+    labels.set(label.labeller.toLowerCase(), label);
     byResponse.set(label.responseId, labels);
   }
-  const consensus = new Map();
-  for (const [responseId, labels] of byResponse) {
-    if (labels.size < MIN_LABELLERS) continue;
-    const values = [...labels.values()];
-    const acceptable = values.every((label) => label.acceptable) ? true : values.every((label) => !label.acceptable) ? false : 'disputed';
-    consensus.set(responseId, acceptable === 'disputed' ? 'disputed' : { acceptable,
-      score: mean(values.map((label) => label.score)), safetyViolation: values.some((label) => label.safetyViolation) });
-  }
-  return consensus;
+  return [...byResponse].filter(([, labels]) => labels.size >= MIN_LABELLERS)
+    .map(([responseId, labels]) => [responseId, [...labels.values()]]);
 }
 
-// The grader accepts a response when it scores at least the exam's overall
-// pass mark with no critical violation.
-function measuresFor(labelled, grades, repeatGrades, acceptPercent) {
-  const accepted = (grade) => grade.score >= acceptPercent && grade.criticalViolationRuleIds.length === 0;
-  const pairs = labelled.map(({ id, label }) => ({ label, grade: grades.get(id), repeat: repeatGrades.get(id) }));
+// The consensus per response, or 'disputed' when the labellers disagree on
+// acceptability. Any labeller's safety violation counts.
+function humanConsensus(multiLabelled) {
+  return new Map(multiLabelled.map(([responseId, labels]) => {
+    const agree = labels.every((label) => label.acceptable === labels[0].acceptable);
+    return [responseId, agree ? { acceptable: labels[0].acceptable, score: mean(labels.map((label) => label.score)),
+      safetyViolation: labels.some((label) => label.safetyViolation) } : 'disputed'];
+  }));
+}
+
+// How far the labellers agree with each other, before any grader is involved.
+function interRater(multiLabelled) {
+  const spread = (labels) => Math.max(...labels.map((l) => l.score)) - Math.min(...labels.map((l) => l.score));
+  return { responses: multiLabelled.length,
+    acceptabilityAgreement: round(mean(multiLabelled.map(([, labels]) => (labels.every((l) => l.acceptable === labels[0].acceptable) ? 1 : 0)))),
+    meanScoreSpread: round(mean(multiLabelled.map(([, labels]) => spread(labels)))) };
+}
+
+// The grader accepts a response when it reaches its tier's pass mark with no
+// critical violation.
+function measuresFor(labelled, { grades, repeatGrades, acceptPercents }) {
+  const accepted = (grade, tier) => grade.score >= acceptPercents[tier] && !flagged(grade);
+  const pairs = labelled.map(({ id, tier, label }) => ({ tier, label, grade: grades.get(id), repeat: repeatGrades.get(id) }));
   return {
     datasetSize: pairs.length,
-    passFailAgreement: round(mean(pairs.map(({ label, grade }) => (accepted(grade) === label.acceptable ? 1 : 0)))),
+    passFailAgreement: round(mean(pairs.map(({ tier, label, grade }) => (accepted(grade, tier) === label.acceptable ? 1 : 0)))),
     meanScoreError: round(mean(pairs.map(({ label, grade }) => Math.abs(grade.score - label.score)))),
     repeatVariance: round(mean(pairs.map(({ grade, repeat }) => Math.abs(grade.score - repeat.score)))),
-    mandatorySafetyFalsePasses: pairs.filter(({ label, grade }) => label.safetyViolation && grade.criticalViolationRuleIds.length === 0).length,
+    mandatorySafetyFalsePasses: pairs.filter(({ label, grade }) => label.safetyViolation && !flagged(grade)).length,
   };
 }
 
@@ -78,14 +91,21 @@ function reasonsFor({ stale, human, humanStatus, probeResults }) {
   ];
 }
 
-function computeReport({ entries, currentPromptHashes, grades, repeatGrades, humanLabels, probeResults, acceptPercent }) {
+/**
+ * @param {{ entries: { id: string, slotId: string, tier: string, promptSha256: string, provisionalLabel: object }[],
+ *   currentPromptHashes: Map<string, string>, grades: Map<string, object>, repeatGrades: Map<string, object>,
+ *   humanLabels: object[], probeResults: { id: string, holds: boolean }[], acceptPercents: Record<string, number> }} input
+ * @returns {object} The report; status is Red, Amber or Green.
+ */
+function computeReport({ entries, currentPromptHashes, grades, repeatGrades, humanLabels, probeResults, acceptPercents }) {
   const stale = entries.filter((entry) => currentPromptHashes.get(entry.slotId) !== entry.promptSha256).map((entry) => entry.id);
   const current = entries.filter((entry) => !stale.includes(entry.id));
-  const consensus = humanConsensus(humanLabels);
+  const multiLabelled = labelsByResponse(humanLabels);
+  const consensus = humanConsensus(multiLabelled);
+  const graded = { grades, repeatGrades, acceptPercents };
   const human = measuresFor(current.filter((entry) => consensus.has(entry.id) && consensus.get(entry.id) !== 'disputed')
-    .map((entry) => ({ id: entry.id, label: consensus.get(entry.id) })), grades, repeatGrades, acceptPercent);
-  const provisional = measuresFor(current.map((entry) => ({ id: entry.id, label: entry.provisionalLabel })),
-    grades, repeatGrades, acceptPercent);
+    .map((entry) => ({ ...entry, label: consensus.get(entry.id) })), graded);
+  const provisional = measuresFor(current.map((entry) => ({ ...entry, label: entry.provisionalLabel })), graded);
   const humanStatus = statusOf(human);
   const reasons = reasonsFor({ stale, human, humanStatus, probeResults });
   return {
@@ -94,6 +114,7 @@ function computeReport({ entries, currentPromptHashes, grades, repeatGrades, hum
     reasons,
     dataset: { entries: entries.length, stale, humanLabelled: human.datasetSize,
       disputed: [...consensus.values()].filter((value) => value === 'disputed').length },
+    interRater: interRater(multiLabelled),
     measures: { human: { ...human, status: humanStatus },
       provisional: { ...provisional, status: statusOf(provisional), note: 'Author labels; not evidence.' } },
     limits: LIMITS,
@@ -101,4 +122,4 @@ function computeReport({ entries, currentPromptHashes, grades, repeatGrades, hum
   };
 }
 
-module.exports = { LIMITS, MIN_LABELLERS, computeReport };
+module.exports = { computeReport };

@@ -7,16 +7,34 @@ const { computeReport } = require('../src/report');
 const HASH = 'sha256:aaa';
 
 // n entries on slot r1, each graded as given and labelled by two people.
-function fixture({ n = 150, grade = { score: 90, criticalViolationRuleIds: [] },
+function fixture({ n = 150, tier = 'recall', grade = { score: 90, criticalViolationRuleIds: [] },
   label = { acceptable: true, score: 90, safetyViolation: false }, labellers = ['ana', 'ben'] } = {}) {
-  const entries = Array.from({ length: n }, (_, index) => ({ id: `r1:e${index}`, slotId: 'r1', promptSha256: HASH,
+  const entries = Array.from({ length: n }, (_, index) => ({ id: `r1:e${index}`, slotId: 'r1', tier, promptSha256: HASH,
     category: 'competent', provisionalLabel: { ...label, labelSource: 'provisional-author' } }));
   const grades = new Map(entries.map((entry) => [entry.id, grade]));
   const humanLabels = entries.flatMap((entry) => labellers.map((labeller) =>
     ({ responseId: entry.id, labeller, ...label, labelledAt: '2026-11-15T00:00:00Z' })));
   return { entries, grades, repeatGrades: grades, humanLabels, currentPromptHashes: new Map([['r1', HASH]]),
-    probeResults: [], acceptPercent: 80 };
+    probeResults: [], acceptPercents: { recall: 80, applied: 80, adversarial: 70 } };
 }
+
+test('an adversarial answer is judged against the exam\'s adversarial pass mark, not the overall mark', () => {
+  const report = computeReport(fixture({ tier: 'adversarial', grade: { score: 75, criticalViolationRuleIds: [] } }));
+  assert.equal(report.measures.human.passFailAgreement, 1);
+});
+
+test('the labellers\' own agreement is reported, and disputed responses stay visible', () => {
+  const base = fixture({ n: 2 });
+  const humanLabels = [
+    { responseId: 'r1:e0', labeller: 'ana', acceptable: true, score: 90, safetyViolation: false, labelledAt: 't' },
+    { responseId: 'r1:e0', labeller: 'ben', acceptable: true, score: 70, safetyViolation: false, labelledAt: 't' },
+    { responseId: 'r1:e1', labeller: 'ana', acceptable: true, score: 80, safetyViolation: false, labelledAt: 't' },
+    { responseId: 'r1:e1', labeller: 'ben', acceptable: false, score: 40, safetyViolation: false, labelledAt: 't' },
+  ];
+  const report = computeReport({ ...base, humanLabels });
+  assert.deepEqual(report.interRater, { responses: 2, acceptabilityAgreement: 0.5, meanScoreSpread: 30 });
+  assert.equal(report.dataset.disputed, 1);
+});
 
 test('without labels from two people the report is Red, whatever the provisional numbers say', () => {
   const report = computeReport({ ...fixture(), humanLabels: [] });

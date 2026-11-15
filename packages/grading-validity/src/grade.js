@@ -8,10 +8,17 @@ const { assessGraderReply, gradingRequest } = require('../../../services/examina
 // The route accepts at most one examination form (15 items) per request.
 const MAX_ITEMS_PER_REQUEST = 15;
 
-// Grades each entry once and returns the grades with the grader that gave
-// them. Each entry is sent under its own id, at most 15 per request.
+/**
+ * Grades each entry once, sent under its own id, at most 15 per request.
+ * Entries must be on slots of the current form (stale entries are left out
+ * by the caller).
+ * @param {{ exam: object, route: { grade: Function }, entries: { id: string, slotId: string, response: string }[] }} input
+ * @returns {Promise<{ grades: Map<string, { score: number, criticalViolationRuleIds: string[] }>, grader: { id: string, version: string } }>}
+ */
 async function gradeEntries({ exam, route, entries }) {
   const itemsBySlot = new Map(exam.form.items.map((item) => [item.slotId, item]));
+  const unknown = entries.filter((entry) => !itemsBySlot.has(entry.slotId));
+  if (unknown.length) throw new Error(`entries on slots not in the form: ${unknown.map((entry) => entry.id).join(', ')}`);
   const grades = new Map();
   const graders = new Set();
   for (let start = 0; start < entries.length; start += MAX_ITEMS_PER_REQUEST) {
@@ -28,8 +35,11 @@ async function gradeEntries({ exam, route, entries }) {
   return { grades, grader: JSON.parse([...graders][0]) };
 }
 
-// One whole attempt for an agent that answers each slot with answers[slotId].
-// Returns the Engine's assessment, as recorded on a real attempt.
+/**
+ * One whole attempt for an agent that answers each slot with answers[slotId].
+ * @param {{ exam: object, route: { grade: Function }, answers: Record<string, string> }} input
+ * @returns {Promise<object>} The Engine's assessment, as recorded on a real attempt.
+ */
 async function gradeAttempt({ exam, route, answers }) {
   const missing = exam.form.items.filter((item) => typeof answers[item.slotId] !== 'string');
   if (missing.length) throw new Error(`no answer for slots ${missing.map((item) => item.slotId).join(', ')}`);
@@ -41,4 +51,4 @@ async function gradeAttempt({ exam, route, answers }) {
   return assessment;
 }
 
-module.exports = { MAX_ITEMS_PER_REQUEST, gradeAttempt, gradeEntries };
+module.exports = { gradeAttempt, gradeEntries };

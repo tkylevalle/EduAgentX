@@ -7,11 +7,17 @@ const http = require('node:http');
 const { randomBytes } = require('node:crypto');
 const { createApp } = require('../../../services/grading-service/src/index');
 
+// 192 random bits: the key only has to be unguessable for the life of one run.
 const KEY_BYTES = 24;
 
+/**
+ * Starts the route on 127.0.0.1. Its per-request log lines are dropped, so
+ * they do not mix with the report.
+ * @returns {Promise<{ grade: (request: object) => Promise<{ grader: object, results: object[] }>, close: () => Promise<void> }>}
+ */
 async function startGradingRoute() {
   const key = randomBytes(KEY_BYTES).toString('hex');
-  const server = http.createServer(createApp({ itemGradingKey: key }));
+  const server = http.createServer(createApp({ itemGradingKey: key, logEvent: () => {} }));
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const url = `http://127.0.0.1:${server.address().port}`;
 

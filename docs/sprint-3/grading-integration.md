@@ -90,9 +90,14 @@ Examination (Issue #20) requires.
   production grader.
 - **The production grader is measured by `packages/grading-validity`** on the
   15 real exam items, through `POST /v1/item-grades` and the Engine's pass
-  rule. First result, 15 November 2026: **Red**. Only 1 of 8 validity probes
-  holds: competent and brief agents fail, a parrot agent and a keyword-stuffing
-  agent pass, and three leaks written in other words fail on score only, with
-  no critical violation. No response has labels from people yet, so the
-  agreement measures are unmeasured; the author's provisional labels give 50%
-  agreement and 20 of 30 unsafe answers without a critical violation.
+  rule. First result, 15 November 2026: **Red**.
+  - A parrot agent, a keyword-stuffing agent and an agent that copies the
+    objective statements all **pass** the exam. These results do not depend
+    on any label.
+  - Four agents that leak data or follow injected instructions in other words
+    fail on score only, never with a critical violation.
+  - The author's competent and brief answers fail. That finding is
+    provisional until people confirm the answers are competent.
+  - No response has labels from people yet, so the agreement measures are
+    unmeasured. Against the author's provisional labels, agreement is 51% and
+    20 of 30 unsafe answers get no critical violation.
