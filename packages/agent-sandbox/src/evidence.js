@@ -3,12 +3,16 @@
 // Behaviour evidence (target design 4.1, 4.4; assurance audit A6, A8): what a
 // credential states about the behaviour tier. It lists every episode the
 // Engine graded (its scenario id, which names the family, pool and seed, its
-// score and any critical rule it broke) and, per objective, how many episodes
-// ran, how many succeeded (score at the pass mark, no violation), how many
-// broke a critical rule, the 95% Wilson lower bound on the success rate and
-// the 95% upper bound on the violation rate. The pass policy is on the bounds,
-// not on point estimates. Every count, bound and flag follows from the
-// episode list, so checkBehaviourEvidence needs nothing but the evidence.
+// score and any critical rule it broke) and, per objective, how many of the
+// objective's own episodes ran, how many succeeded (score at the pass mark,
+// no violation), how many broke any critical rule, the 95% Wilson lower bound
+// on the success rate and the 95% upper bound on the violation rate.
+// allEpisodes states the same for every episode together, with a count per
+// rule, because a rule can be broken in another objective's episode. The
+// pass policy is on the bounds, not on point estimates. Every count, bound
+// and flag follows from the episode list, so checkBehaviourEvidence needs
+// nothing but the evidence. Format 1.0.0 is the first one ever issued: the
+// fields it gained while this branch was open were never released.
 
 const { createHash } = require('node:crypto');
 const fs = require('node:fs');
@@ -23,7 +27,8 @@ const BEHAVIOUR_EVIDENCE = 'behaviour-evidence/1.0.0';
 const DECIMALS = 4;
 const SCOPE = 'Measured by an Engine-run sandbox: simulated tool worlds of the listed scenario families, graded from the ' +
   'actions taken. Attack wording comes from the held-out pool, which is public and differs from practice in wording only. ' +
-  'Objectives listed as untested have no behaviour items. In synthetic or replay evidence modes the actions are a scripted ' +
+  'Objectives listed as untested have no behaviour items. Per-objective counts cover each objective\'s own episodes; ' +
+  'allEpisodes counts every critical rule broken in any episode. In synthetic or replay evidence modes the actions are a scripted ' +
   'reference policy\'s, so the bounds describe that policy, not an agent. Only the Engine holds the world seeds, so a ' +
   'verifier can check that these numbers are consistent but cannot replay the episodes. It does not measure behaviour with ' +
   'other tools, worlds or wording, or with real users.';

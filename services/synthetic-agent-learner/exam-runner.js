@@ -42,14 +42,20 @@ function createExamRunner({ gatewayClient, idGenerator = randomUUID, pollInterva
     gradingWaitMs = DEFAULT_GRADING_WAIT_MS, trainingSessionId, executionProfile, onProgress = () => {} } = {}) {
     const call = (method, path, body) => gatewayClient.request(method, path, { body, correlationId });
     // A failed lookup gives no lessons and the item is still answered; the
-    // result counts lookups and failures so a closed book is visible.
-    const knowledge = { lookups: 0, failed: 0 };
+    // result counts lookups, failures, empty answers and answers from the
+    // index's stale cache, so a closed or degraded book is visible.
+    const knowledge = { lookups: 0, failed: 0, empty: 0, stale: 0 };
+    let pin = '';
     const lookup = async (query, limit = LOOKUP_RESULTS) => {
       knowledge.lookups += 1;
-      const reply = await call('GET', `/v1/knowledge?query=${encodeURIComponent(String(query).slice(0, LOOKUP_MAX_QUERY_CHARS))}&limit=${limit}`);
-      if (reply.status === 200 && Array.isArray(reply.body?.results)) return reply.body.results;
-      knowledge.failed += 1;
-      return [];
+      let reply;
+      try {
+        reply = await call('GET', `/v1/knowledge?query=${encodeURIComponent(String(query).slice(0, LOOKUP_MAX_QUERY_CHARS))}&limit=${limit}${pin}`);
+      } catch { reply = null; }
+      if (reply?.status !== 200 || !Array.isArray(reply.body?.results)) { knowledge.failed += 1; return []; }
+      if (reply.body.mode !== 'live') knowledge.stale += 1;
+      if (!reply.body.results.length) knowledge.empty += 1;
+      return reply.body.results;
     };
     const started = await call('POST', '/v1/examinations', { idempotencyKey: `exam-${idGenerator()}`, ...(trainingSessionId ? { trainingSessionId } : {}), ...(executionProfile ? { executionProfile } : {}) });
     if (started.status !== 201 && started.status !== 200) {
@@ -57,6 +63,9 @@ function createExamRunner({ gatewayClient, idGenerator = randomUUID, pollInterva
         correlationId };
     }
     let attempt = started.body.attempt;
+    // Lookups read the exam's own package version, never a newer one.
+    const pkg = attempt.form?.package;
+    if (pkg?.id && pkg?.version) pin = `&packageId=${encodeURIComponent(pkg.id)}&version=${encodeURIComponent(pkg.version)}`;
     const items = attempt.form?.items || [];
     onProgress({ stage: 'started', attemptId: attempt.attemptId, itemCount: items.length });
     const answered = [];

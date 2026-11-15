@@ -78,9 +78,11 @@ does not yet support a competence claim. State on 16 November 2026, after Phase 
   deadline and then ends as Agent-Failed (`response_deadline_elapsed`); the
   learner cannot abort an attempt.
 - **The exam is open book.** The live learner looks up lessons with
-  `knowledge.lookup` (the curriculum index) for each text item. When the
-  index is down the lookup returns nothing, the item is still answered, and
-  the run reports the failed lookups.
+  `knowledge.lookup` (the curriculum index, pinned to the exam's package
+  version) for each text item. A failed lookup returns nothing and the item
+  is still answered; the run reports lookups, failures, empty answers and
+  answers from the index's stale cache. Lookups are not recorded by the
+  Engine or in the credential, and episodes do no lookup.
 - **Only the live learner carries training into the exam, and only in its
   own memory.** What the live model writes after each training item is kept
   as its note for the item's objectives and shown to it in later exam items

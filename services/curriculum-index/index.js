@@ -37,7 +37,10 @@ function createApp({ pool, client, embeddingFunction, internalKey = process.env.
   app.get('/internal/index/query', async (req, res) => {
     if (!req.query.text) return res.status(400).json({ error: 'text_required' });
     try {
-      const result = await queryIndex({ pool, client, embeddingFunction, text: req.query.text, limit: Number(req.query.limit) || 5 });
+      // Optional pin to one package version (an exam's package).
+      const pin = (value) => (typeof value === 'string' && value ? value : undefined);
+      const result = await queryIndex({ pool, client, embeddingFunction, text: req.query.text, limit: Number(req.query.limit) || 5,
+        packageId: pin(req.query.packageId), version: pin(req.query.version) });
       res.json(result);
     } catch (error) {
       res.status(503).json({ error: 'query_failed', message: error.message });

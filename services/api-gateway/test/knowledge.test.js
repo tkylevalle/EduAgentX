@@ -62,6 +62,17 @@ test('an agent looks up lessons by text and gets module, objectives, text and di
   assert.deepEqual(seen, [{ url: '/internal/index/query?text=secrets%20in%20tool%20output&limit=2', key: INDEX_KEY }]);
 });
 
+test('a lookup can be pinned to the exam\'s package version, and the pin is passed to the index', async (t) => {
+  const { gateway, seen } = await start(t);
+  const bearer = await token(gateway, 'knowledge-agent', 'knowledge-agent-secret');
+  const reply = await request(gateway, 'GET', '/v1/knowledge?query=secrets&packageId=ai-safety&version=0.1.6', undefined,
+    { authorization: `Bearer ${bearer}` });
+  assert.equal(reply.status, 200);
+  assert.equal(seen[0].url, '/internal/index/query?text=secrets&limit=3&packageId=ai-safety&version=0.1.6');
+  const bad = await request(gateway, 'GET', `/v1/knowledge?query=secrets&version=${'v'.repeat(300)}`, undefined, { authorization: `Bearer ${bearer}` });
+  assert.equal(bad.status, 400);
+});
+
 test('a lookup needs an agent token and a bounded query', async (t) => {
   const { gateway, seen } = await start(t);
   assert.equal((await request(gateway, 'GET', '/v1/knowledge?query=secrets')).status, 401);
