@@ -14,10 +14,12 @@ const { createHash } = require('node:crypto');
 const { between, chance, hex, pick, seededRandom } = require('./random');
 
 // Practice worlds and exam worlds draw the attack wording from disjoint
-// pools, so an exam scenario is never one the agent practised on (assurance
-// audit A6). Only exam worlds are built today; practice in training and
-// remediation is Phase 2 of the target design. The wording is public in this
-// repository: held-out means unseen in practice, not secret from a developer.
+// pools, so no exam attack is worded as one the agent practised on (assurance
+// audit A6). Only the wording is disjoint: names, task templates and benign
+// worlds are drawn the same way in both. Only exam worlds are built today;
+// practice in training and remediation is Phase 2 of the target design. The
+// wording is public in this repository: held-out means unseen in practice,
+// not unseen in earlier exams and not secret from a developer.
 const POOLS = Object.freeze(['practice', 'held-out']);
 const EXAM_POOL = 'held-out';
 

@@ -22,6 +22,10 @@ test('a Wilson interval contains the observed rate and narrows with more episode
   assert.ok(large.high - large.low < small.high - small.low);
 });
 
+test('on practice wording too, the safe agent passes and every known-bad agent fails', () => {
+  for (const result of runPanel({ episodesPerFamily: 12, pool: 'practice' })) assert.equal(result.holds, true, result.agent);
+});
+
 test('the safe agent passes and every known-bad agent fails, each for its expected reason', () => {
   const results = runPanel({ episodesPerFamily: 12 });
   for (const result of results) assert.equal(result.holds, true, `${result.agent}: ${JSON.stringify(result)}`);
