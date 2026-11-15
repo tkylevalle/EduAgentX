@@ -319,9 +319,9 @@ const PEOPLE = [
   },
   {
     key: "pranav", name: "Pranav",
-    domains: "The Gateway and authentication, the ChromaDB index, the grading KPI dataset, governance and roles, and the Sprint 5 marketplace console.",
+    domains: "The Gateway and authentication, the ChromaDB index, the grading validity harness, governance and roles, and the Sprint 5 marketplace console.",
     backup: "#9, #16, #23, #30",
-    tonight: ["Say how a token is checked, in 5 steps.", "Learn the grading KPI table.", "Explain why the index is “rebuildable”."],
+    tonight: ["Say how a token is checked, in 5 steps.", "Learn which grading validity probes break, and why.", "Explain why the index is “rebuildable”."],
     wps: [
       { id: "#3", sprint: 1, title: "API Gateway, authentication, and contracts",
         l1: "The Gateway is the only door into the platform. It checks who you are and what you may do, then forwards the request to the service that owns it.",
@@ -339,7 +339,7 @@ const PEOPLE = [
       { id: "#19", sprint: 3, title: "Labelled dataset and grading KPIs",
         l1: "The original KPI measured a grader that no examination used, so its numbers say nothing about real exams.",
         l2: ["The removed `grading-service/kpi` scripts graded a rule-generated dataset with `gradeAnswer()`. Real exams are graded by `item-grader.js`.", "The labels were assigned by a written rule, not judged by people.", "`evidence/sprint-3/grading-kpi.json` is kept only as a record of that removed grader."],
-        l3: ["Historical result for the removed grader: 157 items; agreement 82.2% (floor 85%) · Red; mean score error 16.4 points (floor 8) · Red.", "The production grader has no validity measurement until the validity harness lands (assurance audit A3, A4)."],
+        l3: ["Historical result for the removed grader: 157 items; agreement 82.2% (floor 85%) · Red; mean score error 16.4 points (floor 8) · Red.", "Production grader, 15 November 2026 (packages/grading-validity): Red. A parrot agent passes, paraphrased leaks are missed, and no answers have labels from people yet."],
         qa: [["Your KPI is Red. Is the grader useless?", "The old KPI did not measure the production grader, so we do not quote it. The production grader is a keyword grader; its replacement is behaviour-based grading (audit Phase 1)."],
              ["Who labelled the data?", "A script assigned the labels by rule. Real validity needs labels from two people per response."],
              ["How would you fix it?", "Measure the production route against labels from people, then replace keyword scoring with behaviour checks in a sandbox."]] },
@@ -689,7 +689,7 @@ add("real", "everyone", `
     <div class="panel stripe-signal"><div class="label">Real</div>${li(["14 services, PostgreSQL schemas, Redis Streams, ChromaDB, JWT auth, Ed25519 signatures, status registry, grading pipeline, outboxes, monitoring, marketplace projection.", "The full lifecycle runs end to end, live, in the web app.", "**547** tests pass, 0 fail, across 19 components. Smoke test **16/16**.", "Issuance p95 about **560 ms** (target 5,000 ms)."])}</div>
     <div class="panel stripe-amber"><div class="label">Simulated or limited</div>${li(["The agent is the deterministic Synthetic Agent Learner, not a live LLM.", "The grader is a deterministic keyword rubric, not an LLM judge.", "Capability requests are simulated.", "The curriculum is a draft (`0.1.5-draft`); the two reviewers are simulated identities.", "Credentials are project evidence, not accreditation. Keys are local demo keys."])}</div>
   </div>
-  <div class="panel stripe-danger"><div class="label">Known weak result · if asked, be honest</div><p style="margin-top:6px">The grading KPI on 157 labelled answers is <strong>Red</strong>: pass/fail agreement 82.2% (floor 85%) and mean score error 16.4 points (floor 8). The safety part held: <strong>0</strong> mandatory-safety false passes and 0 repeat variance. The grader is strict on safety but not yet accurate on partial credit.</p></div>
+  <div class="panel stripe-danger"><div class="label">Known weak result · if asked, be honest</div><p style="margin-top:6px">Grading validity on the production grader is <strong>Red</strong>: an agent that repeats each question passes, leaks written in other words are not flagged as critical, and no answers have labels from people yet. The trust chain around the score holds; the score itself is a keyword baseline (assurance audit, Phase 1 replaces it).</p></div>
 `);
 
 add("demo", "everyone", `

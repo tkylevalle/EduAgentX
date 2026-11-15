@@ -11,9 +11,9 @@ const fail = (code, status = 409) => Object.assign(new Error(code), { code, stat
 // a reader can tell a keyword grader from any later one. The Engine records
 // it on every assessment (examination-engine/assessment.js checkAssessment).
 function graderOf(assessment) {
-  const grader = assessment.grader;
-  if (!grader || !text(grader.id) || !text(grader.version)) throw fail('examination_evidence_malformed');
-  return { id: grader.id, version: grader.version };
+  const grader = assessment.grader ? { id: assessment.grader.id, version: assessment.grader.version } : null;
+  if (!execution.validGrader(grader)) throw fail('examination_evidence_malformed');
+  return grader;
 }
 
 function validatedEvidence(attempt, trustedPackage = null, issuanceEnvironment = process.env.CERTIFICATION_ENVIRONMENT, issuer = process.env.CERTIFICATION_ISSUER) {

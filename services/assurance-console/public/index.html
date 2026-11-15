@@ -239,7 +239,7 @@ tr:hover td{background:var(--surface2);}
   </div>
   <div class="section">
     <div class="section-header"><span class="section-title">Locked Rubric</span></div>
-    <div class="section-body" id="rubricView"><div style="color:var(--muted);">Loading...</div></div>
+    <div class="section-body" id="graderView"><div style="color:var(--muted);">Loading...</div></div>
   </div>
 </div>
 
@@ -441,9 +441,9 @@ async function loadGovernance() {
 
   // Pass thresholds and critical rules belong to each package, not to the
   // grading service, so this panel shows only the grader's identity.
-  const rubricEl = document.getElementById('rubricView');
+  const graderEl = document.getElementById('graderView');
   const grader = graderReply?.grader;
-  rubricEl.innerHTML = `
+  graderEl.innerHTML = `
     <p style="font-size:12px;">Grader: ${grader ? `<code>${esc(grader.id)} ${esc(grader.version)}</code>` : 'unavailable'}</p>
     <p style="font-size:11px;color:var(--muted);margin-top:8px;">Pass thresholds and critical rules come from the exam template and rubric pinned by each Domain Assurance Package. Every attempt records the versions it was graded under.</p>`;
 }
@@ -451,7 +451,7 @@ async function loadGovernance() {
 // ── Evidence ───────────────────────────────────────────────────────
 // Assessments live on examination attempts, so the lookup opens the
 // server-rendered attempt view instead of listing grading-service records.
-function loadEvidence() {
+function bindEvidenceLookup() {
   const form = document.getElementById('evidenceLookup');
   if (form.dataset.bound) return;
   form.dataset.bound = 'true';
@@ -502,7 +502,7 @@ async function loadMarketplace() {
 async function refresh() {
   await loadOverview();
   await loadGovernance();
-  await loadEvidence();
+  bindEvidenceLookup();
   await loadOperations();
   await loadMarketplace();
 }

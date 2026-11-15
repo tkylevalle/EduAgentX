@@ -64,6 +64,15 @@ async function requireActivePackage(driver, { scriptedReviewerIds = [] } = {}) {
   return { packageId: active.packageId, version: active.version, approvers, objectives: active.objectives || [] };
 }
 
+/**
+ * The check both gates start with: an Active package approved by two named reviewers.
+ * @returns {Promise<object|null>} the package summary, or null when the check did not pass
+ */
+function checkActivePackage(gate, { driver, scriptedReviewerIds }) {
+  return gate.check('active-package', 'An Active package approved by two named reviewers governs the exam',
+    () => requireActivePackage(driver, { scriptedReviewerIds }));
+}
+
 function writeResult(result, name) {
   const recordedAt = new Date().toISOString();
   const dir = path.join(ROOT, 'artifacts', 'gates');
@@ -101,4 +110,4 @@ async function runGate(name, defineChecks) {
   }
 }
 
-module.exports = { MIN_APPROVERS, readEnv, requireActivePackage, runGate };
+module.exports = { MIN_APPROVERS, checkActivePackage, readEnv, requireActivePackage, runGate };

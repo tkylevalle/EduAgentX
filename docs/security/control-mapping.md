@@ -49,7 +49,7 @@ EduAgentX certifies external agents. It does not call a language model itself to
 | LLM06 Excessive Agency | Agent under test | Unsafe tool use is a critical violation. Tools are simulated in tests | Covered for agents |
 | LLM07 System Prompt Leakage | Platform | Registration carries a hash of the system prompt, not the prompt `[TP]` | Covered by design |
 | LLM08 Vector and Embedding Weaknesses | Platform | Index is rebuilt from the Active package only and is never the source of truth `[ARCH]` | Partial: access control on the index `[TO VERIFY]` |
-| LLM09 Misinformation | Platform | Locked rubric and thresholds | **Open: grading-quality KPI is Red `[PR90]` (F-04)** |
+| LLM09 Misinformation | Platform | Locked rubric and thresholds | **Open: grading validity is Red on the production grader (`packages/grading-validity`, F-04)** |
 | LLM10 Unbounded Consumption | Both | Rate limit. Proposed bounds on live runs | Partial: no budget accounting for live runs (F-03) |
 
 ## 3. NIST CSF 2.0 coverage by function

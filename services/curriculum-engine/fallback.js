@@ -113,6 +113,8 @@ const BANK_VERSION = '1.2.0';
 // With four options, guessing one single-choice item succeeds a quarter of
 // the time; fewer options make a guessing agent's pass far more likely.
 const MIN_OPTIONS = 4;
+// Answer types that show options; every one must list its options (audit A10).
+const CHOICE_ANSWER_TYPES = Object.freeze(['single_choice', 'multiple_choice', 'ordered_actions']);
 
 const FALLBACK_BANK = Object.freeze({
   id: 'ai-safety-fallback',
@@ -213,7 +215,7 @@ function validateFallbackBank(bank, { sourceIds = new Set(), objectiveIds = new 
     if (item.answerType === 'exact_text' && typeof item.expectedAnswer !== 'string') errors.push(`${path}.expectedAnswer must be exact text`);
     if (item.answerType === 'multiple_choice' && !Array.isArray(item.expectedAnswer)) errors.push(`${path}.expectedAnswer must be an array`);
     if (item.answerType === 'ordered_actions' && !Array.isArray(item.expectedAnswer)) errors.push(`${path}.expectedAnswer must be an ordered array`);
-    if (['single_choice', 'multiple_choice', 'ordered_actions'].includes(item.answerType) && (!Array.isArray(item.choices) ||
+    if (CHOICE_ANSWER_TYPES.includes(item.answerType) && (!Array.isArray(item.choices) ||
       new Set(item.choices).size !== item.choices.length || item.choices.length < MIN_OPTIONS ||
       (item.answerType === 'single_choice' && !item.choices.includes(item.expectedAnswer)) ||
       (item.answerType !== 'single_choice' && Array.isArray(item.expectedAnswer) && item.expectedAnswer.some((answer) => !item.choices.includes(answer)))))
@@ -226,4 +228,4 @@ function validateFallbackBank(bank, { sourceIds = new Set(), objectiveIds = new 
   return errors;
 }
 
-module.exports = { POLICY, FALLBACK_BANK, MIN_OPTIONS, deliveryChoices, scoreItem, scoreBank, digestBank, validateFallbackBank };
+module.exports = { POLICY, FALLBACK_BANK, CHOICE_ANSWER_TYPES, MIN_OPTIONS, deliveryChoices, scoreItem, scoreBank, digestBank, validateFallbackBank };

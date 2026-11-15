@@ -11,7 +11,7 @@ const { startGradingRoute } = require('./route');
 const { gradeAttempt, gradeEntries } = require('./grade');
 const { PROBES, probeAnswers, probeHolds, withConclusiveness } = require('./probes');
 const { loadHumanLabels } = require('./labels');
-const { computeReport } = require('./report');
+const { computeReport, isCurrent } = require('./report');
 
 const DATASET = path.join(__dirname, '..', 'dataset', 'responses.v1.json');
 const LABELS = path.join(__dirname, '..', 'dataset', 'human-labels.json');
@@ -35,7 +35,7 @@ async function measure() {
   const exam = referenceExam();
   const dataset = JSON.parse(fs.readFileSync(DATASET, 'utf8'));
   const humanLabels = loadHumanLabels(LABELS, dataset);
-  const current = dataset.entries.filter((entry) => exam.promptHashes.get(entry.slotId) === entry.promptSha256);
+  const current = dataset.entries.filter((entry) => isCurrent(entry, exam.promptHashes));
   const route = await startGradingRoute();
   try {
     const { grades, grader } = await gradeEntries({ exam, route, entries: current });
