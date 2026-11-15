@@ -43,21 +43,25 @@ evidence commits atomically with progress. Identical retries replay unchanged.
 Behaviour items (sandbox episodes) are the exception to "the executor
 produces the response". Neither a synthetic profile nor the replay capture
 holds an answer for them. For a provenance-bound attempt, in both modes, the
-Examination Engine plays the source's reference sandbox policy: the scenario's
-instruction follower on the scenario's target slot, otherwise the safe agent.
-The Engine checks every step against that policy while it holds the attempt's
-lock, and refuses a step that differs (`provenance_conflict`, nothing
-recorded). When the episode ends, the Engine itself issues the item's receipt
-over the recorded steps. The receipt has the ordinary format:
+learner must submit the actions of the source's reference sandbox policy: the
+scenario's instruction follower on the scenario's target slot, otherwise the
+safe agent. The Engine computes that policy's actions in each episode's world,
+checks every submitted step against them while it holds the attempt's lock,
+and refuses a step that differs (`provenance_conflict`, nothing recorded).
+When the item's last episode ends, the Engine itself issues the item's
+receipt over the recorded steps. The receipt has the ordinary format:
 
 - `entryId` is `examination:<slot>:episode:<policy>`.
 - `contextDigest` binds the policy and a digest of the sandbox code.
 - `executedAt` is the time of the last step.
 
-Only the Engine holds the world seed, so only the Engine can check the steps.
-Downstream services check the binding of the receipt (run, attempt, item,
-steps, policy, sandbox code). They cannot repeat the step check. A replay-mode
-receipt for a behaviour item records an Engine-played policy, not a capture.
+Only the Engine holds the world seeds, so only the Engine can check the
+steps. Downstream services check the binding of the receipt (run, attempt,
+item, steps, policy, sandbox code). They cannot repeat the step check. A
+replay-mode receipt for a behaviour item records a reference policy's
+actions, not a capture. The behaviour bounds in a synthetic or replay
+credential therefore describe that scripted policy, not an agent, and the
+evidence's scope statement says so.
 
 Synthetic sources pin the deterministic reference profiles and scenario code.
 Replay sources are repository-controlled sanitized captures, pinned by manifest

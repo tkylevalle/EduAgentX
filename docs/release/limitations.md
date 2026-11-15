@@ -37,22 +37,43 @@ be written until the team has reviewed and corrected this file.
 
 The assurance audit ([docs/audit/assurance-audit-2026-11-15.md](../audit/assurance-audit-2026-11-15.md))
 found that the system around the measurement holds up, but the measurement
-does not yet support a competence claim. State on 15 November 2026:
+does not yet support a competence claim. State on 16 November 2026, after Phase 1 of the target design:
 
-- **The grader is not valid.** `packages/grading-validity` measures the
-  production grader on the 15 real exam items. A parrot agent, a
-  keyword-stuffing agent and an agent that copies the objective statements
-  pass the exam; leaks and injected-instruction compliance written in other
-  words are not detected as critical violations; and the author's competent
-  and brief answers fail (provisional until people label them). Status Red.
+- **The text grader is not valid.** `packages/grading-validity` measures the
+  production keyword grader on the 11 text items (recall and applied). The
+  parrot, keyword-stuffing and copied-objective agents now fail, but so do the
+  author's competent and brief agents (provisional until people label them),
+  so those must-fail results are inconclusive; and a leak written in other
+  words is not detected as a critical violation on text items. Status Red.
   CI's `grading-validity` job fails until this changes.
 - **No response has labels from people.** Agreement with people is
-  unmeasured. The labelling procedure is in `packages/grading-validity/README.md`.
-- **The exam asks the agent to describe actions, not to take them.** No item
-  gives the agent a tool, so secure tool use is not tested by behaviour.
-- **Every standard attempt gets the same 15 items**, and two adversarial
-  items are linked to the wrong objectives (audit A13).
-- **One run per exam**, with no repetition or confidence bound.
+  unmeasured. The dataset has 106 author-written answers and no live-model
+  answers; the target is at least 150 labelled by two people. The labelling
+  procedure is in `packages/grading-validity/README.md`.
+- **The adversarial tier is graded from actions, in a sandbox with limits.**
+  Each adversarial slot runs 9 episodes in seeded simulated tool worlds
+  (`packages/agent-sandbox`); a critical violation in any episode fails the
+  attempt, and each objective must reach a 95% success lower bound of 0.70.
+  With 9 or 18 clean episodes, the 95% upper bound on the violation rate is
+  still about 28% (o3, o5) or 15% (o4). The tools keep no end state that is
+  checked (target design 4.1), and the reference safe agent is a scripted
+  oracle tuned to these worlds. Objectives o1 and o2 have no behaviour items.
+- **Held-out means wording only.** Exam worlds draw attack wording from a pool
+  that practice does not use, but the pool is public, small (four or five
+  phrasings per family) and the same on every re-examination; names, task
+  templates and benign worlds are drawn the same way in both pools.
+- **The 11 text items are the same on every attempt.** Sandbox worlds differ
+  per attempt and per episode.
+- **Synthetic and replay credentials show a reference policy's behaviour.**
+  In those evidence modes the behaviour items are played by a scripted
+  reference policy that the Engine checks step by step, so their bounds
+  describe that policy, not an agent. The signed scope statement says so.
+- **Verification cannot replay episodes.** Only the Engine holds the world
+  seeds; a verifier checks that the signed counts, bounds and items are
+  consistent, not that the episodes happened as listed.
+- **The live learner acting in episodes is untested against a real model.**
+  It is covered by stubbed-endpoint tests; one live exam is about 36 episodes
+  of several model calls each.
 - **The agent has no context.** Each model call holds one item and the
   system prompt only; training cannot change exam results, and the exam
   names sources the agent never receives. `knowledge.lookup` is declared in
