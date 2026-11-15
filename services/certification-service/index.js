@@ -23,6 +23,8 @@ function createApp({ store, examinationEvidence, internalKey = process.env.CERTI
   issuanceEnvironment = process.env.CERTIFICATION_ENVIRONMENT,
   privateKey = null, keyId = process.env.CERTIFICATION_KEY_ID,
   issuer = process.env.CERTIFICATION_ISSUER, credentialBase = process.env.CREDENTIAL_BASE_URL,
+  // The public base of the signed status lists (assurance audit D2); without it credentials carry no status entry.
+  statusListBase = process.env.CERTIFICATION_STATUS_LIST_BASE,
   clock = () => new Date().toISOString() } = {}) {
   if (!store || typeof examinationEvidence !== 'function' || !internalKey) throw new Error('store, evidence source and internal key required');
   const app = express();
@@ -73,7 +75,8 @@ function createApp({ store, examinationEvidence, internalKey = process.env.CERTI
     return store.issue({ evidence, commandKey: idempotencyKey,
       commandDigest: digest({ examinationId, idempotencyKey }),
       latencyStartedAt,
-      createCredential: (decisionId) => issueCredential(evidence, { privateKey, keyId, issuer, credentialBase, decisionId, environment: issuanceEnvironment, now: clock }) });
+      createCredential: (decisionId, statusListIndex) => issueCredential(evidence, { privateKey, keyId, issuer, credentialBase, decisionId,
+        environment: issuanceEnvironment, now: clock, statusListBase, statusListIndex }) });
   };
   app.post('/internal/decisions', async (req, res) => {
     try {
@@ -132,6 +135,7 @@ function createApp({ store, examinationEvidence, internalKey = process.env.CERTI
 }
 
 async function start() {
+  const statusListBase = process.env.CERTIFICATION_STATUS_LIST_BASE;
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
   pool.on('error', () => telemetry.log('certification-service', 'postgres_connection_error'));
   await pool.query(fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8'));
@@ -203,8 +207,8 @@ async function start() {
             await store.issue({ evidence, commandKey: `examination:${candidate.examinationId}`,
               commandDigest: digest({ examinationId: candidate.examinationId, event: 'attempt_completed' }),
               latencyStartedAt,
-              createCredential: (decisionId) => issueCredential(evidence, { privateKey, decisionId, keyId: process.env.CERTIFICATION_KEY_ID,
-                issuer: process.env.CERTIFICATION_ISSUER, credentialBase: process.env.CREDENTIAL_BASE_URL }) });
+              createCredential: (decisionId, statusListIndex) => issueCredential(evidence, { privateKey, decisionId, keyId: process.env.CERTIFICATION_KEY_ID,
+                issuer: process.env.CERTIFICATION_ISSUER, credentialBase: process.env.CREDENTIAL_BASE_URL, statusListBase, statusListIndex }) });
           } catch (error) {
             // Permanently invalid evidence must never receive a decision, but it
             // also must not block later passing examinations in the cursor.

@@ -69,14 +69,29 @@ const statusStore = {
     return statusRecords.has(statusKey(credentialId));
   },
 
-  register(credentialId) {
+  // statusListIndex: the credential's bit in the signed status lists, chosen by
+  // the issuer before signing. One index belongs to one credential.
+  register(credentialId, statusListIndex = null) {
     const key = statusKey(credentialId);
-    if (statusRecords.has(key)) return;
+    const existing = statusRecords.get(key);
+    if (existing) {
+      if (statusListIndex !== null && existing.statusListIndex !== statusListIndex)
+        throw new StatusTransitionError(`credential ${credentialId} is registered with another status list index`);
+      return;
+    }
+    if (statusListIndex !== null && [...statusRecords.values()].some((record) => record.statusListIndex === statusListIndex))
+      throw new StatusTransitionError(`status list index ${statusListIndex} belongs to another credential`);
     statusRecords.set(key, {
-      status: 'active',
+      status: 'active', ...(statusListIndex !== null ? { statusListIndex } : {}),
       history: [{ status: 'active', at: new Date().toISOString(), reason: 'issued' }]
     });
     try { save(); } catch (error) { statusRecords.delete(key); throw error; }
+  },
+
+  /** @param {string} status @returns {number[]} the list indices of credentials in this status */
+  indicesWith(status) {
+    return [...statusRecords.values()].filter((record) => record.status === status && Number.isSafeInteger(record.statusListIndex))
+      .map((record) => record.statusListIndex);
   },
 
   transition(credentialId, newStatus, reason = '') {
@@ -89,7 +104,8 @@ const statusStore = {
       throw new StatusTransitionError(`cannot transition from ${record.status} to ${newStatus} — ${newStatus === 'active' && record.status === 'revoked' ? 'revocation is irreversible' : 'invalid transition'}`);
 
     // Memory changes only once the new record is on disk.
-    statusRecords.set(key, { status: newStatus, history: [...record.history, { status: newStatus, at: new Date().toISOString(), reason }] });
+    // Keep the record's other fields, such as its status list index.
+    statusRecords.set(key, { ...record, status: newStatus, history: [...record.history, { status: newStatus, at: new Date().toISOString(), reason }] });
     try { save(); } catch (error) { statusRecords.set(key, record); throw error; }
   },
 

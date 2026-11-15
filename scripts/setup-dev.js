@@ -46,4 +46,13 @@ if (!fs.existsSync(testPrivatePath)) {
   fs.writeFileSync(path.join(keys, 'certification-test-ed25519-public.pem'),
     pair.publicKey.export({ type: 'spki', format: 'pem' }), { mode: 0o644 });
 }
+// The key that signs the Bitstring Status Lists (assurance audit D2); its
+// public half is published in the issuer's JWKS.
+const statusPrivatePath = path.join(keys, 'status-list-ed25519-private.pem');
+if (!fs.existsSync(statusPrivatePath)) {
+  const pair = generateKeyPairSync('ed25519');
+  fs.writeFileSync(statusPrivatePath, pair.privateKey.export({ type: 'pkcs8', format: 'pem' }), { mode: 0o600 });
+  fs.writeFileSync(path.join(keys, 'status-list-ed25519-public.pem'),
+    pair.publicKey.export({ type: 'spki', format: 'pem' }), { mode: 0o644 });
+}
 require('./generate-test-keys');

@@ -35,6 +35,8 @@ CREATE TABLE IF NOT EXISTS certification_engine.credentials (
 );
 ALTER TABLE certification_engine.credentials ADD COLUMN IF NOT EXISTS issuance_latency_ms integer NOT NULL DEFAULT 0;
 ALTER TABLE certification_engine.credentials ADD COLUMN IF NOT EXISTS processing_latency_ms integer NOT NULL DEFAULT 0;
+-- Each credential's bit in the signed status lists (assurance audit D2); never reused.
+CREATE SEQUENCE IF NOT EXISTS certification_engine.status_list_index MINVALUE 0 START WITH 0;
 
 CREATE OR REPLACE FUNCTION certification_engine.forbid_evidence_change() RETURNS trigger
 LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'immutable certification evidence'; END $$;

@@ -24,6 +24,8 @@ const credentialSummary = ({ examinationId, decision, subjectId, packageId, pack
 function createMemoryStore() {
   const byAttempt = new Map(), byKey = new Map();
   let cursor = null;
+  // The next status list index (assurance audit D2): one per credential, never reused.
+  let nextStatusListIndex = 0;
   let tail = Promise.resolve();
   async function serialize(action) {
     let release;
@@ -48,7 +50,8 @@ function createMemoryStore() {
         const existing = byAttempt.get(evidence.examinationId);
         if (existing) return { ...clone(existing), replay: true };
         const decisionId = randomUUID();
-        const issued = createCredential(decisionId);
+        const issued = createCredential(decisionId, nextStatusListIndex);
+        nextStatusListIndex += 1;
         const processingLatencyMs = Math.max(0, Number(process.hrtime.bigint() - latencyStartedAt) / 1e6);
         const row = { decisionId, examinationId: evidence.examinationId,
           commandKey, commandDigest, evidence: clone(evidence), decision: { outcome: 'certified', decidedAt: evidence.decidedAt },
@@ -117,7 +120,9 @@ function createPgStore(pool) {
         const found = await findByAttempt(evidence.examinationId, client);
         if (found) { await client.query('COMMIT'); return project(found, true); }
         const decisionId = randomUUID();
-        const issued = createCredential(decisionId);
+        // The next status list index (assurance audit D2): a sequence never reuses one.
+        const { rows: [{ index }] } = await client.query("SELECT nextval('certification_engine.status_list_index')::int AS index");
+        const issued = createCredential(decisionId, index);
         await client.query(`INSERT INTO certification_engine.decisions
           (decision_id,examination_id,idempotency_key,command_digest,subject_id,subject_fingerprint,
            package_id,package_version,package_digest,template_id,template_version,rubric_id,rubric_version,

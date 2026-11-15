@@ -58,6 +58,7 @@ async function boot(t) {
   upstream.post('/status/:action', (req, res) => res.json({ credentialId: req.body.credentialId, status: req.params.action }));
   upstream.get('/snapshot', (req, res) => res.json({ assurancePosture: {} }));
   upstream.get('/.well-known/jwks.json', (req, res) => res.json({ keys: [{ kid: 'issuer#key-1', kty: 'OKP' }] }));
+  upstream.get('/status-lists/:purpose', (req, res) => res.type('application/vc+jwt').send(`signed.${req.params.purpose}.list`));
   const stub = await listen(upstream);
   const gateway = await listen(createGateway({ certificationServiceUrl: url(stub), certificationInternalKey: 'cert-key',
     credentialVerificationUrl: url(stub), credentialInternalKey: 'cred-key', monitoringServiceUrl: url(stub) }));
@@ -71,6 +72,15 @@ test('anyone can read the issuer\'s published keys through the Gateway, without 
   assert.equal(reply.status, 200);
   assert.deepEqual(reply.body.keys.map((key) => key.kid), ['issuer#key-1']);
   assert.ok(seen.some((entry) => entry.path === '/.well-known/jwks.json'));
+});
+
+test('anyone can fetch a signed status list through the Gateway, passed through unchanged', async (t) => {
+  const { gateway } = await boot(t);
+  const reply = await fetch(`${url(gateway)}/status-lists/revocation`);
+  assert.equal(reply.status, 200);
+  assert.equal(reply.headers.get('content-type').startsWith('application/vc+jwt'), true);
+  assert.equal(await reply.text(), 'signed.revocation.list');
+  assert.equal((await fetch(`${url(gateway)}/status-lists/other`)).status, 404);
 });
 
 test('admin reads certifications through the Gateway with a read-only gateway actor', async (t) => {

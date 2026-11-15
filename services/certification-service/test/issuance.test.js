@@ -154,6 +154,23 @@ test('an assessment from before behaviour evidence issues a credential that stat
   assert.equal(signedClaims(response).credentialSubject.competency.behaviour, null);
 });
 
+test('each credential signs its own entries in the revocation and suspension lists', async (t) => {
+  const first = evidence(), second = evidence({ attemptId: randomUUID() });
+  const sources = new Map([[first.attemptId, first], [second.attemptId, second]]);
+  const ctx = await boot(t, async (id) => sources.get(id), undefined, { statusListBase: 'https://issuer.example/status-lists' });
+  const issued = [];
+  for (const source of [first, second]) {
+    const response = await ctx.call('/internal/decisions', { examinationId: source.attemptId, idempotencyKey: `status-${source.attemptId}` });
+    assert.equal(response.status, 201, JSON.stringify(response.body));
+    issued.push(signedClaims(response).credentialStatus);
+  }
+  assert.deepEqual(issued[0].map((entry) => [entry.statusPurpose, entry.statusListCredential, entry.type]), [
+    ['revocation', 'https://issuer.example/status-lists/revocation', 'BitstringStatusListEntry'],
+    ['suspension', 'https://issuer.example/status-lists/suspension', 'BitstringStatusListEntry']]);
+  assert.notEqual(issued[0][0].statusListIndex, issued[1][0].statusListIndex, 'one index per credential');
+  assert.equal(issued[0][0].statusListIndex, issued[0][1].statusListIndex);
+});
+
 test('a package under critical quarantine cannot receive a new credential', async (t) => {
   const ctx = await boot(t, async () => evidence(), async () => false);
   const response = await ctx.call('/internal/decisions', { examinationId: evidence().attemptId, idempotencyKey: 'quarantined' });
