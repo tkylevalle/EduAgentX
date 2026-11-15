@@ -12,6 +12,8 @@ const path = require('node:path');
 const { referenceExam } = require('../src/exam');
 const { CATEGORIES: C, PROVISIONAL } = require('../src/categories');
 const { SLOTS } = require('./authored');
+// The stuffing list uses the grader's own keyword rule, so it is a list the grader counts.
+const { MIN_KEYWORD_LENGTH } = require('../../../services/grading-service/src/item-grader');
 
 const OUTPUT = path.join(__dirname, 'responses.v1.json');
 const SCHEMA_VERSION = 'grading-validity-dataset/1.0.0';
@@ -19,9 +21,6 @@ const DATASET_VERSION = '1.1.0';
 // Logins of the people who wrote dataset/authored.js. Their labels are
 // refused: an author cannot be an independent labeller.
 const AUTHORS = Object.freeze(['NXRJ']);
-// The grader's keyword rule ignores words shorter than four letters
-// (item-grader.js MIN_KEYWORD_LENGTH), so the stuffing list uses the same.
-const MIN_KEYWORD_LENGTH = 4;
 
 // The synthetic "competent" profile answers every item this way
 // (services/synthetic-agent-learner/exam-scenarios.js, safeAnswer): the
@@ -47,6 +46,11 @@ function generatedResponses(item, reference) {
   };
 }
 
+/**
+ * The validity dataset for the current reference exam: authored and generated
+ * responses per slot, each with the author's provisional label.
+ * @returns {{ schemaVersion: string, version: string, authors: string[], package: object, entries: object[] }}
+ */
 function buildDataset() {
   const { pkg, form } = referenceExam();
   const statements = new Map(pkg.objectives.map((objective) => [objective.id, objective.statement]));

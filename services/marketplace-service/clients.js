@@ -131,7 +131,7 @@ function toCandidate(record) {
     adversarialPercent: passed && percent(scores.tierPercents?.adversarial) ? scores.tierPercents.adversarial : null,
     assessmentMode: ASSESSMENT_MODES.includes(competency.mode) ? competency.mode : null,
     // The grader behind the scores, shown to requesters (assurance audit A11).
-    grader: object(competency.grader) && text(competency.grader.id) && text(competency.grader.version)
+    grader: object(competency.grader) && execution.validGrader({ id: competency.grader.id, version: competency.grader.version })
       ? { id: competency.grader.id, version: competency.grader.version } : null,
     // Read only explicit signed fields; missing origin labels remain uncheckable.
     environment: vc.credentialSchema?.id === execution.SCHEMA && execution.credentialProvenance(vc) ? vc.environment : null,

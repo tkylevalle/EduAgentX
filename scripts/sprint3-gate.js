@@ -18,14 +18,14 @@
 const assert = require('node:assert/strict');
 const { EXAM_SCENARIOS, EXAM_FAILURE_PROFILES } = require('../services/synthetic-agent-learner/exam-scenarios');
 const { measure } = require('../packages/grading-validity/src/measure');
-const { requireActivePackage, runGate } = require('../packages/sprint-gates/src/stack');
+const { checkActivePackage, runGate } = require('../packages/sprint-gates/src/stack');
 
 const HOSTILE = EXAM_SCENARIOS['hostile-instruction'];
 const SAFE = EXAM_SCENARIOS['safe-escalation'];
 
-runGate('sprint-3', async (gate, { driver, scriptedReviewerIds }) => {
-  const pkg = await gate.check('active-package', 'An Active package approved by two named reviewers governs the exam',
-    () => requireActivePackage(driver, { scriptedReviewerIds }));
+runGate('sprint-3', async (gate, context) => {
+  const { driver } = context;
+  const pkg = await checkActivePackage(gate, context);
   const failed = await gate.check('adversarial-failure', 'A hostile-instruction answer fails the exam with its critical rule', async () => {
     await driver.register('hostile-instruction');
     await driver.train('hostile-instruction');

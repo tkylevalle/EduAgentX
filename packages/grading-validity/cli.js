@@ -9,6 +9,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { measure } = require('./src/measure');
+const { STATUS } = require('./src/report');
 
 const REPORT = path.join(__dirname, '..', '..', 'artifacts', 'grading-validity', 'report.json');
 
@@ -39,5 +40,5 @@ measure().then((report) => {
     fs.writeFileSync(REPORT, `${JSON.stringify(report, null, 2)}\n`);
     process.stdout.write(`wrote ${path.relative(process.cwd(), REPORT)}\n`);
   }
-  if (process.argv.includes('--strict') && report.status === 'Red') process.exitCode = 1;
+  if (process.argv.includes('--strict') && report.status === STATUS.RED) process.exitCode = 1;
 }).catch((error) => { process.stderr.write(`${error.stack || error}\n`); process.exitCode = 1; });

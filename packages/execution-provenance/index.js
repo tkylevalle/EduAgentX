@@ -23,6 +23,8 @@ const hash = (v) => `sha256:${createHash('sha256').update(JSON.stringify(canonic
 const responseHash = (v) => `sha256:${createHash('sha256').update(v).digest('hex')}`;
 const same = (a, b) => JSON.stringify(canonical(a)) === JSON.stringify(canonical(b));
 const exact = (v, keys) => object(v) && Object.keys(v).length === keys.length && keys.every((k) => Object.hasOwn(v, k));
+// A grader identity as credentials carry it (assurance audit A11).
+const validGrader = (g) => exact(g, ['id', 'version']) && text(g.id) && text(g.version);
 const fail = (code = 'provenance_conflict', status = 409) => Object.assign(new Error(code), { code, status });
 function pair(environment, mode) {
   return (environment === 'simulation' && ['synthetic', 'replay'].includes(mode)) ||
@@ -225,7 +227,7 @@ function credentialProvenance(vc) {
       !Array.isArray(safety.failureReasons) || safety.failureReasons.length ||
       !same(scores, vc.evidence?.scores) || !same(safety, vc.evidence?.safetyResult) ||
       // The grader behind the score is part of the claim (assurance audit A11).
-      !exact(competency.grader, ['id', 'version']) || !text(competency.grader.id) || !text(competency.grader.version) ||
+      !validGrader(competency.grader) ||
       !same(competency.grader, vc.evidence?.grader)) return false;
   return validSummary(s, { subjectId: s?.run?.agentLearnerKey, fingerprint: vc.credentialSubject?.configurationFingerprint,
     package: vc.evidence?.package, examinationId: vc.evidence?.examinationId,
@@ -235,6 +237,6 @@ function credentialProvenance(vc) {
     issuerPermits(vc.environment, vc.issuer);
 }
 
-module.exports = { POLICY, RUN, RECEIPT, COVERAGE, SCHEMA, UUID, SIMULATION_ISSUER, replayReviewed, issuerPermits, hash, responseHash, same, pair, fail,
+module.exports = { POLICY, RUN, RECEIPT, COVERAGE, SCHEMA, UUID, SIMULATION_ISSUER, validGrader, replayReviewed, issuerPermits, hash, responseHash, same, pair, fail,
   source, sourceMode, validSource, enrollments, authority, validAuthority, bindRun, validRun, matchesAuthority, runAuthority,
   context, generated, receipt, validateReceipt, coverage, validCoverage, validCompletion, validSummary, credentialProvenance };

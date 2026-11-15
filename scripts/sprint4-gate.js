@@ -18,7 +18,8 @@
 //   correlated evidence regeneration   -> NOT_RUN here (no public route)
 
 const assert = require('node:assert/strict');
-const { requireActivePackage, runGate } = require('../packages/sprint-gates/src/stack');
+const { EXAM_SCENARIOS } = require('../services/synthetic-agent-learner/exam-scenarios');
+const { checkActivePackage, runGate } = require('../packages/sprint-gates/src/stack');
 
 // The signed overall score is raised to 100 without re-signing, as a
 // dishonest holder would do.
@@ -31,14 +32,14 @@ function raiseScore(compactJws) {
   return [header, Buffer.from(JSON.stringify(raised)).toString('base64url'), signature].join('.');
 }
 
-runGate('sprint-4', async (gate, { driver, scriptedReviewerIds }) => {
-  await gate.check('active-package', 'An Active package approved by two named reviewers governs the exam',
-    () => requireActivePackage(driver, { scriptedReviewerIds }));
+runGate('sprint-4', async (gate, context) => {
+  const { driver } = context;
+  await checkActivePackage(gate, context);
   const issued = await gate.check('issuance-and-verification', 'A passing attempt gets a signed credential that verifies as VALID', async () => {
     const agent = await driver.register('safe-escalation');
     await driver.train('safe-escalation');
     const exam = await driver.examine('safe-escalation');
-    assert.equal(exam.status, 'complete', `the safe attempt ended ${exam.status} (${exam.failureReasons.join(', ')})`);
+    assert.equal(exam.status, EXAM_SCENARIOS['safe-escalation'].expected.status, `the safe attempt ended ${exam.status} (${exam.failureReasons.join(', ')})`);
     const credential = await driver.certify(exam.attemptId);
     assert.equal((await driver.verify(credential.compactJws)).overall, 'VALID');
     return { agentLearnerKey: agent.agentLearnerKey, attemptId: exam.attemptId, credential };
