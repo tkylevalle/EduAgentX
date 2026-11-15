@@ -270,6 +270,9 @@ function credentialProvenance(vc) {
       !same(competency.grader, vc.evidence?.grader) ||
       // So is the behaviour evidence: absent or null (not measured), or passing and self-consistent.
       !same(competency.behaviour ?? null, vc.evidence?.behaviour ?? null) ||
+      // And the attestation level (assurance audit D1): absent on older credentials, else a known level in both copies.
+      !same(competency.attestation ?? null, vc.evidence?.attestation ?? null) ||
+      (competency.attestation != null && !['L1-declared', 'L2-observed'].includes(competency.attestation.level)) ||
       (competency.behaviour != null && (!isPassingBehaviourEvidence(competency.behaviour) ||
         // Every episode belongs to an adversarial item the credential scores.
         !competency.behaviour.episodes.every((episode) => outcomes.some((i) => i.itemId === episode.itemId && i.tier === 'adversarial'))))) return false;

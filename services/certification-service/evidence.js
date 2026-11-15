@@ -39,7 +39,24 @@ function behaviourOf(assessment, mode) {
   return structuredClone(behaviour);
 }
 
-function validatedEvidence(attempt, trustedPackage = null, issuanceEnvironment = process.env.CERTIFICATION_ENVIRONMENT, issuer = process.env.CERTIFICATION_ISSUER) {
+// Attestation level (target design 4.2, assurance audit D1): what the
+// credential's configuration fingerprint rests on. L2: the platform ran the
+// agent itself (the synthetic and live learners), so the model, prompts and
+// tools in the fingerprint are what ran. L1: the agent ran elsewhere and
+// called the Gateway, so its fingerprint is what it declared.
+const ATTESTATION_MEANINGS = Object.freeze({
+  'L2-observed': 'The platform ran this agent itself; the model, prompts and tools in its fingerprint are what ran.',
+  'L1-declared': 'The agent ran outside the platform; its configuration fingerprint is self-declared and not observed.',
+});
+/** @param {string} subjectId @param {string[]} platformSubjects the agent identities the platform itself runs @returns {{ level: string, meaning: string }} */
+function attestationFor(subjectId, platformSubjects) {
+  const level = platformSubjects.includes(subjectId) ? 'L2-observed' : 'L1-declared';
+  return { level, meaning: ATTESTATION_MEANINGS[level] };
+}
+const platformSubjectsFromEnv = () => String(process.env.CERTIFICATION_PLATFORM_SUBJECTS || '').split(',').map((id) => id.trim()).filter(Boolean);
+
+function validatedEvidence(attempt, trustedPackage = null, issuanceEnvironment = process.env.CERTIFICATION_ENVIRONMENT, issuer = process.env.CERTIFICATION_ISSUER,
+  platformSubjects = platformSubjectsFromEnv()) {
   if (!attempt || attempt.status !== 'complete' || attempt.responseCollectionComplete !== true ||
       attempt.result?.schemaVersion !== 'examination-result/1.0.0' || attempt.result.valid !== true ||
       attempt.result.passed !== true || !attempt.assessment || attempt.assessment.passed !== true)
@@ -83,6 +100,7 @@ function validatedEvidence(attempt, trustedPackage = null, issuanceEnvironment =
     throw fail('examination_evidence_malformed');
   const grader = graderOf(assessment);
   const behaviour = behaviourOf(assessment, mode);
+  const attestation = attestationFor(agentLearnerKey, platformSubjects);
   let assessmentPolicy = null;
   if (trustedPackage) {
     assessmentPolicy = mode === 'fallback'
@@ -119,12 +137,12 @@ function validatedEvidence(attempt, trustedPackage = null, issuanceEnvironment =
     packageId: pkg.id, packageVersion: pkg.version, packageDigest: pkg.digest,
     templateId: templateEvidence.id, templateVersion: templateEvidence.version, templateDigest: templateEvidence.digest,
     rubricId: rubric.id, rubricVersion: rubric.version, rubricDigest: rubric.digest,
-    mode, grader, scores, safetyResult, behaviour,
+    mode, grader, scores, safetyResult, behaviour, attestation,
     ...(hasProvenance ? { provenance: attempt.provenance } : {}),
     examinationEvidence: { examinationId: attemptId, formDigest, result: attempt.result,
       ...(hasProvenance ? { provenanceProfile: execution.RUN, provenance: attempt.provenance } : {}),
       completedAt, sequence: attempt.sequence, package: pkg, mode, template: templateEvidence,
-      rubric: { id: rubric.id, version: rubric.version, digest: rubric.digest }, grader, scores, safetyResult, behaviour,
+      rubric: { id: rubric.id, version: rubric.version, digest: rubric.digest }, grader, scores, safetyResult, behaviour, attestation,
       ...(assessmentPolicy ? { passingPolicy: { overallPassPercent: assessmentPolicy.overallPassPercent,
         adversarialPassPercent: assessmentPolicy.adversarialPassPercent,
         failOnCriticalViolation: assessmentPolicy.failOnCriticalViolation !== false } } : {}) },
@@ -167,7 +185,7 @@ function issueCredential(evidence, { privateKey, keyId, issuer = 'https://eduage
       configurationFingerprint: evidence.subjectFingerprint,
       competency: { packageId: evidence.packageId, packageVersion: evidence.packageVersion,
         result: 'pass', mode: evidence.mode, grader: evidence.grader, scores: evidence.scores, safetyResult: evidence.safetyResult,
-        behaviour: evidence.behaviour ?? null } },
+        behaviour: evidence.behaviour ?? null, ...(evidence.attestation ? { attestation: evidence.attestation } : {}) } },
     credentialSchema: { id: evidence.provenance ? execution.SCHEMA : 'https://eduagentx.example/schemas/competency/v1.json', type: 'JsonSchema' },
     ...(credentialStatus ? { credentialStatus } : {}),
     evidence: { type: 'EduAgentXAssessmentEvidence', ...evidence.examinationEvidence,
@@ -182,4 +200,4 @@ function issueCredential(evidence, { privateKey, keyId, issuer = 'https://eduage
   return { credentialId, credential, compactJws: `${signingInput}.${signature}`, keyId, issuedAt };
 }
 
-module.exports = { digest, fail, validatedEvidence, issueCredential };
+module.exports = { ATTESTATION_MEANINGS, digest, fail, validatedEvidence, issueCredential };

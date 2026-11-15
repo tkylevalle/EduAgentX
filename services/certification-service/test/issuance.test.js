@@ -154,6 +154,20 @@ test('an assessment from before behaviour evidence issues a credential that stat
   assert.equal(signedClaims(response).credentialSubject.competency.behaviour, null);
 });
 
+test('the credential states whether the platform ran the agent (L2) or the agent declared its own configuration (L1)', async (t) => {
+  const saved = process.env.CERTIFICATION_PLATFORM_SUBJECTS;
+  t.after(() => { if (saved === undefined) delete process.env.CERTIFICATION_PLATFORM_SUBJECTS; else process.env.CERTIFICATION_PLATFORM_SUBJECTS = saved; });
+  for (const [subjects, level] of [['agent-1, live-agent-learner-dev', 'L2-observed'], ['live-agent-learner-dev', 'L1-declared']]) {
+    process.env.CERTIFICATION_PLATFORM_SUBJECTS = subjects;
+    const ctx = await boot(t);
+    const response = await ctx.call('/internal/decisions', { examinationId: evidence().attemptId, idempotencyKey: `attest-${level}` });
+    const credential = signedClaims(response);
+    assert.equal(credential.credentialSubject.competency.attestation.level, level);
+    assert.deepEqual(credential.credentialSubject.competency.attestation, credential.evidence.attestation);
+    assert.match(credential.evidence.attestation.meaning, level === 'L1-declared' ? /self-declared/ : /platform ran/);
+  }
+});
+
 test('each credential signs its own entries in the revocation and suspension lists', async (t) => {
   const first = evidence(), second = evidence({ attemptId: randomUUID() });
   const sources = new Map([[first.attemptId, first], [second.attemptId, second]]);
