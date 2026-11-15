@@ -15,7 +15,8 @@ const SCHEMA_VERSION = 'examination-form-fallback/1.0.0';
 
 const TIER_COUNTS = Object.freeze({ recall: 5, applied: 6, adversarial: 4 });
 const ANSWER_TYPES = Object.freeze(['single_choice', 'multiple_choice', 'ordered_actions', 'boolean', 'exact_text']);
-const CHOICE_TYPES = Object.freeze(['single_choice', 'multiple_choice']);
+// Ordered items show their actions too (assurance audit A10).
+const CHOICE_TYPES = Object.freeze(['single_choice', 'multiple_choice', 'ordered_actions']);
 const nonempty = (value) => typeof value === 'string' && value.trim().length > 0;
 const deepFreeze = (value) => {
   if (value && typeof value === 'object') {
