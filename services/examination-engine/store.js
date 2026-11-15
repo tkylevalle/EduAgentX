@@ -204,6 +204,10 @@ function createPgStore(pool) {
   }
   return {
     async health() { await pool.query('SELECT 1'); },
+    async reconcileAdmission(actor, key) {
+      const { rows } = await pool.query('SELECT attempt_id FROM examination_engine.attempts WHERE agent_learner_key=$1 AND idempotency_key=$2 ORDER BY attempt_id', [actor, key]);
+      return { count: rows.length, attemptIds: rows.map(r => r.attempt_id) };
+    },
     async get(id, reconcile) {
       const found = await pool.query('SELECT 1 FROM examination_engine.attempts WHERE attempt_id=$1', [id]);
       if (!found.rows.length) return null;
@@ -332,6 +336,10 @@ function createMemoryStore() {
   return {
     ...memoryRemediationMethods(records, transaction),
     async health() {},
+    async reconcileAdmission(actor, key) {
+      const found = [...records.values()].filter(r => r.attempt.agentLearnerKey === actor && r.attempt.idempotencyKey === key);
+      return { count: found.length, attemptIds: found.map(r => r.attempt.attemptId).sort() };
+    },
     get(id, reconcile) { return transaction(() => {
       const original = records.get(id);
       if (!original) return null;

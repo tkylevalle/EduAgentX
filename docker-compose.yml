@@ -340,6 +340,7 @@ services:
       PORT: 4012
       DATABASE_URL: postgres://marketplace_owner:${MARKETPLACE_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
       MARKETPLACE_INTERNAL_KEY: ${MARKETPLACE_INTERNAL_KEY:?Run node scripts/setup-dev.js}
+      MARKETPLACE_AUTHORITY_CONCURRENCY: ${MARKETPLACE_AUTHORITY_CONCURRENCY:-16}
       CURRICULUM_INTERNAL_KEY: ${CURRICULUM_INTERNAL_KEY:?Run node scripts/setup-dev.js}
       VALIDATION_ACTIVATION_URL: http://validation-activation:4010
       AGENT_REGISTRY_URL: http://agent-registry:4001

@@ -38,6 +38,7 @@ const telemetry = require('../../packages/telemetry');
 const fs = require('fs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
+const { evaluationClients } = require('./evaluation-clients');
 
 const JWT_ISSUER = process.env.JWT_ISSUER || 'eduagentx-api-gateway';
 const JWT_AUDIENCE = process.env.JWT_AUDIENCE || 'eduagentx-platform';
@@ -77,7 +78,7 @@ function publicKey() {
 // registered Sprint 1 client credentials - pre-shared, local/test only.
 // Real client provisioning is out of scope for the Sprint 1 skeleton.
 function knownClients() {
-  return [
+  const configured = [
     {
       clientId: process.env.AGENT_CLIENT_ID || '',
       clientSecret: process.env.AGENT_CLIENT_SECRET || '',
@@ -140,6 +141,7 @@ function knownClients() {
       role: 'demo_operator',
     },
   ].filter((c) => c.clientId && c.clientSecret);
+  return [...configured, ...evaluationClients(configured.map(c => c.clientId))];
 }
 
 // constant-time secret comparison so mismatched-length/incorrect secrets
@@ -175,7 +177,9 @@ function issueToken(req, res) {
     });
   }
 
-  const client = findClient(clientId, clientSecret);
+  let client;
+  try { client = findClient(clientId, clientSecret); }
+  catch { return res.status(503).json({ error: 'authentication_not_configured', correlationId: req.correlationId }); }
   if (!client) {
     return res.status(401).json({
       error: 'invalid_client',

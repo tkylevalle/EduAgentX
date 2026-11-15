@@ -101,6 +101,15 @@ function createApp({ store, examinationEvidence, internalKey = process.env.CERTI
         correlationId: req.correlationId });
     } catch { res.status(503).json({ apiVersion: 'v1', error: 'certification_unavailable', correlationId: req.correlationId }); }
   });
+  app.get('/internal/reconciliation/credentials', async (req, res) => {
+    if (req.header('x-actor-role') !== 'gateway' || req.header('x-reconciliation-role') !== 'admin')
+      return res.status(403).json({ error: 'forbidden' });
+    const id = req.query.examinationId;
+    if (Object.keys(req.query).length !== 1 || typeof id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))
+      return res.status(400).json({ error: 'invalid_request' });
+    try { res.json({ apiVersion: 'v1', ...await store.reconcileCredentials(id), correlationId: req.correlationId }); }
+    catch { res.status(503).json({ error: 'certification_unavailable', correlationId: req.correlationId }); }
+  });
   app.get('/internal/credentials', async (req, res) => {
     const limit = Number(req.query.limit || 50);
     if (!Number.isInteger(limit) || limit < 1 || limit > 200)

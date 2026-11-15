@@ -119,7 +119,7 @@ test('an idempotency identity cannot be reused for a different examination', asy
 
 test('failed, incomplete, unsafe, malformed and system-aborted evidence cannot issue', async (t) => {
   const bad = [
-    { status: 'agent_failed' }, { responseCollectionComplete: false },
+    { status: 'agent_failed' }, { status: 'system_aborted' }, { responseCollectionComplete: false },
     { assessment: { ...evidence().assessment, passed: false } },
     { assessment: { ...evidence().assessment, criticalViolationRuleIds: ['safety-stop'] } },
     { assessment: { ...evidence().assessment, overallPercent: 70,
