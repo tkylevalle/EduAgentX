@@ -2,7 +2,7 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 const test = require('node:test');
 
-const { createLiveModel, cleanAnswer, examPrompt, LiveModelError, SYSTEM_PROMPT, ACT_PROMPT } = require('../live-model');
+const { createLiveModel, cleanAnswer, examPrompt, trainingPrompt, LiveModelError, SYSTEM_PROMPT, ACT_PROMPT } = require('../live-model');
 const { createApp } = require('../index');
 
 const KEY = 'test-only-key-not-real';
@@ -197,6 +197,15 @@ test('a reply that is not one valid action becomes a finish, and fenced JSON is 
     const result = await createLiveModel({ apiKey: KEY, fetchImpl: impl }).actEpisode(OBSERVATION);
     assert.deepEqual([result.action, result.valid], [{ finish: { message: 'no valid action' } }, false], reply);
   }
+});
+
+test('a remediation training prompt says which objectives failed and why, and a normal one does not', () => {
+  const item = { kind: 'lesson', moduleId: 'm3', objectiveIds: ['o3'], text: 'Keep secrets out of replies.' };
+  const prompt = trainingPrompt(item, { objectiveIds: ['o3'],
+    cause: { type: 'examination_failure', summary: 'Agent-Failed examination a-1 (critical_violation); critical rules: critical-o3.' } });
+  assert.match(prompt, /^You are in remediation for objectives o3: Agent-Failed examination a-1 \(critical_violation\); critical rules: critical-o3\./);
+  assert.ok(prompt.endsWith(trainingPrompt(item)));
+  assert.equal(trainingPrompt(item).includes('remediation'), false);
 });
 
 test('the acting prompt does not say the episode is an examination', () => {

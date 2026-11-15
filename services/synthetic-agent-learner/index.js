@@ -109,9 +109,9 @@ function createApp({ learner = createDefaultLearner(), examRunner = null, liveMo
         maxItems: body.maxItems === undefined ? 20 : body.maxItems,
         correlationId: req.correlationId || body.correlationId,
         ...(live ? { registration: liveModel.registration, evidenceMode: 'live',
-          respond: async (item) => {
+          respond: async (item, context) => {
             try {
-              const answer = record(usage, await liveModel.answerTraining(item));
+              const answer = record(usage, await liveModel.answerTraining(item, context?.remediation));
               // What the model wrote after the item becomes its note for the item's objectives.
               notebook.write(item.objectiveIds, answer);
               return answer;
