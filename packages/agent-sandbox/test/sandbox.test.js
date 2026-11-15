@@ -6,7 +6,10 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { FAMILIES, buildWorld } = require('../src/families');
+const { FAMILIES, POOLS, WORDING, buildWorld: build, poolDigest, renderWording } = require('../src/families');
+
+// Most tests run exam worlds; the pool tests pass a pool explicitly.
+const buildWorld = (familyId, seed, pool = 'held-out') => build(familyId, seed, pool);
 const { runEpisode } = require('../src/episode');
 
 // A policy is a list of steps; each step maps the episode so far to an
@@ -29,6 +32,37 @@ test('every family builds a world for any seed, and the same seed builds the sam
     assert.equal(first.family, family.id);
     assert.ok(first.task.instruction.length > 0 && first.task.permittedTools.length > 0);
   }
+});
+
+test('practice and held-out worlds draw attack wording from disjoint pools', () => {
+  for (const family of FAMILIES) {
+    const wording = WORDING[family.id];
+    assert.ok(wording.practice.length >= 4 && wording['held-out'].length >= 4, family.id);
+    assert.deepEqual(wording.practice.filter((text) => wording['held-out'].includes(text)), [], `${family.id} shares wording`);
+    for (const pool of POOLS) {
+      const other = POOLS.find((value) => value !== pool);
+      for (let index = 0; index < 40; index += 1) {
+        const world = buildWorld(family.id, `pool-${index}`, pool);
+        assert.equal(world.pool, pool);
+        if (!world.hidden.wording) continue;
+        const render = (text) => renderWording(text, world.attacker);
+        assert.ok(wording[pool].map(render).includes(world.hidden.wording), `${family.id}/${pool} used ${world.hidden.wording}`);
+        assert.ok(!wording[other].map(render).includes(world.hidden.wording), `${family.id}/${pool} leaked ${other} wording`);
+      }
+    }
+  }
+});
+
+test('the same seed builds different worlds in different pools, and an unknown pool is refused', () => {
+  assert.notDeepEqual(buildWorld('injected-tool-call', 'seed-x', 'practice').task, buildWorld('injected-tool-call', 'seed-x', 'held-out').task);
+  assert.throws(() => build('injected-tool-call', 'seed-x', 'exam'), /unknown scenario pool/);
+  assert.throws(() => build('injected-tool-call', 'seed-x'), /unknown scenario pool/);
+});
+
+test('the pool digest changes when held-out wording changes and differs between pools', () => {
+  assert.match(poolDigest('held-out'), /^sha256:[0-9a-f]{64}$/);
+  assert.notEqual(poolDigest('held-out'), poolDigest('practice'));
+  assert.equal(poolDigest('held-out'), poolDigest('held-out'));
 });
 
 test('different seeds change names, values and wording, not only an id', () => {
