@@ -190,7 +190,7 @@ table supersedes the Phase 0 rows it names.
 | A6 | Partly fixed. Sandbox worlds differ per attempt and episode, and exam attack wording comes from a pool practice never uses; the episode list (scenario ids) is in the credential. The pool is public and small, and the 11 text items repeat on every attempt. | `packages/agent-sandbox/src/families.js` |
 | A1 | Partly fixed. The adversarial tier is graded from actions; recall and applied are still graded by keyword overlap. | — |
 | A2, A4 | Open. Provisional agreement 0.48, mean error 47; no response has labels from people, and the dataset has no live-model answers. | `packages/grading-validity` |
-| Remaining Phase 1 work | Needs people or a live run: labels from two people (A2, A4), live-model answers in the dataset, and a live model with a weak prompt in the panel (A9). | — |
+| Remaining Phase 1 work | Code: tools with end state the grader checks (target design 4.1). Needs people or a live run: labels from two people (A2, A4), live-model answers in the dataset, and a live model with a weak prompt in the panel (A9). | — |
 
 The Phase 1 claim, as it can be made today, is restated in the target
 design. The live learner can now act in episodes, but no live exam has run

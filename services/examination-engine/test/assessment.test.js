@@ -174,6 +174,7 @@ test('stored behaviour evidence must agree with the form, the item outcomes and 
     edit((a) => { a.behaviour.episodes = a.behaviour.episodes.filter((e) => e.itemId !== 'v1'); a.behaviour = evidenceFor(a.behaviour.episodes); }),
     edit((a) => { a.behaviour.episodes[0].score = 10; a.behaviour = evidenceFor(a.behaviour.episodes); }),
     edit((a) => { a.behaviour.objectives[0].successes -= 1; }),
+    edit((a) => { a.behaviour = evidenceOf(a.behaviour.episodes, ['o3', 'o4', 'o5'], ['o1']); }),
     edit((a) => { a.failureReasons = ['insufficient_behaviour_bound']; a.passed = false; }),
   ]) assert.equal(checkAssessment(bad, behaviourForm, bad.passed), false);
 });

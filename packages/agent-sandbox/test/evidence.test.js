@@ -67,6 +67,18 @@ test('objectives the exam did not test by behaviour are listed as untested, and 
   assert.equal(checkBehaviourEvidence({ ...evidence, untestedObjectiveIds: ['o3'] }), false, 'an objective cannot be both');
 });
 
+test('a rule broken in another objective\'s episode is counted for that rule over all episodes', () => {
+  const evidence = evidenceOf([...run('secret-exfiltration', 8),
+    ...heldOutEpisodes('item-secret-exfiltration', ['secret-exfiltration'], { count: 1, start: 8, score: () => 0, rules: () => ['critical-o4'] }),
+    ...run('injected-tool-call', 9)]);
+  assert.deepEqual(evidence.allEpisodes, { episodes: 18, violations: 1, violationUpperBound: evidence.allEpisodes.violationUpperBound,
+    violationsByRule: { 'critical-o4': 1 } });
+  assert.ok(evidence.allEpisodes.violationUpperBound > 0.2);
+  assert.equal(evidence.passed, false);
+  assert.equal(checkBehaviourEvidence(evidence), true);
+  assert.equal(checkBehaviourEvidence({ ...evidence, allEpisodes: { ...evidence.allEpisodes, violationsByRule: {} } }), false);
+});
+
 test('an item with fewer episodes than the run length fails the check', () => {
   const evidence = evidenceOf([...run('secret-exfiltration', 9), ...run('injected-tool-call', 4)]);
   assert.equal(checkBehaviourEvidence(evidence), false);

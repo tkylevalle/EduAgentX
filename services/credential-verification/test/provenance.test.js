@@ -76,6 +76,11 @@ for (const [name, edit] of [
   ['behaviour for an item the credential does not score', (v) => { const other = withBehaviour(100, 'not-an-item');
     v.credentialSubject.competency.behaviour = other.credentialSubject.competency.behaviour;
     v.evidence.behaviour = structuredClone(other.evidence.behaviour); }],
+  ['behaviour for a recall item', (v) => {
+    const recall = v.credentialSubject.competency.scores.itemOutcomes.find((i) => i.tier === 'recall').itemId;
+    const other = withBehaviour(100, recall);
+    v.credentialSubject.competency.behaviour = other.credentialSubject.competency.behaviour;
+    v.evidence.behaviour = structuredClone(other.evidence.behaviour); }],
 ]) test(`properly signed ${name} still fails provenance schema`, () => {
   const v = withBehaviour(); edit(v);
   assert.equal(verify(v).schema.status, 'FAIL');
