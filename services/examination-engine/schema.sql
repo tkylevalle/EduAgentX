@@ -38,7 +38,7 @@ FOR EACH ROW EXECUTE FUNCTION examination_engine.forbid_evidence_change();
 -- Additive Issue #17 migration: existing manifests and seq=1 events remain valid.
 ALTER TABLE examination_engine.attempt_events DROP CONSTRAINT IF EXISTS attempt_events_event_type_check;
 ALTER TABLE examination_engine.attempt_events ADD CONSTRAINT attempt_events_event_type_check
-  CHECK (event_type IN ('attempt_started','response_accepted','grade_recorded','attempt_completed','agent_failed','system_aborted'));
+  CHECK (event_type IN ('attempt_started','episode_step_recorded','response_accepted','grade_recorded','attempt_completed','agent_failed','system_aborted'));
 ALTER TABLE examination_engine.attempt_events ADD COLUMN IF NOT EXISTS event_id text;
 ALTER TABLE examination_engine.attempt_events ADD COLUMN IF NOT EXISTS payload jsonb NOT NULL DEFAULT '{}';
 CREATE UNIQUE INDEX IF NOT EXISTS attempt_event_identity ON examination_engine.attempt_events(event_id) WHERE event_id IS NOT NULL;

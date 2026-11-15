@@ -1,9 +1,11 @@
 'use strict';
 
+
 const execution = require('../../packages/execution-provenance');
 const { randomUUID } = require('node:crypto');
 const { sha256 } = require('../curriculum-engine/model');
 const { fail, validateCommand, commandDigest, derive, stateReceipt, isResponseExpired } = require('./lifecycle');
+const { actionsResponse, episodeEnded } = require('./behaviour');
 const { checkAssessment } = require('./assessment');
 const { remediationEventFor } = require('./remediation');
 const { pgRemediationMethods, memoryRemediationMethods } = require('./remediation-store');
@@ -66,9 +68,16 @@ function execute(record, command) {
       record.commands.push({ key: command.idempotencyKey, digest, receipt: duplicate.receipt, eventId: null });
       return reply(record, duplicate.receipt, true);
     }
+    // A behaviour item is answered only by recorded episode steps, never directly.
+    const target = current.form.items.find((item) => item.id === command.itemId);
+    if (command.type === 'episode_step') {
+      if (!target || target.kind !== 'behaviour') throw fail('behaviour_item_not_found', 404);
+      if (record.responses.some((r) => r.itemId === command.itemId)) throw fail('episode_ended');
+    }
+    if (command.type === 'response' && target?.kind === 'behaviour') throw fail('behaviour_item_requires_steps');
     // An item's first accepted answer is final, even across distinct command keys.
     if (command.type === 'response') {
-      if (!current.form.items.some((item) => item.id === command.itemId)) throw fail('unknown_item', 400);
+      if (!target) throw fail('unknown_item', 400);
       const accepted = record.responses.find((r) => r.itemId === command.itemId);
       if (accepted) {
         if (accepted.response !== command.response) throw fail('answer_conflict');
@@ -89,15 +98,30 @@ function execute(record, command) {
     record.events.push({ attemptId: current.attemptId, seq: record.events.length + 1, eventId,
       eventType, payload, occurredAt: command.now, correlationId: command.correlationId || current.correlationId });
   };
-  if (command.type === 'timeout' || (command.type === 'response' && isResponseExpired(current, command.now))) {
+  if (command.type === 'timeout' || (['response', 'episode_step'].includes(command.type) && isResponseExpired(current, command.now))) {
     if (!isResponseExpired(current, command.now)) return { attempt: current, replay: true };
     append('agent_failed', { reason: 'response_deadline_elapsed' }, `timeout:${current.attemptId}`);
     attachRemediation(record, command, `timeout:${current.attemptId}`);
     current = snapshot(record);
     // Commit timeout evidence even though the late submission itself is rejected.
-    return command.type === 'response' ? { error: fail('attempt_deadline_elapsed'), attempt: current } : { attempt: current, replay: false };
+    return command.type !== 'timeout' ? { error: fail('attempt_deadline_elapsed'), attempt: current } : { attempt: current, replay: false };
   }
-  if (command.type === 'response') {
+  if (command.type === 'episode_step') {
+    append('episode_step_recorded', { itemId: command.itemId, action: command.action });
+    const taken = record.events.filter((e) => e.eventType === 'episode_step_recorded' && e.payload.itemId === command.itemId)
+      .map((e) => e.payload.action);
+    // The episode ends at a finish or the step limit; the Engine then answers
+    // the item with its own record of the steps.
+    if (episodeEnded(taken)) {
+      const responseText = actionsResponse(taken);
+      append('response_accepted', { itemId: command.itemId, responseDigest: sha256(responseText) });
+      record.responses.push({ itemId: command.itemId, response: responseText, responseDigest: sha256(responseText),
+        acceptedAt: command.now, seq: record.events.length });
+    }
+    current = snapshot(record);
+    const ended = record.responses.find((r) => r.itemId === command.itemId);
+    if (ended) ended.receipt = stateReceipt(current);
+  } else if (command.type === 'response') {
     const responseDigest = sha256(command.response);
     append('response_accepted', { itemId: command.itemId, responseDigest,
       ...(command.executionEvidence ? { executionEvidence: command.executionEvidence } : {}) });

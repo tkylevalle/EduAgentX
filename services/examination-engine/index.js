@@ -16,7 +16,7 @@ const { buildFallbackForm, publicFallbackForm, mapFallbackResult } = require('./
 const { createFallbackSelect, createFallbackScore } = require('./fallback-sources');
 const { createGovernance } = require('./governance');
 const { DEFAULT_RETRY_WINDOW_MS, createGradingRunner } = require('./grading');
-const { ACTIONS_SCHEMA, parseActions, stepEpisode } = require('./behaviour');
+const { stepEpisode } = require('./behaviour');
 const { createGradeItems } = require('./grading-client');
 const { requireRemediation, registerRemediationRoutes } = require('./remediation-routes');
 const { createRemediationRelay } = require('./remediation-relay');
@@ -276,22 +276,46 @@ function createApp({ store, sources, internalKey = process.env.EXAMINATION_INTER
       } catch (error) { sendError(req, res, error); }
     };
   }
-  // A behaviour item's episode: the attempt's own agent sends the actions it
-  // has taken so far and sees its task and their results. The Engine runs
-  // them in the world it builds; nothing is recorded until the agent submits
-  // its action list as the item's response.
-  app.post('/internal/attempts/:id/episodes/:itemId/step', async (req, res) => {
+  // A behaviour item's episode. Every action is a recorded command on the
+  // attempt, run by the Engine in the world it builds; the item's response is
+  // the Engine's own record of those steps, so the graded actions are the
+  // actions the agent took (target design 4.2, behaviour observed by the platform).
+  const recordedSteps = (attempt, itemId) => attempt.events
+    .filter((event) => event.eventType === 'episode_step_recorded' && event.payload.itemId === itemId).map((event) => event.payload.action);
+  const episodeView = (attempt, item) => {
+    const answered = attempt.responses.some((row) => row.itemId === item.id);
+    const taken = recordedSteps(attempt, item.id);
+    return answered ? { observation: null, done: true, steps: taken.length }
+      : { ...stepEpisode(attempt.attemptId, item, taken, episodeSeedKey), steps: taken.length };
+  };
+  const behaviourItem = (attempt, itemId) => {
+    const item = attempt.form.items.find((value) => value.id === itemId && value.kind === 'behaviour');
+    if (!item) throw fail('behaviour_item_not_found', 404);
+    return item;
+  };
+  app.get('/internal/attempts/:id/episodes/:itemId', async (req, res) => {
     try {
       if (req.header('x-actor-role') !== 'agent') throw fail('forbidden', 403);
-      if (!req.body || Array.isArray(req.body) || Object.keys(req.body).some((key) => key !== 'actions') || !Array.isArray(req.body.actions))
-        throw fail('invalid_request', 400);
-      const attempt = await load(req, true);
+      const attempt = await reconcile(await load(req, true), req);
       if (attempt.status !== 'in_progress') throw fail('attempt_not_in_progress');
-      const item = attempt.form.items.find((value) => value.id === req.params.itemId && value.kind === 'behaviour');
-      if (!item) throw fail('behaviour_item_not_found', 404);
-      const taken = req.body.actions.length ? parseActions(JSON.stringify({ schemaVersion: ACTIONS_SCHEMA, actions: req.body.actions })) : [];
-      if (!taken) throw fail('invalid_request', 400);
-      res.json({ apiVersion: 'v1', ...stepEpisode(attempt.attemptId, item, taken, episodeSeedKey), correlationId: req.correlationId });
+      res.json({ apiVersion: 'v1', ...episodeView(attempt, behaviourItem(attempt, req.params.itemId)), correlationId: req.correlationId });
+    } catch (error) { sendError(req, res, error); }
+  });
+  app.post('/internal/attempts/:id/episodes/:itemId/steps', async (req, res) => {
+    try {
+      if (req.header('x-actor-role') !== 'agent') throw fail('forbidden', 403);
+      if (!req.body || Array.isArray(req.body) || Object.keys(req.body).some((key) => !['idempotencyKey', 'expectedSequence', 'action'].includes(key)))
+        throw fail('invalid_request', 400);
+      const command = { ...req.body, type: 'episode_step', itemId: req.params.itemId, now: clock(), correlationId: req.correlationId };
+      validateCommand(command);
+      const attempt = await load(req, true);
+      const item = behaviourItem(attempt, req.params.itemId);
+      // The world must be buildable before a step is recorded: no key, no step.
+      stepEpisode(attempt.attemptId, item, [], episodeSeedKey);
+      const result = await store.command(attempt.attemptId, command, { clock,
+        guard: (current) => governance(current, req.correlationId) });
+      res.json({ apiVersion: 'v1', outcome: result.replay ? 'replay' : 'accepted', attempt: lifecycleView(result.attempt),
+        receipt: result.receipt, ...episodeView(result.attempt, item), correlationId: req.correlationId });
     } catch (error) { sendError(req, res, error); }
   });
   app.post('/internal/attempts/:id/responses', commandRoute('response', ['idempotencyKey','expectedSequence','itemId','response'], true));
@@ -431,7 +455,7 @@ function sendError(req, res, error) {
   if (error instanceof DependencyError) return res.status(error.status).json({ apiVersion: 'v1',
     error: 'dependency_unavailable', dependency: error.source, correlationId: req.correlationId, ...extra });
   if (error instanceof GenerationError) return res.status(409).json({ apiVersion: 'v1', error: error.code, correlationId: req.correlationId });
-  if ([400,403,404,409].includes(error.status)) return res.status(error.status).json({ apiVersion: 'v1',
+  if ([400,403,404,409,503].includes(error.status)) return res.status(error.status).json({ apiVersion: 'v1',
     error: error.code || error.message, correlationId: req.correlationId, ...extra });
   telemetry.log('examination-engine', 'request_failed', { correlationId: req.correlationId });
   return res.status(500).json({ apiVersion: 'v1', error: 'internal_error', correlationId: req.correlationId, ...extra });

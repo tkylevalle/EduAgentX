@@ -31,8 +31,8 @@ const PORT = process.env.PORT || 4000;
 const SERVICE_NAME = process.env.SERVICE_NAME || 'api-gateway';
 const MAX_PROTOCOL_IDEMPOTENCY_ENTRIES = 1000;
 const TRAINING_IDENTIFIER = /^[\x20-\x7e]{1,256}$/;
-// A sandbox episode needs at most twelve actions (agent-sandbox MAX_STEPS).
-const EPISODE_MAX_ACTIONS = 12;
+// One recorded sandbox action: the Engine's own limit (behaviour.js MAX_ACTION_CHARS).
+const EPISODE_MAX_ACTION_CHARS = 4000;
 const REMEDIATION_FIELDS = Object.freeze([
   'requestId', 'agentLearnerKey', 'packageId', 'packageVersion', 'objectiveIds', 'cause', 'evidence',
 ]);
@@ -725,17 +725,27 @@ function createApp({
         ...(trustedExecution ? { trustedExecution } : {}) };
     }
   });
-  // A behaviour item's sandbox episode: the agent sends the actions it has
-  // taken and sees its task and their results; the Engine runs them.
-  app.post('/v1/examinations/:attemptId/episodes/:itemId/step', requireRole('agent'), async (req, res) => {
+  // A behaviour item's sandbox episode: the agent reads where it is, then
+  // records one action at a time; the Engine runs and records each one.
+  const episodeUrl = (req) =>
+    `${examinationEngineUrl}/internal/attempts/${encodeURIComponent(req.params.attemptId)}/episodes/${encodeURIComponent(req.params.itemId)}`;
+  app.get('/v1/examinations/:attemptId/episodes/:itemId', requireRole('agent'), async (req, res) => {
+    if (!TRAINING_IDENTIFIER.test(req.params.itemId)) return res.status(400).json({ apiVersion: 'v1', error: 'invalid_request', correlationId: req.correlationId });
+    if (!examinationInternalKey) return examinationUnavailable(req, res);
+    await proxyJson(req, res, episodeUrl(req), { headers: examinationHeaders(req) });
+  });
+  app.post('/v1/examinations/:attemptId/episodes/:itemId/steps', requireRole('agent'), async (req, res) => {
     const body = req.body;
-    if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some((name) => name !== 'actions') ||
-      !Array.isArray(body.actions) || body.actions.length > EPISODE_MAX_ACTIONS || !TRAINING_IDENTIFIER.test(req.params.itemId))
+    if (!body || typeof body !== 'object' || Array.isArray(body) ||
+      Object.keys(body).some((name) => !['idempotencyKey', 'expectedSequence', 'action'].includes(name)) ||
+      typeof body.idempotencyKey !== 'string' || !TRAINING_IDENTIFIER.test(body.idempotencyKey) ||
+      !Number.isSafeInteger(body.expectedSequence) || body.expectedSequence < 1 ||
+      !body.action || typeof body.action !== 'object' || Array.isArray(body.action) ||
+      JSON.stringify(body.action).length > EPISODE_MAX_ACTION_CHARS || !TRAINING_IDENTIFIER.test(req.params.itemId))
       return res.status(400).json({ apiVersion: 'v1', error: 'invalid_request', correlationId: req.correlationId });
     if (!examinationInternalKey) return examinationUnavailable(req, res);
-    await proxyJson(req, res,
-      `${examinationEngineUrl}/internal/attempts/${encodeURIComponent(req.params.attemptId)}/episodes/${encodeURIComponent(req.params.itemId)}/step`,
-      { method: 'POST', body: { actions: body.actions }, headers: examinationHeaders(req) });
+    await proxyJson(req, res, `${episodeUrl(req)}/steps`, { method: 'POST',
+      body: { idempotencyKey: body.idempotencyKey, expectedSequence: body.expectedSequence, action: body.action }, headers: examinationHeaders(req) });
   });
   app.get('/v1/examinations/:attemptId', requireRole('agent'), async (req, res) => {
     if (!examinationInternalKey) return examinationUnavailable(req, res);

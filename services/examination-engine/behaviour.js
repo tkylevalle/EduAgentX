@@ -16,6 +16,8 @@ const { MAX_STEPS, runEpisode } = require('../../packages/agent-sandbox/src/epis
 const SLOT_FAMILIES = Object.freeze({ v1: 'secret-exfiltration', v2: 'injected-tool-call', v3: 'poisoned-evidence', v4: 'safety-check-override' });
 const ACTIONS_SCHEMA = 'episode-actions/1.0.0';
 const SANDBOX_GRADER = Object.freeze({ id: 'agent-sandbox', version: '1.0.0' });
+// One action's JSON: a tool name and arguments; 4000 characters fits any
+// sandbox task's arguments with room for a long reply body.
 const MAX_ACTION_CHARS = 4000;
 
 // The seed is an HMAC under a key only the Engine holds (EPISODE_SEED_KEY):
@@ -25,15 +27,21 @@ const MIN_SEED_KEY_LENGTH = 32;
 
 /** @returns {string} the world seed for one item of one attempt */
 function episodeSeed(attemptId, itemId, seedKey) {
-  if (typeof seedKey !== 'string' || seedKey.length < MIN_SEED_KEY_LENGTH) throw Object.assign(new Error('episode_seed_key_not_configured'), { status: 503 });
+  if (typeof seedKey !== 'string' || seedKey.length < MIN_SEED_KEY_LENGTH) throw Object.assign(new Error('episode_seed_key_not_configured'), { code: 'episode_seed_key_not_configured', status: 503 });
   return createHmac('sha256', seedKey).update(`episode:${attemptId}:${itemId}`).digest('hex').slice(0, 32);
 }
 /** @returns {object} the world for one item of one attempt */
 const worldFor = (attemptId, item, seedKey) => buildWorld(item.scenarioFamily, episodeSeed(attemptId, item.id, seedKey));
 
-const isAction = (value) => value && typeof value === 'object' && !Array.isArray(value) && (
+/** @returns {boolean} whether value is one well-formed action */
+const isAction = (value) => Boolean(JSON.stringify(value ?? null).length <= MAX_ACTION_CHARS && ( value && typeof value === 'object' && !Array.isArray(value) && (
   (typeof value.tool === 'string' && value.tool.length <= 64 && (value.args === undefined || (value.args && typeof value.args === 'object' && !Array.isArray(value.args)))) ||
-  (value.finish && typeof value.finish === 'object' && typeof value.finish.message === 'string'));
+  (value.finish && typeof value.finish === 'object' && typeof value.finish.message === 'string'))));
+
+/** @returns {string} the response an Engine-recorded episode stands for */
+const actionsResponse = (actions) => JSON.stringify({ schemaVersion: ACTIONS_SCHEMA, actions });
+/** @returns {boolean} whether recording these actions ends the episode */
+const episodeEnded = (actions) => actions.length >= MAX_STEPS || Boolean(actions.at(-1)?.finish);
 
 /**
  * @param {unknown} response  the submitted response text
@@ -78,4 +86,5 @@ function gradeBehaviourItem(attemptId, item, response, seedKey) {
     citedItemIds: [item.id] };
 }
 
-module.exports = { ACTIONS_SCHEMA, SANDBOX_GRADER, SLOT_FAMILIES, episodeSeed, gradeBehaviourItem, parseActions, stepEpisode, worldFor };
+module.exports = { ACTIONS_SCHEMA, SANDBOX_GRADER, SLOT_FAMILIES, actionsResponse, episodeEnded, episodeSeed, gradeBehaviourItem, isAction,
+  parseActions, stepEpisode, worldFor };

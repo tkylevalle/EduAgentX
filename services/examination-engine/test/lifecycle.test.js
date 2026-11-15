@@ -38,13 +38,19 @@ function responseCommand(attempt, overrides = {}) {
     now: BEFORE_DEADLINE, correlationId: 'response-test', ...overrides };
 }
 
+// A fully answered attempt: the start event, 15 responses, and one recorded
+// finishing step for each of the 4 behaviour items.
+const ANSWERED_SEQUENCE = 1 + 15 + 4;
+
 async function answerAll(ctx) {
   let current = await ctx.store.get(ctx.attempt.attemptId);
   for (const [index, item] of current.form.items.entries()) {
-    const outcome = await ctx.store.command(current.attemptId, responseCommand(current, {
-      itemId: item.id, idempotencyKey: `response-${index + 1}`, response: `Accepted response ${index + 1}.`,
-    }));
-    current = outcome.attempt;
+    // Behaviour items are answered by a recorded episode step, never directly.
+    const command = item.kind === 'behaviour'
+      ? { type: 'episode_step', idempotencyKey: `response-${index + 1}`, expectedSequence: current.sequence, itemId: item.id,
+        action: { finish: { message: `Accepted response ${index + 1}.` } }, now: BEFORE_DEADLINE, correlationId: 'response-test' }
+      : responseCommand(current, { itemId: item.id, idempotencyKey: `response-${index + 1}`, response: `Accepted response ${index + 1}.` });
+    current = (await ctx.store.command(current.attemptId, command)).attempt;
   }
   return current;
 }
@@ -156,13 +162,13 @@ test('all 15 timely answers await grading after deadline and trusted passing fin
   const ctx = await fixture();
   const ready = await answerAll(ctx);
   assert.deepEqual([ready.status, ready.sequence, ready.responsesReceived, ready.responseCollectionComplete],
-    ['in_progress', 16, 15, true]);
+    ['in_progress', ANSWERED_SEQUENCE, 15, true]);
   const swept = await ctx.store.command(ready.attemptId, { type: 'timeout', now: AFTER_DEADLINE, correlationId: 'sweep' });
   assert.equal(swept.attempt.status, 'in_progress');
-  assert.equal(swept.attempt.sequence, 16);
+  assert.equal(swept.attempt.sequence, ANSWERED_SEQUENCE);
   const finalized = await ctx.store.command(ready.attemptId, finalizeCommand(ready));
   assert.equal(finalized.attempt.status, 'complete');
-  assert.equal(finalized.attempt.sequence, 18);
+  assert.equal(finalized.attempt.sequence, ANSWERED_SEQUENCE + 2);
   assert.equal(finalized.attempt.completedAt, AFTER_DEADLINE);
 });
 
@@ -173,7 +179,7 @@ test('a valid failing trusted result produces Agent-Failed after complete respon
     result: { schemaVersion: 'examination-result/1.0.0', valid: true, passed: false },
   }));
   assert.equal(failed.attempt.status, 'agent_failed');
-  assert.equal(failed.attempt.sequence, 18);
+  assert.equal(failed.attempt.sequence, ANSWERED_SEQUENCE + 2);
   assert.equal(failed.attempt.failedAt, AFTER_DEADLINE);
 });
 
@@ -186,7 +192,7 @@ test('invalid, incomplete and wrongly bound grade requests leave the attempt unc
     { responseSetDigest: 'sha256:wrong' }, { result: { valid: false, passed: true } },
     { result: { schemaVersion: 'examination-result/1.0.0', valid: true, passed: 'yes' } }]) {
     await assert.rejects(ctx.store.command(ready.attemptId, finalizeCommand(ready, { ...change, idempotencyKey: randomUUID() })));
-    assert.equal((await ctx.store.get(ready.attemptId)).sequence, 16);
+    assert.equal((await ctx.store.get(ready.attemptId)).sequence, ANSWERED_SEQUENCE);
   }
 });
 
@@ -200,7 +206,7 @@ test('grade receipt and lifecycle event identity replay across stale sequences w
   assert.equal(replay.attempt.sequence, first.attempt.sequence);
   const duplicateEvent = await ctx.store.command(ready.attemptId, { ...command, idempotencyKey: 'same-event-new-command' });
   assert.equal(duplicateEvent.replay, true);
-  assert.equal(duplicateEvent.attempt.sequence, 18);
+  assert.equal(duplicateEvent.attempt.sequence, ANSWERED_SEQUENCE + 2);
   await assert.rejects(ctx.store.command(ready.attemptId, { ...command, idempotencyKey: 'same-event-different-result',
     result: { schemaVersion: 'examination-result/1.0.0', valid: true, passed: false } }), conflict);
 });
@@ -217,7 +223,7 @@ test('trusted grade and governance abort race to one immutable terminal outcome'
   assert.equal(outcomes.find((entry) => entry.status === 'rejected').reason.status, 409);
   const saved = await ctx.store.get(ready.attemptId);
   assert.ok(['complete', 'system_aborted'].includes(saved.status));
-  assert.equal(saved.sequence, saved.status === 'complete' ? 18 : 17);
+  assert.equal(saved.sequence, saved.status === 'complete' ? ANSWERED_SEQUENCE + 2 : ANSWERED_SEQUENCE + 1);
 });
 
 test('complete response collection racing with timeout never becomes Agent-Failed', async () => {
@@ -312,12 +318,12 @@ test('grade replay requires locked evidence bindings and an aligned terminal eve
     { responseSetDigest: 'different-response-set' },
     { result: { schemaVersion: 'examination-result/1.0.0', valid: true, passed: false } }]) {
     const events = structuredClone(completed.attempt.events);
-    Object.assign(events[16].payload, change);
+    Object.assign(events[ANSWERED_SEQUENCE].payload, change);
     assert.throws(() => derive(completed.attempt, events, completed.attempt.responses), /invalid_event_history/);
   }
   assert.throws(() => derive(completed.attempt, completed.attempt.events.slice(0, -1), completed.attempt.responses),
     /invalid_event_history/);
-  const invalidTimeout = [...structuredClone(ready.events), { attemptId: ready.attemptId, seq: 17,
+  const invalidTimeout = [...structuredClone(ready.events), { attemptId: ready.attemptId, seq: ANSWERED_SEQUENCE + 1,
     eventId: randomUUID(), eventType: 'agent_failed', occurredAt: AFTER_DEADLINE,
     payload: { reason: 'response_deadline_elapsed' } }];
   assert.throws(() => derive(ready, invalidTimeout, ready.responses), /invalid_event_history/);

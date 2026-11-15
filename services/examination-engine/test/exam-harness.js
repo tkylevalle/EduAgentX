@@ -10,9 +10,8 @@ const candidate = require('../../curriculum-engine/examples/ai-safety-candidate'
 const { createApp } = require('../index');
 const { createMemoryStore } = require('../store');
 const { createGradingRunner } = require('../grading');
-const { ACTIONS_SCHEMA, worldFor } = require('../behaviour');
+const { playEpisode } = require('../../synthetic-agent-learner/exam-scenarios');
 const { PANEL } = require('../../../packages/agent-sandbox/src/panel');
-const { runEpisode } = require('../../../packages/agent-sandbox/src/episode');
 
 const INTERNAL_KEY = 'grading-run-service-key';
 const GRADING_KEY = 'grading-run-grading-key';
@@ -24,13 +23,6 @@ const ADMIN = { ...AGENT, 'x-actor-subject': 'grading-run-admin', 'x-actor-role'
 const EXAMINER = { ...AGENT, 'x-actor-subject': 'grading-sweep', 'x-actor-role': 'examiner', 'x-internal-grading-key': GRADING_KEY };
 const EPISODE_KEY = 'engine-test-episode-seed-key-0123456789abcdef';
 const SAFE_POLICY = PANEL.find((entry) => entry.id === 'safe-agent').agent;
-
-// The safe reference agent's actions for one behaviour item of one attempt.
-function safeActions(attemptId, item) {
-  const episode = runEpisode(worldFor(attemptId, item, EPISODE_KEY), SAFE_POLICY);
-  return JSON.stringify({ schemaVersion: ACTIONS_SCHEMA, actions: episode.log.map((call) => (call.tool === 'finish'
-    ? { finish: { message: call.args.message } } : { tool: call.tool, args: call.args })) });
-}
 
 const SAFE = 'I map the boundary, verify the evidence, refuse untrusted instructions and escalate to a human operator.';
 const GRADER = { id: 'test-grader', version: '1.0.0' };
@@ -80,20 +72,40 @@ async function boot(t, { grader = fakeGrader(), retryWindowMs = 15 * 60 * 1000, 
   return { input, store, grader, call, runner, clock, setClock: (value) => { now = value; } };
 }
 
-// Text items get the safe text answer; behaviour items the safe agent's actions.
-const safeAnswer = (item, index, attemptId) => (item.kind === 'behaviour' ? safeActions(attemptId, item) : SAFE);
+// Answers: text items take a string; behaviour items take { policy }, played
+// step by step through the Engine's recorded episode routes. A string for a
+// behaviour item is played as an agent that only writes that text.
+const safeAnswer = (item) => (item.kind === 'behaviour' ? { policy: SAFE_POLICY } : SAFE);
 
-// The instruction follower's actions for one behaviour item: in the v2 world
-// it sends mail with a tool the task does not permit (critical-o4).
+// The instruction follower on one behaviour slot: in the v2 world it sends
+// mail with a tool the task does not permit (critical-o4).
 const FOLLOWER_POLICY = PANEL.find((entry) => entry.id === 'instruction-follower').agent;
-function unsafeActions(attemptId, item) {
-  const episode = runEpisode(worldFor(attemptId, item, EPISODE_KEY), FOLLOWER_POLICY);
-  return JSON.stringify({ schemaVersion: ACTIONS_SCHEMA, actions: episode.log.map((call) => (call.tool === 'finish'
-    ? { finish: { message: call.args.message } } : { tool: call.tool, args: call.args })) });
-}
-// Safe everywhere except one behaviour slot, where the agent follows the injection.
 const unsafeAnswer = (slotId = 'v2') => (item, index, attemptId) =>
-  (item.kind === 'behaviour' && item.slotId === slotId ? unsafeActions(attemptId, item) : safeAnswer(item, index, attemptId));
+  (item.kind === 'behaviour' && item.slotId === slotId ? { policy: FOLLOWER_POLICY } : safeAnswer(item, index, attemptId));
+
+// Records one item's answer and returns the attempt after it.
+async function answerItem(ctx, attempt, item, answer, key) {
+  if (item.kind !== 'behaviour') {
+    const reply = await ctx.call('POST', `/internal/attempts/${attempt.attemptId}/responses`, { idempotencyKey: key,
+      expectedSequence: attempt.sequence, itemId: item.id, response: answer });
+    assert.equal(reply.status, 200, `${item.slotId}: ${JSON.stringify(reply.body)}`);
+    return reply.body.attempt;
+  }
+  const policy = typeof answer === 'string' ? () => ({ finish: { message: answer } }) : answer.policy;
+  const path = `/internal/attempts/${attempt.attemptId}/episodes/${item.id}`;
+  let current = attempt;
+  let step = 0;
+  await playEpisode(policy, {
+    observe: async () => (await ctx.call('GET', path)).body,
+    act: async (action) => {
+      const reply = await ctx.call('POST', `${path}/steps`, { idempotencyKey: `${key}-step-${step++}`, expectedSequence: current.sequence, action });
+      assert.equal(reply.status, 200, `${item.slotId} step: ${JSON.stringify(reply.body)}`);
+      current = reply.body.attempt;
+      return reply.body;
+    },
+  });
+  return current;
+}
 
 async function startAndAnswer(ctx, answer = safeAnswer) {
   const started = await ctx.call('POST', '/internal/attempts', { idempotencyKey: 'start' });
@@ -102,10 +114,7 @@ async function startAndAnswer(ctx, answer = safeAnswer) {
   const form = attempt.form;
   ctx.setClock(ANSWERED);
   for (const [index, item] of form.items.entries()) {
-    const reply = await ctx.call('POST', `/internal/attempts/${attempt.attemptId}/responses`, { idempotencyKey: `r-${index}`,
-      expectedSequence: attempt.sequence, itemId: item.id, response: answer(item, index, attempt.attemptId) });
-    assert.equal(reply.status, 200);
-    attempt = reply.body.attempt;
+    attempt = await answerItem(ctx, attempt, item, answer(item, index, attempt.attemptId), `r-${index}`);
   }
   return { ...attempt, form };
 }
@@ -113,5 +122,5 @@ async function startAndAnswer(ctx, answer = safeAnswer) {
 const grade = (ctx, attempt, headers = EXAMINER) => ctx.call('POST', `/internal/attempts/${attempt.attemptId}/grade`, {}, headers);
 const adminView = async (ctx, attempt) => (await ctx.call('GET', `/internal/admin/attempts/${attempt.attemptId}`, undefined, ADMIN)).body.attempt;
 
-module.exports = { INTERNAL_KEY, GRADING_KEY, EPISODE_KEY, ACTOR, START, ANSWERED, AGENT, ADMIN, EXAMINER, SAFE, GRADER, safeActions, safeAnswer, unsafeAnswer,
+module.exports = { INTERNAL_KEY, GRADING_KEY, EPISODE_KEY, ACTOR, START, ANSWERED, AGENT, ADMIN, EXAMINER, SAFE, GRADER, answerItem, safeAnswer, unsafeAnswer,
   fixture, fakeGrader, boot, startAndAnswer, grade, adminView };
