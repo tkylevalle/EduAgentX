@@ -8,6 +8,7 @@ const { createExamRunner } = require('./exam-runner');
 const { publishListing } = require('./listing');
 const { examAnswer, examPolicy, listExamScenarios } = require('./exam-scenarios');
 const { createLiveModel, LiveModelError } = require('./live-model');
+const { createNotebook } = require('./notes');
 const {
   DEFAULT_REGISTRATION,
   createSyntheticAgentLearner,
@@ -32,7 +33,7 @@ const LIVE_SCENARIO = 'live-model';
 const DEFAULT_EXAM_SCENARIO = 'safe-escalation';
 
 function createApp({ learner = createDefaultLearner(), examRunner = null, liveModel = createDefaultLiveModel(),
-  liveLearner = null, liveExamRunner = null, liveAgentSecret = LIVE_AGENT_CLIENT_SECRET } = {}) {
+  liveLearner = null, liveExamRunner = null, liveAgentSecret = LIVE_AGENT_CLIENT_SECRET, notebook = createNotebook() } = {}) {
   // Built on first use, so apps that never run an exam need no exam client.
   const runner = () => examRunner || (examRunner = createDefaultExamRunner());
   const liveAgent = () => liveLearner || (liveLearner = createDefaultLearner(LIVE_AGENT_CLIENT_ID, liveAgentSecret));
@@ -109,7 +110,12 @@ function createApp({ learner = createDefaultLearner(), examRunner = null, liveMo
         correlationId: req.correlationId || body.correlationId,
         ...(live ? { registration: liveModel.registration, evidenceMode: 'live',
           respond: async (item) => {
-            try { return record(usage, await liveModel.answerTraining(item)); } catch (error) {
+            try {
+              const answer = record(usage, await liveModel.answerTraining(item));
+              // What the model wrote after the item becomes its note for the item's objectives.
+              notebook.write(item.objectiveIds, answer);
+              return answer;
+            } catch (error) {
               telemetry.log(SERVICE_NAME, 'live_model_failed', { correlationId: req.correlationId, dependency: 'live-model',
                 outcome: error.code, itemKind: item.kind, itemFields: Object.keys(item).join(','), ...(error.detail || {}) });
               throw error;
@@ -117,7 +123,7 @@ function createApp({ learner = createDefaultLearner(), examRunner = null, liveMo
           } } : {}),
       });
       return res.status(statusForOutcome(result.outcome)).json({ apiVersion: 'v1', ...result,
-        ...(live ? { live: liveSummary(liveModel, usage) } : {}),
+        ...(live ? { live: liveSummary(liveModel, usage), notes: notesSummary(notebook) } : {}),
         evidence: canonicalEvidence(live ? 'live' : 'synthetic') });
     } catch (error) { return next(error); }
   });
@@ -172,11 +178,13 @@ function createApp({ learner = createDefaultLearner(), examRunner = null, liveMo
         const usage = newUsage();
         try {
           const result = await liveRunner().examine({
-            // Open book: the model sees the lessons knowledge.lookup returns for the item.
-            answerFor: async (item, index, tools) => record(usage, await liveModel.answerExam(item, await tools.lookup(item.prompt))),
+            // Open book: the model sees the lessons knowledge.lookup returns for
+            // the item, and its own training notes for the item's objectives.
+            answerFor: async (item, index, tools) => record(usage,
+              await liveModel.answerExam(item, await tools.lookup(item.prompt), notebook.for(item.objectiveIds))),
             // Behaviour items: the model chooses each action from what the step route shows it.
-            actFor: () => async (observation) => {
-              const { action, valid, usage: used } = await liveModel.actEpisode(observation);
+            actFor: (item) => async (observation) => {
+              const { action, valid, usage: used } = await liveModel.actEpisode(observation, notebook.for(item.objectiveIds));
               count(usage, used);
               if (!valid) usage.invalidActions += 1;
               return action;
@@ -186,7 +194,7 @@ function createApp({ learner = createDefaultLearner(), examRunner = null, liveMo
           });
           const status = result.outcome === 'not_started' && result.status >= 500 ? 503 : 200;
           return res.status(status).json({ apiVersion: 'v1', scenarioId, ...result, credentialIssued: false,
-            live: liveSummary(liveModel, usage), evidence: canonicalEvidence('live') });
+            live: liveSummary(liveModel, usage), notes: notesSummary(notebook), evidence: canonicalEvidence('live') });
         } catch (error) {
           if (!(error instanceof LiveModelError)) throw error;
           telemetry.log(SERVICE_NAME, 'live_model_failed', { correlationId: req.correlationId, dependency: 'live-model', outcome: error.code });
@@ -258,6 +266,8 @@ function record(usage, { answer, usage: used }) {
   return answer;
 }
 const liveSummary = (liveModel, usage) => ({ provider: liveModel.provider, model: liveModel.model, ...usage });
+// Which notes the live learner holds: a count and a digest, never the text.
+const notesSummary = (notebook) => ({ objectives: notebook.objectives(), digest: notebook.digest() });
 
 function createDefaultExamRunner(clientId = AGENT_CLIENT_ID, clientSecret = AGENT_CLIENT_SECRET) {
   return createExamRunner({

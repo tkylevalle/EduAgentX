@@ -81,11 +81,14 @@ does not yet support a competence claim. State on 16 November 2026, after Phase 
   `knowledge.lookup` (the curriculum index) for each text item. When the
   index is down the lookup returns nothing, the item is still answered, and
   the run reports the failed lookups.
-- **The agent carries nothing from training into the exam.** Each model call
-  holds the system prompt, one item and, for text items, the lessons it looked
-  up; nothing the agent wrote during training reaches the exam, so training
-  cannot change exam results. The lookup returns lesson text, not the pinned
-  source documents the exam names. No learning gain is measured or claimed.
+- **Only the live learner carries training into the exam, and only in its
+  own memory.** What the live model writes after each training item is kept
+  as its note for the item's objectives and shown to it in later exam items
+  and episodes. The notes live in the learner service's process: the platform
+  does not store or attest them, they are not part of the fingerprint, and a
+  restart empties them; runs report only a count and a digest. Scripted agents
+  ignore notes. The lookup returns lesson text, not the pinned source
+  documents the exam names. No learning gain is measured or claimed.
 - **Training completion means delivery, not learning.** Training accepts any
   non-empty response, and remediation re-sends the same lesson text without
   saying which rule the agent broke.

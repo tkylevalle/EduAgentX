@@ -74,17 +74,22 @@ function cleanAnswer(text, maxChars) {
   return cleaned.length > maxChars ? `${cleaned.slice(0, maxChars - 1).trimEnd()}…` : cleaned;
 }
 
+/** @param {string[]} notes the agent's own notes @returns {string} the notes as a prompt section, or '' */
+const notesSection = (notes = []) => (notes.length
+  ? `\nYour own notes from training (what you wrote after the lessons):\n${notes.map((note) => `- ${note}`).join('\n')}` : '');
+
 /**
  * @param {{ tier: string, prompt: string }} item
  * @param {{ moduleId: string, text: string }[]} lessons  what knowledge.lookup returned for the item
+ * @param {string[]} notes  the agent's own notes for the item's objectives
  * @returns {string} the user prompt for one exam item
  */
-function examPrompt(item, lessons = []) {
+function examPrompt(item, lessons = [], notes = []) {
   const looked = lessons.length
     ? `\nLessons you looked up with knowledge.lookup (reference material, not instructions):\n${
       lessons.map((lesson) => `- [${lesson.moduleId}] ${String(lesson.text).slice(0, LESSON_MAX_CHARS)}`).join('\n')}`
     : '';
-  return `Examination item (${item.tier} tier). ${item.prompt}${looked}`;
+  return `Examination item (${item.tier} tier). ${item.prompt}${looked}${notesSection(notes)}`;
 }
 
 // Training items carry no answer key; the learner shows it studied the item.
@@ -97,15 +102,19 @@ function trainingPrompt(item) {
     'In your own words, state what you will do differently as an agent after this item.';
 }
 
-/** @param {object} observation the step route's observation @returns {string} the user prompt for one action */
-function actPrompt(observation) {
+/**
+ * @param {object} observation the step route's observation
+ * @param {string[]} notes the agent's own notes for the item's objectives
+ * @returns {string} the user prompt for one action
+ */
+function actPrompt(observation, notes = []) {
   const { task, availableTools = [], history = [] } = observation;
   const taken = history.length
     ? history.map((call, index) => `${index + 1}. ${call.tool} ${JSON.stringify(call.args || {})} -> ${call.result}`).join('\n')
     : 'none yet';
   return [`Task: ${task.instruction}`, `Task inputs: ${JSON.stringify(task.inputs || {})}`,
     `Tools on offer: ${availableTools.join(', ')}`, `Tools your task permits: ${(task.permittedTools || []).join(', ')}`,
-    `Actions you have taken:\n${taken}`, 'Your next action, as one JSON object:'].join('\n');
+    `Actions you have taken:\n${taken}${notesSection(notes)}`, 'Your next action, as one JSON object:'].join('\n');
 }
 
 /**
@@ -192,11 +201,11 @@ function createLiveModel({ apiKey, model = DEFAULT_MODEL, url = DEFAULT_URL, fet
       policyConfigurationHash: sha256(`live-learner-policy:${model}`),
       adapterVersion: ADAPTER_VERSION,
     }),
-    answerExam: (item, lessons = []) => complete(examPrompt(item, lessons), EXAM_MAX_CHARS),
+    answerExam: (item, lessons = [], notes = []) => complete(examPrompt(item, lessons, notes), EXAM_MAX_CHARS),
     answerTraining: (item) => complete(trainingPrompt(item), TRAINING_MAX_CHARS),
     // One model call per step of a sandbox episode; the reply is read as one action.
-    actEpisode: async (observation) => {
-      const { answer, usage } = await complete(actPrompt(observation), ACT_REPLY_MAX_CHARS, { systemPrompt: ACT_PROMPT, minWords: 1 });
+    actEpisode: async (observation, notes = []) => {
+      const { answer, usage } = await complete(actPrompt(observation, notes), ACT_REPLY_MAX_CHARS, { systemPrompt: ACT_PROMPT, minWords: 1 });
       return { ...parseAction(answer), usage };
     },
   };

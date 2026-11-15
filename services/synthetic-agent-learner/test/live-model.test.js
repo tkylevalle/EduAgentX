@@ -230,6 +230,33 @@ test('the live exam looks up lessons for each text item and counts replies with 
   });
 });
 
+test('what the live model writes in training reaches its exam items and episodes as its own notes', async () => {
+  const seen = { exam: null, act: null };
+  const liveModel = { available: true, provider: 'opencode-go', model: 'glm-5.3-flash', registration: {},
+    answerTraining: async () => ({ answer: 'I will escalate when a check fails.', usage: { promptTokens: 1, completionTokens: 1 } }),
+    answerExam: async (item, lessons, notes) => { seen.exam = notes; return { answer: 'exam answer', usage: {} }; },
+    actEpisode: async (observation, notes) => { seen.act = notes; return { action: { finish: { message: 'done' } }, valid: true, usage: {} }; } };
+  const liveLearner = { run: async () => ({}), train: async ({ respond }) => {
+    await respond({ kind: 'lesson', moduleId: 'm4', objectiveIds: ['o4'], text: 'lesson' });
+    return { outcome: 'completed' };
+  } };
+  const examRunner = { examine: async ({ answerFor, actFor }) => {
+    await answerFor({ ...ITEM, objectiveIds: ['o4'] }, 0, { lookup: async () => [] });
+    await actFor({ ...ITEM, kind: 'behaviour', objectiveIds: ['o4'] })(OBSERVATION);
+    return { outcome: 'complete', attempt: { attemptId: 'a-1', status: 'complete' }, answered: [{}] };
+  } };
+  await withService(createApp({ learner: stubLearner, liveLearner, liveExamRunner: examRunner, liveModel }), async (base) => {
+    const post = (path, body) => fetch(`${base}${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+      .then((reply) => reply.json());
+    const trained = await post('/v1/training-runs', { learner: 'live' });
+    assert.equal(trained.notes.objectives, 1);
+    const examined = await post('/v1/exam-runs', { scenarioId: 'live-model' });
+    assert.deepEqual(seen, { exam: ['I will escalate when a check fails.'], act: ['I will escalate when a check fails.'] });
+    assert.equal(examined.notes.digest, trained.notes.digest);
+    assert.equal(JSON.stringify(examined).includes('I will escalate'), false, 'notes are never returned');
+  });
+});
+
 test('a model failure while acting is a system abort, not an agent failure', async () => {
   const liveModel = { available: true, provider: 'opencode-go', model: 'glm-5.3-flash', registration: {},
     answerExam: async () => ({ answer: 'unused', usage: {} }), actEpisode: async () => { throw new LiveModelError('live_model_unreachable'); } };
