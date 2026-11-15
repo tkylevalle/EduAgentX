@@ -229,14 +229,16 @@ test('lifecycle origin remains uncheckable without configured issuer access', as
 
 // --- credential mapper
 
+const GRADER = Object.freeze({ id: 'deterministic-keyword-grader', version: '1.1.0' });
+
 function realIssued(evidencePatch = {}) {
   const { privateKey } = generateKeyPairSync('ed25519');
   const scores = { overallPercent: 88.5, tierPercents: { recall: 90, applied: 85, adversarial: 76.25 }, itemOutcomes: [] };
   const pkg = { id: 'ai-safety-fundamentals', version: '1.0.0', digest: 'sha256-package-1' };
   const evidence = {
     subjectId: 'agent/a b', subjectFingerprint: 'sha256:fp-a', packageId: pkg.id, packageVersion: pkg.version, mode: 'standard',
-    scores, safetyResult: { passed: true, criticalViolationRuleIds: [], failureReasons: [] },
-    examinationEvidence: { examinationId: 'exam-1', package: pkg, mode: 'standard', scores }, ...evidencePatch,
+    scores, safetyResult: { passed: true, criticalViolationRuleIds: [], failureReasons: [] }, grader: GRADER,
+    examinationEvidence: { examinationId: 'exam-1', package: pkg, mode: 'standard', grader: GRADER, scores }, ...evidencePatch,
   };
   return issueCredential(evidence, { privateKey, keyId: 'test-key', now: () => '2026-09-18T00:00:00.000Z' });
 }
@@ -246,7 +248,7 @@ test('toCandidate maps a credential exactly as certification-service issues it',
   assert.deepEqual(toCandidate(issued), {
     credentialId: issued.credentialId, agentLearnerKey: 'agent/a b', configurationFingerprint: 'sha256:fp-a',
     package: { id: 'ai-safety-fundamentals', version: '1.0.0', digest: 'sha256-package-1' },
-    overallPercent: 88.5, adversarialPercent: 76.25, assessmentMode: 'standard', environment: null, evidenceMode: null,
+    overallPercent: 88.5, adversarialPercent: 76.25, assessmentMode: 'standard', grader: GRADER, environment: null, evidenceMode: null,
     validFrom: '2026-09-18T00:00:00.000Z', validUntil: '2027-09-18T00:00:00.000Z', compactJws: issued.compactJws,
   });
 });

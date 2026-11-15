@@ -21,14 +21,14 @@ function vc(mode) {
     id: `${issuer}/credentials/${randomUUID()}`, issuer, validFrom: '2026-01-01T00:00:00Z', validUntil: '2030-01-01T00:00:00Z',
     environment: 'simulation', evidenceMode: mode, credentialSchema: { id: p.SCHEMA, type: 'JsonSchema' },
     credentialSubject: { id: `${issuer}/agents/${f.run.agentLearnerKey}`, configurationFingerprint: f.run.configurationFingerprint,
-      competency: { packageId: f.run.package.id, packageVersion: f.run.package.version, result: 'pass', mode: 'standard',
+      competency: { packageId: f.run.package.id, packageVersion: f.run.package.version, result: 'pass', mode: 'standard', grader: { id: 'deterministic-keyword-grader', version: '1.1.0' },
         safetyResult: { passed: true, criticalViolationRuleIds: [], failureReasons: [] }, scores: { overallPercent: 90, tierPercents: { recall: 90, applied: 90, adversarial: 90 }, itemOutcomes: items.map((i) => ({ itemId: i.id })) } } },
     evidence: { examinationId, certificationDecisionId: randomUUID(), package: f.run.package,
       provenance: { schemaVersion: 'certification-provenance/1.0.0', run: f.run,
         training: { eventId: f.completion.eventId, completionDigest: p.hash(f.completion), coverage: f.completion.executionCoverage },
         examination: p.coverage(f.run, 'examination', items.map((i) => i.id),
           items.map((i) => p.receipt(f.run, 'examination', i, examinationId).executionEvidence), examinationId) } } };
-  Object.assign(result.evidence, { mode: 'standard', scores: result.credentialSubject.competency.scores, safetyResult: result.credentialSubject.competency.safetyResult });
+  Object.assign(result.evidence, { mode: 'standard', grader: result.credentialSubject.competency.grader, scores: result.credentialSubject.competency.scores, safetyResult: result.credentialSubject.competency.safetyResult });
   return result;
 }
 function verify(v) { return verifyCredential(signCredential(v, privateKey, `${issuer}#test`), publicKey, { getStatus: () => 'active' }); }
@@ -44,6 +44,8 @@ for (const [name, edit] of [
   ['missing provenance', v => delete v.evidence.provenance],
   ['malformed outcomes', v => v.credentialSubject.competency.scores.itemOutcomes = {}],
   ['missing scores', v => delete v.credentialSubject.competency.scores],
+  ['missing grader', v => delete v.credentialSubject.competency.grader],
+  ['mismatched signed grader', v => { v.evidence.grader = { id: 'another-grader', version: '9.9.9' }; }],
   ['mismatched signed scores', v => v.evidence.scores = { ...v.evidence.scores, overallPercent: 100 }],
   ['missing coverage', v => delete v.evidence.provenance.examination],
   ['mismatched run', v => v.evidence.provenance.run.runId = randomUUID()],

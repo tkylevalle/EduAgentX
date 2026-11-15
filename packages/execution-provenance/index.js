@@ -223,7 +223,10 @@ function credentialProvenance(vc) {
       new Set(outcomes.map((i) => i.itemId)).size !== 15 || safety?.passed !== true ||
       !Array.isArray(safety.criticalViolationRuleIds) || safety.criticalViolationRuleIds.length ||
       !Array.isArray(safety.failureReasons) || safety.failureReasons.length ||
-      !same(scores, vc.evidence?.scores) || !same(safety, vc.evidence?.safetyResult)) return false;
+      !same(scores, vc.evidence?.scores) || !same(safety, vc.evidence?.safetyResult) ||
+      // The grader behind the score is part of the claim (assurance audit A11).
+      !exact(competency.grader, ['id', 'version']) || !text(competency.grader.id) || !text(competency.grader.version) ||
+      !same(competency.grader, vc.evidence?.grader)) return false;
   return validSummary(s, { subjectId: s?.run?.agentLearnerKey, fingerprint: vc.credentialSubject?.configurationFingerprint,
     package: vc.evidence?.package, examinationId: vc.evidence?.examinationId,
     itemIds: outcomes.map((i) => i.itemId) }, false) &&

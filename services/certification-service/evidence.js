@@ -7,6 +7,15 @@ const digest = (value) => createHash('sha256').update(JSON.stringify(value)).dig
 const text = (value) => typeof value === 'string' && value.trim().length > 0;
 const fail = (code, status = 409) => Object.assign(new Error(code), { code, status });
 
+// The credential names the grader behind its score (assurance audit A11), so
+// a reader can tell a keyword grader from any later one. The Engine records
+// it on every assessment (examination-engine/assessment.js checkAssessment).
+function graderOf(assessment) {
+  const grader = assessment.grader;
+  if (!grader || !text(grader.id) || !text(grader.version)) throw fail('examination_evidence_malformed');
+  return { id: grader.id, version: grader.version };
+}
+
 function validatedEvidence(attempt, trustedPackage = null, issuanceEnvironment = process.env.CERTIFICATION_ENVIRONMENT, issuer = process.env.CERTIFICATION_ISSUER) {
   if (!attempt || attempt.status !== 'complete' || attempt.responseCollectionComplete !== true ||
       attempt.result?.schemaVersion !== 'examination-result/1.0.0' || attempt.result.valid !== true ||
@@ -49,11 +58,7 @@ function validatedEvidence(attempt, trustedPackage = null, issuanceEnvironment =
     throw fail('examination_evidence_malformed');
   if (mode === 'standard' && (!template || !text(template.id) || !text(template.version)))
     throw fail('examination_evidence_malformed');
-  // The credential names the grader behind its score (assurance audit A11),
-  // so a reader can tell a keyword grader from any later one.
-  if (!assessment.grader || !text(assessment.grader.id) || !text(assessment.grader.version))
-    throw fail('examination_evidence_malformed');
-  const grader = { id: assessment.grader.id, version: assessment.grader.version };
+  const grader = graderOf(assessment);
   let assessmentPolicy = null;
   if (trustedPackage) {
     assessmentPolicy = mode === 'fallback'
