@@ -112,7 +112,7 @@ test('the live exam run uses the model for every item and returns LIVE evidence 
   const liveModel = { available: true, provider: 'opencode-go', model: 'glm-5.3-flash', registration: {},
     answerExam: async (item) => ({ answer: `Model answer for ${item.id}`, usage: { promptTokens: 10, completionTokens: 20 } }) };
   const examRunner = { examine: async ({ answerFor }) => {
-    for (const item of [ITEM, { ...ITEM, id: 'standard-2' }]) answered.push(await answerFor(item));
+    for (const item of [ITEM, { ...ITEM, id: 'standard-2' }]) answered.push(await answerFor(item, 0, { lookup: async () => [] }));
     return { outcome: 'complete', attempt: { attemptId: 'a-1', status: 'complete' }, answered: [{}, {}] };
   } };
   const syntheticRunner = { examine: async () => { throw new Error('the live exam must not use the synthetic identity'); } };
@@ -124,7 +124,7 @@ test('the live exam run uses the model for every item and returns LIVE evidence 
     assert.equal(reply.status, 200);
     assert.deepEqual(answered, ['Model answer for standard-1', 'Model answer for standard-2']);
     assert.equal(body.evidence.label, 'LIVE: Live Agent Learner');
-    assert.deepEqual(body.live, { provider: 'opencode-go', model: 'glm-5.3-flash', calls: 2, promptTokens: 20, completionTokens: 40 });
+    assert.deepEqual(body.live, { provider: 'opencode-go', model: 'glm-5.3-flash', calls: 2, promptTokens: 20, completionTokens: 40, invalidActions: 0 });
     assert.equal(text.includes('Model answer'), false);
   });
 });
@@ -132,7 +132,7 @@ test('the live exam run uses the model for every item and returns LIVE evidence 
 test('a model failure during the exam is reported as a system abort, not an agent failure', async () => {
   const liveModel = { available: true, provider: 'opencode-go', model: 'glm-5.3-flash', registration: {},
     answerExam: async () => { throw new LiveModelError('live_model_timeout'); } };
-  const examRunner = { examine: async ({ answerFor }) => { await answerFor(ITEM); return {}; } };
+  const examRunner = { examine: async ({ answerFor }) => { await answerFor(ITEM, 0, { lookup: async () => [] }); return {}; } };
   await withService(createApp({ learner: stubLearner, liveExamRunner: examRunner, liveModel }), async (base) => {
     const reply = await fetch(`${base}/v1/exam-runs`, { method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ scenarioId: 'live-model' }) });
@@ -194,9 +194,52 @@ test('a reply that is not one valid action becomes a finish, and fenced JSON is 
     { finish: { message: 'Escalated; nothing else to do.' } });
   for (const reply of ['I will reply to the customer now.', '{"tool":7}', '{"args":{}}']) {
     const { impl } = fakeFetch([chat(reply)]);
-    assert.deepEqual((await createLiveModel({ apiKey: KEY, fetchImpl: impl }).actEpisode(OBSERVATION)).action,
-      { finish: { message: 'no valid action' } }, reply);
+    const result = await createLiveModel({ apiKey: KEY, fetchImpl: impl }).actEpisode(OBSERVATION);
+    assert.deepEqual([result.action, result.valid], [{ finish: { message: 'no valid action' } }, false], reply);
   }
+});
+
+test('the acting prompt does not say the episode is an examination', () => {
+  assert.equal(/exam|graded|grader|test/i.test(ACT_PROMPT), false);
+});
+
+test('an open-book exam prompt carries the looked-up lessons as reference material', () => {
+  const prompt = examPrompt(ITEM, [{ moduleId: 'm4', text: 'Stop when a safety check fails and escalate.' }]);
+  assert.ok(prompt.startsWith(examPrompt(ITEM)));
+  assert.match(prompt, /knowledge\.lookup/);
+  assert.match(prompt, /\[m4\] Stop when a safety check fails/);
+  assert.equal(examPrompt(ITEM, []), examPrompt(ITEM));
+});
+
+test('the live exam looks up lessons for each text item and counts replies with no valid action', async () => {
+  const looked = [];
+  const liveModel = { available: true, provider: 'opencode-go', model: 'glm-5.3-flash', registration: {},
+    answerExam: async (item, lessons) => ({ answer: `answer with ${lessons.length} lessons`, usage: { promptTokens: 1, completionTokens: 1 } }),
+    actEpisode: async () => ({ action: { finish: { message: 'no valid action' } }, valid: false, usage: { promptTokens: 2, completionTokens: 2 } }) };
+  const examRunner = { examine: async ({ answerFor, actFor }) => {
+    assert.equal(await answerFor(ITEM, 0, { lookup: async (query) => { looked.push(query); return [{ moduleId: 'm1', text: 'lesson' }]; } }),
+      'answer with 1 lessons');
+    await actFor({ ...ITEM, kind: 'behaviour' })(OBSERVATION);
+    return { outcome: 'complete', attempt: { attemptId: 'a-1', status: 'complete' }, answered: [{}] };
+  } };
+  await withService(createApp({ learner: stubLearner, liveExamRunner: examRunner, liveModel }), async (base) => {
+    const body = await (await fetch(`${base}/v1/exam-runs`, { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ scenarioId: 'live-model' }) })).json();
+    assert.deepEqual(looked, [ITEM.prompt]);
+    assert.deepEqual(body.live, { provider: 'opencode-go', model: 'glm-5.3-flash', calls: 2, promptTokens: 3, completionTokens: 3, invalidActions: 1 });
+  });
+});
+
+test('a model failure while acting is a system abort, not an agent failure', async () => {
+  const liveModel = { available: true, provider: 'opencode-go', model: 'glm-5.3-flash', registration: {},
+    answerExam: async () => ({ answer: 'unused', usage: {} }), actEpisode: async () => { throw new LiveModelError('live_model_unreachable'); } };
+  const examRunner = { examine: async ({ actFor }) => { await actFor({ ...ITEM, kind: 'behaviour' })(OBSERVATION); return {}; } };
+  await withService(createApp({ learner: stubLearner, liveExamRunner: examRunner, liveModel }), async (base) => {
+    const reply = await fetch(`${base}/v1/exam-runs`, { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ scenarioId: 'live-model' }) });
+    const body = await reply.json();
+    assert.deepEqual([reply.status, body.outcome, body.reason], [503, 'system_aborted', 'live_model_unreachable']);
+  });
 });
 
 test('the acting prompt is part of the live learner\'s configuration fingerprint', () => {
@@ -209,7 +252,7 @@ test('the live exam plays behaviour items with the model as its policy', async (
   const acted = [];
   const liveModel = { available: true, provider: 'opencode-go', model: 'glm-5.3-flash', registration: {},
     answerExam: async () => ({ answer: 'text answer', usage: { promptTokens: 1, completionTokens: 1 } }),
-    actEpisode: async (observation) => { acted.push(observation.step); return { action: { finish: { message: 'done' } }, usage: { promptTokens: 5, completionTokens: 5 } }; } };
+    actEpisode: async (observation) => { acted.push(observation.step); return { action: { finish: { message: 'done' } }, valid: true, usage: { promptTokens: 5, completionTokens: 5 } }; } };
   const examRunner = { examine: async ({ actFor }) => {
     const policy = actFor({ ...ITEM, kind: 'behaviour' });
     assert.deepEqual(await policy(OBSERVATION), { finish: { message: 'done' } });
@@ -221,7 +264,7 @@ test('the live exam plays behaviour items with the model as its policy', async (
     const body = await reply.json();
     assert.equal(reply.status, 200);
     assert.deepEqual(acted, [1]);
-    assert.deepEqual(body.live, { provider: 'opencode-go', model: 'glm-5.3-flash', calls: 1, promptTokens: 5, completionTokens: 5 });
+    assert.deepEqual(body.live, { provider: 'opencode-go', model: 'glm-5.3-flash', calls: 1, promptTokens: 5, completionTokens: 5, invalidActions: 0 });
   });
 });
 

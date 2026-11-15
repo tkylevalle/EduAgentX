@@ -77,7 +77,10 @@ async function queryIndex({ pool, client, embeddingFunction, text, limit = 5 }) 
   try {
     const collection = await client.getCollection({ name: COLLECTION_NAME, embeddingFunction });
     const result = await collection.query({ queryTexts: [text], nResults: limit });
-    return { mode: 'live', results: filterVectorResult(result, currentById) };
+    // The authoritative chunk for each kept vector hit, in ranked order: the
+    // same shape the cached path returns.
+    const kept = filterVectorResult(result, currentById);
+    return { mode: 'live', results: (kept.ids[0] || []).map((id) => structuredClone(currentById.get(id))) };
   } catch {
     const snapshot = loadSnapshot();
     if (!snapshot) throw new Error('index_unavailable_no_cache');

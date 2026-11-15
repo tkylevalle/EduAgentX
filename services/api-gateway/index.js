@@ -33,6 +33,12 @@ const MAX_PROTOCOL_IDEMPOTENCY_ENTRIES = 1000;
 const TRAINING_IDENTIFIER = /^[\x20-\x7e]{1,256}$/;
 // One recorded sandbox action: the Engine's own limit (behaviour.js MAX_ACTION_CHARS).
 const EPISODE_MAX_ACTION_CHARS = 4000;
+// knowledge.lookup: a query of a few words to a short paragraph, and at most
+// five lessons back, which is every module of the current package.
+const KNOWLEDGE_MIN_QUERY_CHARS = 3;
+const KNOWLEDGE_MAX_QUERY_CHARS = 500;
+const KNOWLEDGE_DEFAULT_RESULTS = 3;
+const KNOWLEDGE_MAX_RESULTS = 5;
 const REMEDIATION_FIELDS = Object.freeze([
   'requestId', 'agentLearnerKey', 'packageId', 'packageVersion', 'objectiveIds', 'cause', 'evidence',
 ]);
@@ -64,6 +70,8 @@ function createApp({
   curriculumEngineUrl = process.env.CURRICULUM_ENGINE_URL || 'http://curriculum-engine:4002',
   validationActivationUrl = process.env.VALIDATION_ACTIVATION_URL || 'http://validation-activation:4010',
   curriculumInternalKey = process.env.CURRICULUM_INTERNAL_KEY,
+  // knowledge.lookup reads the curriculum index; without it the route answers 503.
+  curriculumIndexUrl = process.env.CURRICULUM_INDEX_URL,
   trainingServiceUrl = process.env.TRAINING_SERVICE_URL || 'http://training-service:4004',
   trainingInternalKey = process.env.TRAINING_INTERNAL_KEY,
   examinationEngineUrl = process.env.EXAMINATION_ENGINE_URL || 'http://examination-engine:4005',
@@ -724,6 +732,27 @@ function createApp({
         ...(body.executionEvidence ? { executionEvidence: body.executionEvidence } : {}),
         ...(trustedExecution ? { trustedExecution } : {}) };
     }
+  });
+  // knowledge.lookup (assurance audit B3, B4): read-only retrieval over the
+  // Active package's lessons, ranked by the curriculum index. It is the tool
+  // the agent's manifest declares; the exam is open book.
+  app.get('/v1/knowledge', requireRole('agent'), async (req, res) => {
+    const query = typeof req.query.query === 'string' ? req.query.query.trim() : '';
+    const limit = req.query.limit === undefined ? KNOWLEDGE_DEFAULT_RESULTS : Number(req.query.limit);
+    if (query.length < KNOWLEDGE_MIN_QUERY_CHARS || query.length > KNOWLEDGE_MAX_QUERY_CHARS ||
+      !Number.isSafeInteger(limit) || limit < 1 || limit > KNOWLEDGE_MAX_RESULTS)
+      return res.status(400).json({ apiVersion: 'v1', error: 'invalid_request', correlationId: req.correlationId });
+    const unavailable = () => res.status(503).json({ apiVersion: 'v1', error: 'knowledge_unavailable', correlationId: req.correlationId });
+    if (!curriculumIndexUrl || !curriculumInternalKey) return unavailable();
+    try {
+      const upstream = await forwardJson(req, `${curriculumIndexUrl}/internal/index/query?text=${encodeURIComponent(query)}&limit=${limit}`,
+        { headers: { 'x-internal-service-key': curriculumInternalKey } });
+      if (upstream.status !== 200 || !Array.isArray(upstream.body?.results)) return unavailable();
+      return res.status(200).json({ apiVersion: 'v1', mode: upstream.body.mode === 'live' ? 'live' : 'cached-stale',
+        results: upstream.body.results.slice(0, limit).map((chunk) => ({ moduleId: chunk.moduleId, objectiveIds: chunk.objectiveIds,
+          packageId: chunk.packageId, version: chunk.version, text: chunk.text, digest: chunk.digest })),
+        correlationId: req.correlationId });
+    } catch { return unavailable(); }
   });
   // A behaviour item's sandbox episode: the agent reads where it is, then
   // records one action at a time; the Engine runs and records each one.

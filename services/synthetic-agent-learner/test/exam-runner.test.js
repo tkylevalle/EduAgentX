@@ -6,7 +6,7 @@ const { examAnswer } = require('../exam-scenarios');
 
 // A Gateway stand-in: delivers a three-item form, records each response and
 // reports the attempt complete on the first poll after the last answer.
-function fakeGateway({ startStatus = 201 } = {}) {
+function fakeGateway({ startStatus = 201, knowledgeStatus = 200 } = {}) {
   const calls = [];
   let sequence = 1, received = 0, polls = 0;
   const items = ['a1', 'a2', 'v4'].map((slotId, index) => ({ id: `item-${index}`, slotId, tier: 'recall', prompt: `Prompt ${slotId}` }));
@@ -17,6 +17,10 @@ function fakeGateway({ startStatus = 201 } = {}) {
       if (method === 'POST' && path === '/v1/examinations') {
         if (startStatus !== 201) return { status: startStatus, body: { error: 'examination_unavailable' } };
         return { status: 201, body: { attempt: { attemptId: 'attempt-1', status: 'in_progress', sequence, form: { items } } } };
+      }
+      if (method === 'GET' && path.startsWith('/v1/knowledge')) {
+        return knowledgeStatus === 200 ? { status: 200, body: { results: [{ moduleId: 'm1', text: 'lesson' }] } }
+          : { status: knowledgeStatus, body: { error: 'knowledge_unavailable' } };
       }
       if (method === 'POST' && path.endsWith('/responses')) {
         assert.equal(body.expectedSequence, sequence);
@@ -40,6 +44,18 @@ test('exam runner answers every item in sequence and waits for the terminal stat
   assert.deepEqual(responses.map((call) => call.body.expectedSequence), [1, 2, 3]);
   assert.ok(gateway.calls.every((call) => !call.path.includes('grade') && !call.path.includes('finalize')),
     'the agent never grades or finalizes its own attempt');
+});
+
+test('answers may use knowledge.lookup through the Gateway, and failed lookups are counted', async () => {
+  for (const [knowledgeStatus, lessons, failed] of [[200, 1, 0], [503, 0, 3]]) {
+    const gateway = fakeGateway({ knowledgeStatus });
+    const seen = [];
+    const result = await createExamRunner({ gatewayClient: gateway, pollIntervalMs: 1 }).examine({
+      answerFor: async (item, index, tools) => { seen.push((await tools.lookup(item.prompt)).length); return examAnswer('safe-escalation', item, index); } });
+    assert.deepEqual(seen, [lessons, lessons, lessons]);
+    assert.deepEqual(result.knowledge, { lookups: 3, failed });
+    assert.ok(gateway.calls.some((call) => call.path === '/v1/knowledge?query=Prompt%20a1&limit=3'));
+  }
 });
 
 test('exam runner reports an unavailable examination without answering', async () => {
