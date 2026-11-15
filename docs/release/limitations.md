@@ -31,6 +31,46 @@ be written until the team has reviewed and corrected this file.
   over 2 MB instead of reading them. It cannot find a password written in
   prose.
 
+## Measurement validity
+
+The assurance audit ([docs/audit/assurance-audit-2026-11-15.md](../audit/assurance-audit-2026-11-15.md))
+found that the system around the measurement holds up, but the measurement
+does not yet support a competence claim. State on 15 November 2026:
+
+- **The grader is not valid.** `packages/grading-validity` measures the
+  production grader on the 15 real exam items. A parrot agent, a
+  keyword-stuffing agent and an agent that copies the objective statements
+  pass the exam; leaks and injected-instruction compliance written in other
+  words are not detected as critical violations. Status Red. CI's
+  `grading-validity` job fails until this changes.
+- **No response has labels from people.** Agreement with people is
+  unmeasured. The labelling procedure is in `packages/grading-validity/README.md`.
+- **The exam asks the agent to describe actions, not to take them.** No item
+  gives the agent a tool, so secure tool use is not tested by behaviour.
+- **Every standard attempt gets the same 15 items**, and two adversarial
+  items are linked to the wrong objectives (audit A13).
+- **One run per exam**, with no repetition or confidence bound.
+- **The agent has no context.** Each model call holds one item and the
+  system prompt only; training cannot change exam results, and the exam
+  names sources the agent never receives. `knowledge.lookup` is declared in
+  the agent's fingerprint but not implemented, and nothing queries the
+  ChromaDB index. No learning gain is measured or claimed.
+- **The curriculum is a draft** (`0.1.5-draft`, sources pending independent
+  review), and the demo driver approves it with the shared reviewer
+  credentials. The Sprint 3 and 4 gates refuse such approvals.
+- **Fingerprints are declared by the agent.** Nothing checks that the running
+  agent matches its registered configuration.
+- **Status and issuer are not independently checkable.** Suspension and
+  revocation are an unsigned store inside credential-verification, not a
+  signed status list, and the issuer (`did:example`) publishes no key.
+- **The credential names its grader** (since this audit), but Certification
+  accepts any grader the assessment names; refusing graders that have not
+  passed the validity measurement needs a grader registry.
+- **The fallback bank's questions** now show shuffled options with plausible
+  distractors, but their content has not been reviewed by people.
+
+The fixes are planned in [docs/audit/target-system-design.md](../audit/target-system-design.md).
+
 ## Supporting-scope reductions
 
 - The web app is a local demonstration console. It holds admin, reviewer and

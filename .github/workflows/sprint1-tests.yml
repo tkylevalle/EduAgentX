@@ -27,3 +27,31 @@ jobs:
           name: sprint1-test-evidence
           path: evidence/runs
           if-no-files-found: warn
+
+  # The production grader measured on the real exam items, with labels from
+  # people and whole-attempt validity probes (assurance audit A2-A4, E1).
+  # It fails while the status is Red, so a green build cannot hide an
+  # invalid grader.
+  grading-validity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install component dependencies
+        run: node scripts/install-dependencies.js
+
+      - name: Measure grading validity
+        run: node packages/grading-validity/cli.js --write --strict
+
+      - name: Upload grading validity report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: grading-validity-report
+          path: artifacts/grading-validity/report.json
+          if-no-files-found: warn
