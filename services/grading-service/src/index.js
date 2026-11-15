@@ -1,9 +1,6 @@
 'use strict';
 const express = require('express');
 const { timingSafeEqual } = require('node:crypto');
-const { validateGradingInput } = require('./validator');
-const { gradeAttempt } = require('./grader');
-const { getRubric } = require('./rubric');
 const { GRADER, gradeItems, validateItemGradingRequest } = require('./item-grader');
 
 const SERVICE_NAME = 'grading-service';
@@ -19,51 +16,20 @@ function matchesKey(supplied, expected) {
   return left.length === right.length && timingSafeEqual(left, right);
 }
 
+// The service has one grader. Pass thresholds and critical rules are not held
+// here: each attempt is graded under the rubric and exam template pinned by
+// its Domain Assurance Package, which the Examination Engine sends.
 function createApp({ itemGradingKey = process.env.GRADING_SERVICE_KEY } = {}) {
   const app = express();
   app.use(express.json({ limit: '256kb' }));
-
-  // In-memory evidence store (PostgreSQL in Sprint 4)
-  const evidence = new Map();
 
   app.get('/health', (_req, res) => {
     res.json({ status: 'ok', service: SERVICE_NAME });
   });
 
-  // GET /rubric — return the locked rubric
-  app.get('/rubric', (_req, res) => {
-    res.json(getRubric());
-  });
-
-  // POST /grade — grade an attempt
-  // Fails closed: any validation error returns 422 with no score
-  app.post('/grade', (req, res) => {
-    const errors = validateGradingInput(req.body);
-    if (errors.length) {
-      return res.status(422).json({
-        error: 'invalid_grading_input',
-        details: errors,
-        score: null,
-        passed: null,
-      });
-    }
-
-    let result;
-    try {
-      result = gradeAttempt(req.body);
-    } catch (err) {
-      return res.status(422).json({
-        error: 'grading_failed',
-        message: err.message,
-        score: null,
-        passed: null,
-      });
-    }
-
-    // Store immutable evidence
-    evidence.set(result.attemptId, result);
-
-    res.status(200).json(result);
+  // The identity of the grader behind every score, for consoles and evidence.
+  app.get('/v1/grader', (_req, res) => {
+    res.json({ grader: GRADER });
   });
 
   // POST /v1/item-grades — the Examination Engine's grading call. Stateless:
@@ -76,25 +42,6 @@ function createApp({ itemGradingKey = process.env.GRADING_SERVICE_KEY } = {}) {
     const results = gradeItems(req.body);
     log('items_graded', { correlationId: req.header('x-correlation-id') || null, items: results.length });
     return res.status(200).json({ grader: GRADER, results });
-  });
-
-  // GET /evidence/:attemptId — retrieve immutable grading evidence
-  app.get('/evidence/:attemptId', (req, res) => {
-    const record = evidence.get(req.params.attemptId);
-    if (!record) return res.status(404).json({ error: 'not_found' });
-    res.json(record);
-  });
-
-  // GET /evidence — list all grading records
-  app.get('/evidence', (_req, res) => {
-    const records = [...evidence.values()].map(r => ({
-      attemptId: r.attemptId,
-      subject: r.subject,
-      passed: r.passed,
-      overallScore: r.overallScore,
-      gradedAt: r.gradedAt,
-    }));
-    res.json(records);
   });
 
   return app;
