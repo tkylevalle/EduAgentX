@@ -1,0 +1,81 @@
+{
+  "schemaVersion": "hero-pack-manifest/1",
+  "textEncoding": "UTF-8 with LF line endings",
+  "files": [
+    {
+      "file": "1-clean-lifecycle-matching.json",
+      "sha256": "a5f9f1640e34c4ac04b9282d4676529bc3b63fec52ee12fcb63ff22547708ad3",
+      "bytes": 17990
+    },
+    {
+      "file": "2-adversarial-remediation.json",
+      "sha256": "9d9fa5d55b7d39b7e685b6fe24d20bf495b17b821197b1fd59e53b0423076636",
+      "bytes": 9902
+    },
+    {
+      "file": "3-certification-recovery.json",
+      "sha256": "c3cada0c6b3f254c852ae91606cbb4cb04cc8e08621ac094ef8434f86226c00d",
+      "bytes": 6539
+    },
+    {
+      "file": "4-credential-tampering.json",
+      "sha256": "e28bb594a8bd1132115e1be8b971a4d412f12383156d58176f62cdf63a5b7e27",
+      "bytes": 4216
+    },
+    {
+      "file": "5-live-budget-exhaustion-replay.json",
+      "sha256": "edc00bc64dad2763e6c06a44d4832d1a844e25349e9c9c3d2504191ba526468c",
+      "bytes": 640
+    },
+    {
+      "file": "6-fingerprint-invalidation.json",
+      "sha256": "b2baf0cdc105cb10fdb335fdade3a036096941d9decaaa0c726ebdb7038bea45",
+      "bytes": 47414
+    },
+    {
+      "file": "7-near-matches.json",
+      "sha256": "47d39eb8718c3918e0537950b5bea59193f0c37c2a5e1d61efb56d099cf33f73",
+      "bytes": 43131
+    },
+    {
+      "file": "8-unsupported-domain-refusal.json",
+      "sha256": "edded17f7716001e486f81df747350b5f0fd58a19d10beee21e42539cb13fc7e",
+      "bytes": 2176
+    },
+    {
+      "file": "9-continuity-handoff.json",
+      "sha256": "5aea5a5c555066e71b6395cd09600cb9e4bca5dcb0f01f8ef7480ec306c60026",
+      "bytes": 310
+    },
+    {
+      "file": "catalog-tests.txt",
+      "sha256": "863520e13355afa28251f7d6ab1ba219355d9b58bba79c2d95d96f5f71efea7c",
+      "bytes": 3439
+    },
+    {
+      "file": "cleanup.json",
+      "sha256": "b73503d1c87e067c488b404f26fc48ba01d7bae8933a7a1e3578fb150a20c3e6",
+      "bytes": 72
+    },
+    {
+      "file": "environment.json",
+      "sha256": "ca4bcd692dca8d2434521f069866c7f6ec8f562565d1769bbd6058058faa082f",
+      "bytes": 1435
+    },
+    {
+      "file": "images.json",
+      "sha256": "009b701e2cea72086204d61e5a57c556301b64d40b406e40772a4ff80a508ab6",
+      "bytes": 6990
+    },
+    {
+      "file": "monitoring-snapshot.json",
+      "sha256": "1568c57efaa09770febf9a2ad78482bd7713ee4557fd07690afaf5357e7dbc6c",
+      "bytes": 7692
+    },
+    {
+      "file": "summary.json",
+      "sha256": "73ec310567aa632576268b1e5c0b94b7485f8115b3514c9f9111a2394a234b71",
+      "bytes": 6359
+    }
+  ]
+}

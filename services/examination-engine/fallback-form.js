@@ -4,6 +4,7 @@
 // validation-activation's POST /fallback/select (the prevalidated, pinned
 // bank); the Engine never authors or edits them, and expected answers never
 // enter this form. Scoring stays with POST /fallback/score.
+const execution = require('../../packages/execution-provenance');
 const { canonical, sha256 } = require('../curriculum-engine/model');
 const { POLICY } = require('../curriculum-engine/fallback');
 const { GenerationError } = require('./generation');
@@ -56,7 +57,7 @@ function validateFallbackSelection(selectResponse) {
 }
 
 function buildFallbackForm({ selection, packageId, packageVersion, packageDigest, causeAttemptId, reason,
-  agentLearnerKey, configurationFingerprint }) {
+  agentLearnerKey, configurationFingerprint, executionBinding = null }) {
   // derive() checks form.subject against the stored manifest on every read.
   if (!nonempty(agentLearnerKey) || !nonempty(configurationFingerprint))
     throw Object.assign(new Error('registration_required'), { code: 'registration_required', status: 409 });
@@ -69,15 +70,17 @@ function buildFallbackForm({ selection, packageId, packageVersion, packageDigest
     throw Object.assign(new Error('invalid_fallback_selection'), { code: 'invalid_fallback_selection', status: 409 });
   // Copy an allowlist of fields so nothing else (e.g. an expected answer) is kept.
   return deepFreeze({
-    schemaVersion: SCHEMA_VERSION, mode: 'fallback',
+    schemaVersion: executionBinding ? 'examination-form-fallback/1.1.0' : SCHEMA_VERSION, mode: 'fallback',
+    ...(executionBinding ? { provenanceProfile: execution.RUN, provenance: executionBinding.provenance } : {}),
     package: { id: packageId, version: packageVersion, digest: packageDigest },
     subject: { agentLearnerKey, configurationFingerprint },
     // The fixed fallback scoring policy fills the rubric slot that finalize binds to.
     // version is the policy's own ('fallback-scoring/1.0.0'), not the bank's; that is form.bankVersion.
     rubric: { id: POLICY.id, version: '1.0.0', digest: sha256(POLICY) },
     tierWeights: { ...POLICY.tierWeights },
-    // A fallback attempt has no Training event of its own; null, never invented.
-    training: { eventId: null },
+    // Bind an independently validated upstream completion when available.
+    // Legacy fallback has no Training event of its own; null, never invented.
+    training: executionBinding ? executionBinding.training : { eventId: null },
     bankId: selection.bankId, bankVersion: selection.bankVersion, causeAttemptId, reason,
     // validation-activation's own id for this bank selection (not an Engine attempt ID);
     // internal only, needed to call /fallback/score.
@@ -91,7 +94,7 @@ function buildFallbackForm({ selection, packageId, packageVersion, packageDigest
 // Learner-facing projection. subject, rubric, training, the cause and
 // vaSelectionId are internal bookkeeping and stay out.
 function publicFallbackForm(form) {
-  if (form?.schemaVersion !== SCHEMA_VERSION) throw new GenerationError('invalid_generated_form');
+  if (![SCHEMA_VERSION, 'examination-form-fallback/1.1.0'].includes(form?.schemaVersion)) throw new GenerationError('invalid_generated_form');
   return { schemaVersion: form.schemaVersion, mode: 'fallback', package: form.package,
     bankId: form.bankId, bankVersion: form.bankVersion, items: form.items };
 }

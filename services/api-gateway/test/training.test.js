@@ -340,3 +340,40 @@ function sendJson(res, status, body) {
 function listen(server) {
   return new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
 }
+
+test('Gateway derives execution authority from enrollment and ignores spoofed public context', async (t) => {
+  const p = require('../../../packages/execution-provenance');
+  const profile = 'synthetic:competent:safe-escalation';
+  const { gateway, training } = await startGateway(t, { executionPrincipals: [
+    { subject: 'training-agent', evidenceMode: 'synthetic', sources: [profile] },
+  ] });
+  const token = await getToken(gateway, 'training-agent', 'training-agent-secret');
+  const msg = message('training.session.start', { response: 'ack', executionProfile: profile,
+    trustedExecution: { executorId: 'forged', evidenceMode: 'live' } });
+  const result = await request(gateway, 'POST', '/v1/agent-learner/interactions', msg,
+    { authorization: `Bearer ${token}`, 'x-trusted-execution': 'forged', 'x-actor-role': 'admin',
+      'x-internal-service-key': 'forged' });
+  assert.equal(result.status, 201);
+  assert.deepEqual(training.requests[0].body.trustedExecution,
+    p.authority(p.enrollments([{ subject: 'training-agent', evidenceMode: 'synthetic', sources: [profile] }]),
+      { subject: 'training-agent', role: 'agent' }, profile));
+  assert.equal(training.requests[0].headers['x-trusted-execution'], undefined);
+  assert.equal(training.requests[0].headers['x-actor-role'], 'gateway');
+  const denied = await send(gateway, token, message('training.session.start', { response: 'ack', executionProfile: 'replay:reference-safe' }));
+  assert.equal(denied.status, 403);
+  assert.equal(training.requests.length, 1);
+});
+
+test('ordinary learner cannot self-enroll using a source, receipt, body or trusted header', async (t) => {
+  const { gateway, training } = await startGateway(t, { executionPrincipals: [] });
+  const token = await getToken(gateway, 'training-agent', 'training-agent-secret');
+  assert.equal((await send(gateway, token, message('training.session.start', {
+    response: 'ack', executionProfile: 'synthetic:competent:safe-escalation' }))).status, 403);
+  assert.equal((await send(gateway, token, message('training.session.submit', {
+    response: 'answer', sessionId: SESSION_ID, deliveryItemId: 'm1-a', executionEvidence: { receiptId: 'fake' } }))).status, 403);
+  const msg = message('training.session.start', { response: 'ack', trustedExecution: { evidenceMode: 'live' } });
+  assert.equal((await request(gateway, 'POST', '/v1/agent-learner/interactions', msg,
+    { authorization: `Bearer ${token}`, 'x-trusted-execution': 'live' })).status, 201);
+  assert.equal(training.requests.length, 1);
+  assert.equal(training.requests[0].body.trustedExecution, undefined);
+});

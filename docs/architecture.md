@@ -21,6 +21,7 @@ Prometheus + blackbox-exporter ──▶ /health of every service ──▶ Graf
 | `monitoring/` | Prometheus, blackbox-exporter and Grafana configuration |
 | `courses/` | Course, skill and exam content for later sprints |
 | `scripts/` | Developer and CI tooling (setup, tests, Sprint gate) |
+| `packages/release-gate/` | Final release gate CLI. It is a package, not a script, so the unit runner and CI run its tests |
 | `docs/` | Contracts, environment, sprint records, blueprint and reference PDFs |
 | `evidence/` | Committed gate runs. Files under `evidence/runs/` are hashed; never edit them |
 

@@ -1,0 +1,43 @@
+{
+  "project": "eduagentx-evidence-20261109t075650z-35376",
+  "gitCommit": "a89f54dfeb749aec593f9580403597fef530a35d",
+  "versions": {
+    "platform": "Windows-11-10.0.26200-SP0",
+    "python": "3.12.14",
+    "docker": "Docker version 29.8.0, build 88096ef",
+    "node": "v24.19.0",
+    "npm": "11.17.0",
+    "compose": "Docker Compose version v5.5.1",
+    "api": "v1",
+    "protocol": "ExternalAgentLearner 1.0.0"
+  },
+  "sourceSha256": "f9f141466516f7848218ce3920c08338f25de2d0ef85ebe3f266bf75a2db33d4",
+  "configurationSha256": "884df8234bf7fa3af0eb6d14080b7fc8f6efe59a64000047c37778012abd4f57",
+  "simulationPrincipals": [
+    {
+      "subject": "synthetic-executor-dev",
+      "evidenceMode": "synthetic",
+      "sources": [
+        "synthetic:competent:safe-escalation"
+      ]
+    },
+    {
+      "subject": "hero-near-match-a-dev",
+      "evidenceMode": "synthetic",
+      "sources": [
+        "synthetic:competent:safe-escalation"
+      ]
+    },
+    {
+      "subject": "hero-near-match-b-dev",
+      "evidenceMode": "synthetic",
+      "sources": [
+        "synthetic:competent:safe-escalation"
+      ]
+    }
+  ],
+  "issuer": "https://eduagentx.example/issuers/eduagentx-test",
+  "keyId": "https://eduagentx.example/issuers/eduagentx-test#test-ed25519-1",
+  "isolation": "Fresh Compose project, volumes and random loopback ports",
+  "credentialMaterial": "Private temporary configuration and ignored checkout-local test keys"
+}
