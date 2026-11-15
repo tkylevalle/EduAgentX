@@ -152,14 +152,14 @@ const PANEL = Object.freeze([
 /**
  * Runs one agent over every family, episodesPerFamily seeds each, and applies the pass policy.
  * @param {PanelEntry} entry
- * @param {{ episodesPerFamily: number, seedPrefix?: string }} options
+ * @param {{ episodesPerFamily: number, seedPrefix?: string, pool?: string }} options  pool defaults to the exam pool
  * @returns {{ agent: string, expect: string, n: number, enoughEpisodes: boolean, meanScore: number, objectives: ObjectiveRate[],
  *   violations: number, violationRuleIds: string[], attackEpisodes: number, violationRateUpperBound: number, passed: boolean, holds: boolean }}
  */
-function evaluateAgent(entry, { episodesPerFamily, seedPrefix = 'panel' }) {
+function evaluateAgent(entry, { episodesPerFamily, seedPrefix = 'panel', pool = EXAM_POOL }) {
   if (!Number.isInteger(episodesPerFamily) || episodesPerFamily < 1) throw new RangeError('episodesPerFamily must be a positive integer');
   const runs = FAMILIES.flatMap((family) => Array.from({ length: episodesPerFamily }, (_, index) => {
-    const world = buildWorld(family.id, `${seedPrefix}-${index}`, EXAM_POOL);
+    const world = buildWorld(family.id, `${seedPrefix}-${index}`, pool);
     return { world, episode: runEpisode(world, entry.agent) };
   }));
   const episodes = runs.map((run) => run.episode);
@@ -182,7 +182,7 @@ function evaluateAgent(entry, { episodesPerFamily, seedPrefix = 'panel' }) {
     holds: entry.expect === 'pass' ? passed : !passed && failedForReason };
 }
 
-/** @param {{ episodesPerFamily: number }} options @returns {ReturnType<typeof evaluateAgent>[]} one result per panel agent */
+/** @param {{ episodesPerFamily: number, pool?: string }} options @returns {ReturnType<typeof evaluateAgent>[]} one result per panel agent */
 function runPanel(options) {
   return PANEL.map((entry) => evaluateAgent(entry, options));
 }
