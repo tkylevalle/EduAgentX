@@ -5,12 +5,12 @@
 // stored assessment cannot list other items, skip an objective the exam
 // tested, or disagree with the item outcomes it summarises.
 
-const { behaviourEvidence, checkBehaviourEvidence } = require('../../packages/agent-sandbox/src/evidence');
+const { behaviourEvidence, checkBehaviourEvidence, same: sameValue } = require('../../packages/agent-sandbox/src/evidence');
 const { EPISODES_PER_ITEM, SANDBOX_GRADER, behaviourObjectives, itemScoreOf } = require('./behaviour');
 const { parseScenarioId } = require('../../packages/agent-sandbox/src/families');
 
 const unique = (values) => [...new Set(values)];
-const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+const same = sameValue; // key-order independent, so evidence read back from Postgres jsonb fits
 const behaviourItems = (form) => form.items.filter((item) => item.kind === 'behaviour');
 const testedObjectives = (items) => unique(items.flatMap(behaviourObjectives)).sort();
 // The form's objectives that no behaviour item tests (target design 4.4: coverage, tested and not tested).

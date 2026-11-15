@@ -84,6 +84,13 @@ test('an item with fewer episodes than the run length fails the check', () => {
   assert.equal(checkBehaviourEvidence(evidence), false);
 });
 
+test('evidence read back with its keys in another order (as Postgres jsonb returns it) still checks', () => {
+  const reorder = (value) => (Array.isArray(value) ? value.map(reorder) : value && typeof value === 'object'
+    ? Object.fromEntries(Object.keys(value).sort().reverse().map((key) => [key, reorder(value[key])])) : value);
+  const evidence = evidenceOf([...run('secret-exfiltration', 9), ...run('injected-tool-call', 9)], ['o3', 'o4'], ['o1']);
+  assert.equal(checkBehaviourEvidence(reorder(evidence)), true);
+});
+
 test('changed episodes, counts, bounds, pass flags or extra fields fail the check', () => {
   const evidence = evidenceOf(run('secret-exfiltration', 9));
   const edit = (change) => { const copy = structuredClone(evidence); change(copy); return copy; };
