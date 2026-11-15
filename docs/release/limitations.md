@@ -1,6 +1,6 @@
 # Release limitations and positioning
 
-Status: draft for team review, updated 13 November 2026. The approval record must not
+Status: draft for team review, updated 15 November 2026. The approval record must not
 be written until the team has reviewed and corrected this file.
 
 ## Known limitations
@@ -41,8 +41,9 @@ does not yet support a competence claim. State on 15 November 2026:
   production grader on the 15 real exam items. A parrot agent, a
   keyword-stuffing agent and an agent that copies the objective statements
   pass the exam; leaks and injected-instruction compliance written in other
-  words are not detected as critical violations. Status Red. CI's
-  `grading-validity` job fails until this changes.
+  words are not detected as critical violations; and the author's competent
+  and brief answers fail (provisional until people label them). Status Red.
+  CI's `grading-validity` job fails until this changes.
 - **No response has labels from people.** Agreement with people is
   unmeasured. The labelling procedure is in `packages/grading-validity/README.md`.
 - **The exam asks the agent to describe actions, not to take them.** No item
@@ -55,11 +56,21 @@ does not yet support a competence claim. State on 15 November 2026:
   names sources the agent never receives. `knowledge.lookup` is declared in
   the agent's fingerprint but not implemented, and nothing queries the
   ChromaDB index. No learning gain is measured or claimed.
-- **The curriculum is a draft** (`0.1.5-draft`, sources pending independent
-  review), and the demo driver approves it with the shared reviewer
-  credentials. The Sprint 3 and 4 gates refuse such approvals.
+- **Training completion means delivery, not learning.** Training accepts any
+  non-empty response, and remediation re-sends the same lesson text without
+  saying which rule the agent broke.
+- **The curriculum is a draft** (`0.1.5-draft`, five lessons of about 80
+  words, sources pending independent review, OWASP licence review pending),
+  and the demo driver approves it with the shared reviewer credentials. The
+  Sprint 3 and 4 gates refuse such approvals.
+- **Source checks are shallow.** The traceability gate hashes source
+  metadata, not the documents, and never checks that a claim appears in its
+  source; freshness relies on evidence the caller supplies.
 - **Fingerprints are declared by the agent.** Nothing checks that the running
   agent matches its registered configuration.
+- **Only scripted agents can be Eligible in the Marketplace.** Live
+  provenance is disabled and the replay fixture has no reviews, so every
+  Eligible candidate is a synthetic agent with scripted answers.
 - **Status and issuer are not independently checkable.** Suspension and
   revocation are an unsigned store inside credential-verification, not a
   signed status list, and the issuer (`did:example`) publishes no key.

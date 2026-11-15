@@ -1,4 +1,4 @@
-name: Sprint 1 tests
+name: Sprint 1 tests and grading validity
 
 on:
   pull_request:
@@ -34,7 +34,9 @@ jobs:
   # invalid grader.
   grading-validity:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # Same budget as the Sprint 1 job: installing every component dominates,
+    # and a timeout must not fail the job for the wrong reason.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
