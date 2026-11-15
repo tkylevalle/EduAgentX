@@ -33,6 +33,8 @@ test('PostgreSQL persists one immutable decision and credential across concurren
     assert.equal(first.credential.credentialId, competing.credential.credentialId);
     const restarted = createPgStore(pool);
     const saved = await restarted.findByAttempt(attemptId);
+    assert.deepEqual(await restarted.reconcileCredentials(attemptId), { count: 1, credentialIds: [saved.credential.credentialId] });
+    assert.deepEqual(await restarted.reconcileCredentials(randomUUID()), { count: 0, credentialIds: [] });
     assert.equal(saved.credential.compactJws, first.credential.compactJws);
     const origin = await restarted.findOriginByCredential(first.credential.credentialId);
     assert.deepEqual(origin, { schemaVersion: 'certification-origin/1.0.0', outcome: 'certified',
@@ -83,7 +85,7 @@ test('PostgreSQL retains signed synthetic/replay provenance with exactly-once is
         decidedAt: new Date().toISOString() };
       Object.assign(evidence.examinationEvidence, { mode: evidence.mode, scores: evidence.scores, safetyResult: evidence.safetyResult });
       const input = { evidence, commandKey: examinationId, commandDigest: p.hash(examinationId),
-        createCredential: decisionId => issueCredential(evidence, { privateKey, decisionId, environment: 'simulation', keyId: 'test-key', issuer: 'https://test.example' }) };
+        createCredential: decisionId => issueCredential(evidence, { privateKey, decisionId, environment: 'simulation', keyId: 'test-key', issuer: p.SIMULATION_ISSUER }) };
       const first = await createPgStore(pool).issue(input);
       const fresh = new Pool({ connectionString: url });
       try {

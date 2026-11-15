@@ -49,6 +49,9 @@ const toCheck = (r) => ({ checkId: r.check_id, requestId: r.request_id, version:
   actor: r.actor, at: iso(r.at), idempotencyKey: r.idempotency_key, summary: r.summary });
 const toResult = (r) => ({ checkId: r.check_id, agentLearnerKey: r.agent_learner_key, credentialId: r.credential_id,
   eligible: r.eligible, reasons: r.reasons, sources: r.sources });
+const reconcileView = (results) => ({ count: results.length, resultIds: results.map(r => r.resultId),
+  appearances: results.flatMap(r => ['eligibleMatches', 'nearMatches'].flatMap(lane =>
+    (r[lane] || []).map(a => ({ resultId: r.resultId, agentLearnerKey: a.agentLearnerKey, lane })))) });
 
 function pgQueries(db) {
   const one = async (sql, params, map) => { const { rows } = await db.query(sql, params); return rows[0] ? map(rows[0]) : null; };
@@ -166,6 +169,11 @@ function createPgStore(pool) {
     readCheck: (checkId) => reads.getCheck(checkId),
     readMatch: (id) => reads.getMatch(id),
     readMatchByKey: (actor, key) => reads.findMatchByKey(actor, key),
+    async reconcileMatches(actor, key) {
+      const { rows } = await pool.query(`SELECT result_id, result->'eligibleMatches' AS eligible, result->'nearMatches' AS near
+        FROM marketplace_service.match_results WHERE actor=$1 AND idempotency_key=$2 ORDER BY result_id`, [actor, key]);
+      return reconcileView(rows.map(r => ({ resultId: r.result_id, eligibleMatches: r.eligible, nearMatches: r.near })));
+    },
     readCheckByKey: (actor, key) => reads.findCheckByKey(actor, key),
     listProjection: () => reads.listProjection(),
     // Stream delivery bookkeeping: one row per attempt, so the budget survives restarts.
@@ -304,6 +312,9 @@ function createMemoryStore() {
     readCheck: (checkId) => queriesFor(state).getCheck(checkId),
     readMatch: (id) => queriesFor(state).getMatch(id),
     readMatchByKey: (actor, key) => queriesFor(state).findMatchByKey(actor, key),
+    async reconcileMatches(actor, key) {
+      return reconcileView(state.matches.filter(r => r.actor === actor && r.idempotencyKey === key));
+    },
     readCheckByKey: (actor, key) => queriesFor(state).findCheckByKey(actor, key),
     listProjection: () => queriesFor(state).listProjection(),
     async recordStreamAttempt(streamId) {

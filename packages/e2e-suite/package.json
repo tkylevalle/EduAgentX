@@ -1,0 +1,8 @@
+{
+  "name": "eduagentx-e2e-suite",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Deterministic public black-box evaluation and evidence for Issue 33",
+  "scripts": { "test": "node --test test/*.test.js" },
+  "engines": { "node": ">=24" }
+}

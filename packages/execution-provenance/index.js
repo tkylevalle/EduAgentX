@@ -3,6 +3,7 @@
 const { createHash } = require('node:crypto');
 const fs = require('node:fs');
 const reference = require('./reference');
+const remediable = require('./remediable-v1');
 const POLICY = 'reference-execution/1.0.0';
 const RUN = 'execution-provenance/1.0.0';
 const RECEIPT = 'execution-receipt/1.0.0';
@@ -29,6 +30,7 @@ function pair(environment, mode) {
 }
 
 const referenceDigest = responseHash(fs.readFileSync(`${__dirname}/reference.js`, 'utf8'));
+const remediableDigest = responseHash(fs.readFileSync(`${__dirname}/remediable-v1.js`, 'utf8'));
 let replay;
 function replayManifest() {
   if (!replay) {
@@ -67,8 +69,9 @@ function source(id) {
   }
   const parts = typeof id === 'string' ? id.split(':') : [];
   if (parts.length !== 3 || parts[0] !== 'synthetic' || !reference.getSyntheticProfile(parts[1]) ||
-      !reference.listExamScenarios().includes(parts[2])) throw fail('source_not_supported');
-  return { id, version: '1.0.0', digest: hash({ id, version: '1.0.0', referenceDigest }) };
+      (!reference.listExamScenarios().includes(parts[2]) && id !== remediable.ID)) throw fail('source_not_supported');
+  return { id, version: '1.0.0', digest: hash({ id, version: '1.0.0', referenceDigest,
+    ...(id === remediable.ID ? { recipeDigest: remediableDigest, recipeVersion: remediable.VERSION } : {}) }) };
 }
 function sourceMode(s) { return s?.id?.startsWith('synthetic:') ? 'synthetic' : s?.id === 'replay:reference-safe' ? 'replay' : null; }
 function validSource(s) {
@@ -149,7 +152,8 @@ function generated(sourceRef, phase, item) {
   const index = slots.indexOf(item.slotId);
   if (phase === 'examination' && scenario === 'timeout' && index < 0) throw fail('source_response_unavailable');
   const response = phase === 'training' ? reference.getSyntheticProfile(profile).response
-    : (item.answerType ? reference.fallbackAnswer(item) : reference.examAnswer(scenario, item, index));
+    : (item.answerType ? reference.fallbackAnswer(item) : sourceRef.id === remediable.ID
+      ? remediable.answer(item, index) : reference.examAnswer(scenario, item, index));
   if (typeof response !== 'string' || !response) throw fail('source_response_unavailable');
   return { response, entryId: `${phase}:${phase === 'training' ? item.deliveryItemId : item.slotId || item.id}`, contextDigest };
 }

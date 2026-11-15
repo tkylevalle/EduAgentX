@@ -77,6 +77,15 @@ function createApp({ store, sources, internalKey = process.env.EXAMINATION_INTER
       return res.status(403).json({ error: 'forbidden' });
     next();
   };
+  app.get('/internal/reconciliation/examinations', async (req, res) => {
+    try {
+      if (req.header('x-actor-role') !== 'admin') throw fail('forbidden', 403);
+      const { agentLearnerKey, idempotencyKey } = req.query;
+      if (Object.keys(req.query).length !== 2 || ![agentLearnerKey, idempotencyKey].every(v => typeof v === 'string' && KEY.test(v)))
+        throw fail('invalid_request', 400);
+      res.json({ apiVersion: 'v1', ...await store.reconcileAdmission(agentLearnerKey, idempotencyKey), correlationId: req.correlationId });
+    } catch (error) { sendError(req, res, error); }
+  });
   app.post('/internal/attempts', async (req, res) => {
     try {
       const actor = req.header('x-actor-subject');

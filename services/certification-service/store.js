@@ -59,6 +59,10 @@ function createMemoryStore() {
       });
     },
     async counts() { return { decisions: byAttempt.size, credentials: byAttempt.size }; },
+    async reconcileCredentials(id) {
+      const row = byAttempt.get(id);
+      return { count: row ? 1 : 0, credentialIds: row ? [row.credential.credentialId] : [] };
+    },
     async issuanceKpi() {
       const values = [...byAttempt.values()].map((row) => row.issuanceLatencyMs).sort((a, b) => a - b);
       const processing = [...byAttempt.values()].map((row) => row.processingLatencyMs).sort((a, b) => a - b);
@@ -141,6 +145,11 @@ function createPgStore(pool) {
       const { rows } = await pool.query(`SELECT (SELECT count(*) FROM certification_engine.decisions)::int AS decisions,
         (SELECT count(*) FROM certification_engine.credentials)::int AS credentials`);
       return rows[0];
+    },
+    async reconcileCredentials(id) {
+      const { rows } = await pool.query(`SELECT c.credential_id FROM certification_engine.decisions d
+        JOIN certification_engine.credentials c USING(decision_id) WHERE d.examination_id=$1 ORDER BY c.credential_id`, [id]);
+      return { count: rows.length, credentialIds: rows.map(r => r.credential_id) };
     },
     async issuanceKpi() {
       const { rows } = await pool.query(`SELECT count(*)::int AS sample_count,
