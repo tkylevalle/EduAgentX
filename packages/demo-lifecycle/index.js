@@ -175,6 +175,17 @@ function createLifecycleDriver({ gatewayUrl, syntheticUrl, validationUrl, curric
       ...(reply.data.live ? { live: reply.data.live } : {}) };
   }
 
+  // How many credentials Certification holds for one examination, from its
+  // own store (Gateway reconciliation route): 0 or 1 when issuance is correct.
+  async function credentialCount(examinationId) {
+    const reply = await http(`${gatewayUrl}/v1/admin/reconciliation/credentials?examinationId=${encodeURIComponent(examinationId)}`,
+      { token: await adminToken() });
+    if (reply.status !== 200 || !Number.isInteger(reply.data.count)) {
+      throw new LifecycleError('reconciliation_unavailable', { status: reply.status });
+    }
+    return reply.data.count;
+  }
+
   async function certify(attemptId) {
     const auth = await adminToken();
     const deadline = Date.now() + CERTIFICATION_WAIT_MS;
@@ -222,7 +233,7 @@ function createLifecycleDriver({ gatewayUrl, syntheticUrl, validationUrl, curric
   async function statusCycle(credential, agentLearnerKey) {
     const id = credential.credentialId;
     await changeStatus(id, 'suspend', 'PoC demonstration: reversible suspension', agentLearnerKey);
-    let reinstated = null;
+    let reinstated;
     let whileSuspended;
     try {
       whileSuspended = await verify(credential.compactJws);
@@ -230,8 +241,12 @@ function createLifecycleDriver({ gatewayUrl, syntheticUrl, validationUrl, curric
         throw new LifecycleError('suspension_not_enforced', { overall: whileSuspended.overall });
       }
       reinstated = await changeStatus(id, 'reinstate', 'PoC demonstration: suspension cleared', agentLearnerKey);
-    } finally {
-      if (!reinstated) await changeStatus(id, 'reinstate', 'PoC demonstration: restored after a failed check', agentLearnerKey).catch(() => {});
+    } catch (error) {
+      // Restore the credential before reporting the failure; if that also
+      // fails, the error says so instead of hiding it.
+      await changeStatus(id, 'reinstate', 'PoC demonstration: restored after a failed check', agentLearnerKey)
+        .catch((restore) => { error.detail = { ...(error.detail || {}), restoreFailed: restore.code || restore.name }; });
+      throw error;
     }
     const afterReinstate = await verify(credential.compactJws);
     if (afterReinstate.overall !== 'VALID') {
@@ -310,7 +325,7 @@ function createLifecycleDriver({ gatewayUrl, syntheticUrl, validationUrl, curric
     return report;
   }
 
-  return { run, ensurePackage, register, train, examine, certify, verify, changeStatus, statusCycle, monitor, activePackage };
+  return { run, ensurePackage, register, train, examine, certify, credentialCount, verify, changeStatus, statusCycle, monitor, activePackage };
 }
 
 module.exports = { createLifecycleDriver, LifecycleError, STEPS, LIVE_SCENARIO };
