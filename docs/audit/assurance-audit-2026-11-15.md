@@ -207,3 +207,12 @@ on this branch.
 | B2 | Open. Citations are not graded against `sourceLinks`. | — |
 | B5 | Fixed. Training completion is presented as delivery, not learning, in the Overview and the console. | `services/web`, `services/assurance-console` |
 | B7 | Instrument built, not yet run on a live model. `packages/learning-measurement` plays the held-out behaviour items in three arms (no notes, own notes, off-topic control notes) and reports each gain with a 95% Newcombe interval; the scripted check shows no gain, as it must. No live measurement has been run or committed, so no learning gain is claimed. | `packages/learning-measurement` |
+
+## Status during Phase 3 (16 November 2026)
+
+| Item | Status | Where |
+|---|---|---|
+| D3 | Fixed as a JWKS, not `did:web`. `GET /.well-known/jwks.json` lists the active, test, retired and status-list keys with their purpose; verification selects a credential key by `kid` and never accepts the status-list key for a credential. Rotation is documented, including that a leaked retired key can back-date a forgery. The issuer is still an `https://eduagentx.example` URL. | `services/credential-verification/src/issuer-keys.js`, `docs/release/key-rotation.md` |
+| D2 | Fixed. Each new credential carries Bitstring Status List entries (revocation, suspension) at an index Certification allocates before signing; Verification serves the two lists signed with the status-list key and checks that a credential's own entries match its registered index; the Gateway serves the lists openly. Older credentials have no entry; one list holds 131,072 credentials. | `services/credential-verification/src/status-list.js`, `services/certification-service` |
+| D1 | Partly fixed. Every credential states its attestation level: `L2-observed` for agents the platform runs itself, `L1-declared` otherwise. No platform harness exists for external agents, so their fingerprints stay self-declared. | `services/certification-service/evidence.js` |
+| D4, E6 | Open, needs people. Live provenance stays disabled (the live adapter has no durable budget accounting), and the replay fixture has no reviews; two people must review it. | `docs/contracts/execution-provenance.md` |
