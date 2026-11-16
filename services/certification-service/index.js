@@ -1,5 +1,7 @@
 'use strict';
 
+const { compareRelease, releaseGateResult } = require('./release-gate');
+const { createIncidentReporter } = require('../../packages/incident-log');
 const fs = require('node:fs');
 const path = require('node:path');
 const { randomUUID, timingSafeEqual } = require('node:crypto');
@@ -20,6 +22,8 @@ const matchesSecret = (a, b) => {
 function createApp({ store, examinationEvidence, internalKey = process.env.CERTIFICATION_INTERNAL_KEY,
   originReadKey = process.env.MARKETPLACE_INTERNAL_KEY,
   packageTrust = async () => true,
+  // Appends a blocked release to the Assurance Incident log (packages/incident-log); optional.
+  incidentReporter = null,
   issuanceEnvironment = process.env.CERTIFICATION_ENVIRONMENT,
   privateKey = null, keyId = process.env.CERTIFICATION_KEY_ID,
   issuer = process.env.CERTIFICATION_ISSUER, credentialBase = process.env.CREDENTIAL_BASE_URL,
@@ -38,6 +42,24 @@ function createApp({ store, examinationEvidence, internalKey = process.env.CERTI
   });
   // Marketplace's existing internal key authorizes ONLY this exact-selector
   // read. It does not grant the issuer's broad Gateway reads or issuance rights.
+  // The same read for a whole candidate list (assurance audit F6), under the same key.
+  const ORIGIN_BATCH_MAX = 500;
+  const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+  app.post('/internal/credential-origins/batch', async (req, res) => {
+    if (!originReadKey || matchesSecret(originReadKey, internalKey) ||
+        !matchesSecret(req.header('x-internal-service-key'), originReadKey) ||
+        req.header('x-actor-role') !== 'marketplace' || req.header('x-actor-subject') !== 'marketplace-service')
+      return res.status(403).json({ error: 'forbidden' });
+    const ids = req.body?.credentialIds;
+    if (!Array.isArray(ids) || !ids.length || ids.length > ORIGIN_BATCH_MAX || !ids.every((id) => typeof id === 'string' && UUID_PATTERN.test(id)))
+      return res.status(400).json({ apiVersion: 'v1', error: 'invalid_request', max: ORIGIN_BATCH_MAX });
+    try {
+      const found = await store.findOriginsByCredentials([...new Set(ids)]);
+      res.json({ apiVersion: 'v1', origins: ids.map((credentialId) => ({ credentialId, origin: found.get(credentialId) || null })) });
+    } catch {
+      res.status(503).json({ apiVersion: 'v1', error: 'certification_unavailable' });
+    }
+  });
   app.get('/internal/credential-origins/:credentialId', async (req, res) => {
     if (!originReadKey || matchesSecret(originReadKey, internalKey) ||
         !matchesSecret(req.header('x-internal-service-key'), originReadKey) ||
@@ -58,7 +80,8 @@ function createApp({ store, examinationEvidence, internalKey = process.env.CERTI
     if (!matchesSecret(req.header('x-internal-service-key'), internalKey)) return res.status(403).json({ error: 'forbidden' });
     // The Gateway may only read; decisions are commanded by the Examination Engine.
     const role = req.header('x-actor-role');
-    const allowed = role === 'examination-engine' || (role === 'gateway' && req.method === 'GET');
+    // The Gateway reads, and asks the Release Gate (a check that writes nothing but an incident).
+    const allowed = role === 'examination-engine' || (role === 'gateway' && (req.method === 'GET' || req.originalUrl.split('?')[0] === '/internal/release-gate/checks'));
     if (!allowed || !req.header('x-actor-subject')) return res.status(403).json({ error: 'forbidden' });
     next();
   });
@@ -78,6 +101,34 @@ function createApp({ store, examinationEvidence, internalKey = process.env.CERTI
       createCredential: (decisionId, statusListIndex) => issueCredential(evidence, { privateKey, keyId, issuer, credentialBase, decisionId,
         environment: issuanceEnvironment, now: clock, statusListBase, statusListIndex }) });
   };
+  // Release Gate (target design 7.1): may this re-examined agent ship?
+  app.post('/internal/release-gate/checks', async (req, res) => {
+    const { subjectId, examinationId } = req.body || {};
+    if (!req.body || Object.keys(req.body).length !== 2 || typeof subjectId !== 'string' || !subjectId || subjectId.length > 256 ||
+      typeof examinationId !== 'string' || !/^[0-9a-f-]{36}$/i.test(examinationId))
+      return res.status(400).json({ apiVersion: 'v1', error: 'invalid_request', correlationId: req.correlationId });
+    try {
+      const attempt = await examinationEvidence(examinationId, req.correlationId);
+      if (attempt?.agentLearnerKey !== subjectId) return res.status(409).json({ apiVersion: 'v1', error: 'examination_is_not_this_subjects', correlationId: req.correlationId });
+      const baseline = await store.latestCredentialFor(subjectId, attempt.package?.id);
+      const comparison = compareRelease(baseline, attempt);
+      let incident = null;
+      if (comparison.decision === 'block' && incidentReporter?.enabled) {
+        try {
+          const reported = await incidentReporter.report({ sourceId: `release-gate:${examinationId}`, severity: 'high', kind: 'release_blocked',
+            summary: `Release blocked for ${subjectId}: ${comparison.reasons.slice(0, 4).join(', ')}`, subject: { agentId: subjectId, attemptId: examinationId },
+            detail: { reasons: comparison.reasons, baselineCredentialId: baseline?.credentialId ?? null }, occurredAt: clock() });
+          incident = { incidentId: reported.incidentId };
+        } catch (error) { incident = { notRecorded: String(error.message) }; }
+      }
+      res.json({ apiVersion: 'v1', result: releaseGateResult({ baseline, attempt, comparison, checkedAt: clock(), incident }), correlationId: req.correlationId });
+    } catch (error) {
+      if ([404, 409].includes(error.status)) return res.status(error.status).json({ apiVersion: 'v1', error: error.code, correlationId: req.correlationId });
+      telemetry.log('certification-service', 'release_gate_failed', { correlationId: req.correlationId });
+      res.status(503).json({ apiVersion: 'v1', error: 'release_gate_unavailable', correlationId: req.correlationId });
+    }
+  });
+
   app.post('/internal/decisions', async (req, res) => {
     try {
       const { examinationId, idempotencyKey } = req.body || {};
@@ -178,7 +229,8 @@ async function start() {
     verificationUrl: process.env.CREDENTIAL_VERIFICATION_URL || null,
     verificationKey: process.env.CREDENTIAL_INTERNAL_KEY || null,
     monitoringUrl: process.env.MONITORING_URL || null });
-  const server = createApp({ store, examinationEvidence,
+  const incidentReporter = createIncidentReporter({ url: process.env.MONITORING_URL, key: process.env.MONITORING_INTERNAL_KEY, source: 'certification-service' });
+  const server = createApp({ store, examinationEvidence, incidentReporter,
     internalKey: process.env.CERTIFICATION_INTERNAL_KEY, privateKey, packageTrust }).listen(process.env.PORT || 4011);
   let running = false;
   const sweep = async () => {

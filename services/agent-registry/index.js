@@ -10,6 +10,7 @@ const { createApp } = require('./app');
 const { PostgresRegistryRepository } = require('./postgres-repository');
 const { createRegistryService } = require('./registry-service');
 const { createStreamWorker } = require('./stream-worker');
+const { startIncidentForwarding } = require('./incident-forwarding');
 
 const PORT = Number(process.env.PORT || 4001);
 const SERVICE_NAME = process.env.SERVICE_NAME || 'agent-registry';
@@ -36,6 +37,8 @@ async function start() {
   repository.health = () => checkDependencies(postgresRepository, redisClient);
   const worker = createStreamWorker({ pool, redis: redisClient, stream: EVENT_STREAM });
   worker.start();
+  // Delivery incidents reach the one Assurance Incident log (audit E9); a failed run is logged and repeated.
+  const forwarder = startIncidentForwarding(pool, { onError: () => telemetry.log(SERVICE_NAME, 'incident_forwarding_failed') });
   const eventPublisher = { publish: (event) => worker.publish(event.eventId) };
   const service = createRegistryService({ repository, eventPublisher });
   const app = createApp({ service });
@@ -45,6 +48,7 @@ async function start() {
 
   const shutdown = async () => {
     worker.stop();
+    forwarder?.stop();
     server.close();
     if (redisReady) await redisClient.quit().catch(() => {});
     await pool.end().catch(() => {});

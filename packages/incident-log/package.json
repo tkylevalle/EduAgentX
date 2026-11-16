@@ -1,0 +1,10 @@
+{
+  "name": "@eduagentx/incident-log",
+  "version": "1.0.0",
+  "private": true,
+  "description": "The Assurance Incident shape and the client services append to the one incident log with.",
+  "main": "index.js",
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  }
+}
