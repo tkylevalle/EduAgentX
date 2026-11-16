@@ -1,79 +1,25 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, CircleSlash, Loader2, Play, RotateCcw, X } from 'lucide-react';
 import { CredentialArtifact, PageHead, Panel, Pill, ScoreBars } from '../ui.jsx';
-import { api, clock, pct, RULE_COPY, SCENARIOS, short, stream } from '../lib.js';
-
-const BLANK_STEPS = [
-  ['package', 'Activate Domain Assurance Package', 'curriculum-engine · validation-activation'],
-  ['register', 'Register Agent Learner', 'api-gateway · agent-registry'],
-  ['train', 'Complete Training Session', 'training-service'],
-  ['examine', 'Sit standard Examination', 'examination-engine · grading-service'],
-  ['certify', 'Certification Decision and credential', 'certification-service'],
-  ['verify', 'Verify Competency Credential', 'credential-verification'],
-  ['status', 'Suspend, re-verify and reinstate', 'credential-verification'],
-  ['monitor', 'Monitoring and marketplace projection', 'monitoring-service · marketplace-service'],
-].map(([id, title, owner]) => ({ id, title, owner, status: 'pending' }));
+import { api, clock, pct, RULE_COPY, SCENARIOS, short } from '../lib.js';
+import { consoleLines, STEP_PLAN } from '../run/reducer.mjs';
+import { startRun, useRun } from '../run/store.js';
 
 export default function Lab() {
   const [scenario, setScenario] = useState('safe-escalation');
-  const [steps, setSteps] = useState(BLANK_STEPS);
-  const [log, setLog] = useState([]);
-  const [running, setRunning] = useState(false);
-  const [outcome, setOutcome] = useState(null);
-  const [remediation, setRemediation] = useState(null);
+  // The run lives in the shared store, so it survives a change of page or mode.
+  const { steps, running, outcome, remediation, events, scenario: ranScenario } = useRun();
+  const log = useMemo(() => consoleLines(events), [events]);
   const [pkg, setPkg] = useState(null);
   const [liveModel, setLiveModel] = useState(null);
-  const [ranScenario, setRanScenario] = useState(null);
   const consoleRef = useRef(null);
-  const abortRef = useRef(null);
   const stageRefs = useRef({});
 
   useEffect(() => { api('/api/package').then((data) => setPkg(data.package)).catch(() => {}); }, [outcome]);
   useEffect(() => { api('/api/live-model').then(setLiveModel).catch(() => setLiveModel({ available: false })); }, []);
   useEffect(() => { consoleRef.current?.scrollTo({ top: consoleRef.current.scrollHeight, behavior: 'smooth' }); }, [log]);
-  // Leaving the page stops reading the stream (the server finishes the run).
-  useEffect(() => () => abortRef.current?.abort(), []);
 
-  const write = (text, tone = '') => setLog((lines) => [...lines, { at: clock(), text, tone }]);
-
-  async function run() {
-    setRunning(true); setOutcome(null); setRemediation(null); setSteps(BLANK_STEPS); setLog([]); setRanScenario(scenario);
-    const chosen = SCENARIOS.find((entry) => entry.id === scenario);
-    write(`run requested · scenario ${scenario} (${chosen.title})`);
-    const controller = new AbortController();
-    abortRef.current = controller;
-    let finished = false;
-    try {
-      await stream('/api/lifecycle/run', { scenario }, (message) => {
-        if (message.type === 'step') {
-          const { step } = message;
-          setSteps((current) => current.map((entry) => (entry.id === step.id ? { ...entry, ...step } : entry)));
-          if (step.status === 'running') write(`→ ${step.title}`);
-          else if (step.status === 'passed') write(`✓ ${step.title} · ${step.durationMs} ms`, 'ok');
-          else write(`✗ ${step.title} · ${step.error}`, 'bad');
-          const used = step.detail?.live;
-          if (step.status !== 'running' && used) write(`  LIVE · ${used.model} · ${used.calls} model calls · ${used.promptTokens + used.completionTokens} tokens`);
-        }
-        if (message.type === 'remediation') setRemediation(message.remediation);
-        if (message.type === 'done') {
-          finished = true;
-          setOutcome(message.report);
-          write(message.report.status === 'passed' ? 'lifecycle complete · credential issued and verified' : `lifecycle stopped · ${message.report.error}`,
-            message.report.status === 'passed' ? 'ok' : 'bad');
-        }
-      }, { signal: controller.signal });
-      if (!finished) {
-        write('stream ended before the run reported a result', 'bad');
-        setOutcome({ status: 'failed', error: 'stream_ended' });
-      }
-    } catch (error) {
-      if (controller.signal.aborted) return;
-      write(error.status === 409 ? 'another run is in progress; wait for it to finish' : `run failed · ${error.message}`, 'bad');
-      setOutcome({ status: 'failed', error: error.message });
-    } finally {
-      setRunning(false);
-    }
-  }
+  const run = () => startRun(scenario);
 
   // 1–6 pick a behaviour, Enter starts the run: the demo is driven from the keyboard.
   const runRef = useRef(run);
@@ -162,7 +108,7 @@ export default function Lab() {
               <li className="stage" key={step.id} data-status={step.status} ref={(node) => { stageRefs.current[step.id] = node; }}>
                 <span className="stage-node">
                   {step.status === 'passed' ? <Check size={15} strokeWidth={3} /> : step.status === 'failed' ? <X size={15} strokeWidth={3} />
-                    : step.status === 'running' ? <Loader2 size={14} className="spin" /> : <span className="data" style={{ fontSize: 11 }}>{String(BLANK_STEPS.findIndex((s) => s.id === step.id) + 1).padStart(2, '0')}</span>}
+                    : step.status === 'running' ? <Loader2 size={14} className="spin" /> : <span className="data" style={{ fontSize: 11 }}>{String(STEP_PLAN.findIndex((s) => s.id === step.id) + 1).padStart(2, '0')}</span>}
                 </span>
                 <div style={{ minWidth: 0 }}>
                   <div className="stage-title">
@@ -187,7 +133,7 @@ export default function Lab() {
           <Panel title="Run console" action={running && <span className="row label" style={{ gap: 7 }}><span className="dot ok live" /> streaming</span>} flush>
             <pre className="console" ref={consoleRef} aria-live="polite">
               {log.length === 0 ? <span className="faint">awaiting run <span className="cursor" /></span> : log.map((line, index) => (
-                <div key={index}><span className="t">{line.at}</span><span className={line.tone}>{line.text}</span></div>
+                <div key={index}><span className="t">{clock(new Date(line.at))}</span><span className={line.tone}>{line.text}</span></div>
               ))}
               {running && <span className="cursor" />}
             </pre>
