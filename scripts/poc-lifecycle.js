@@ -19,7 +19,8 @@ if (!Object.hasOwn(CANDIDATES, domain)) {
 const candidate = require(`../services/curriculum-engine/examples/${CANDIDATES[domain]}`);
 
 const root = path.resolve(__dirname, '..');
-const env = Object.fromEntries(fs.readFileSync(path.join(root, '.env'), 'utf8').split(/\r?\n/)
+// EDUAGENTX_ENV_FILE runs the lifecycle against another stack's settings, e.g. a copy of older data.
+const env = Object.fromEntries(fs.readFileSync(process.env.EDUAGENTX_ENV_FILE || path.join(root, '.env'), 'utf8').split(/\r?\n/)
   .filter((line) => /^[A-Z][A-Z0-9_]*=/.test(line))
   .map((line) => [line.slice(0, line.indexOf('=')), line.slice(line.indexOf('=') + 1)]));
 const output = path.join(root, 'artifacts', 'poc', 'lifecycle-run.json');

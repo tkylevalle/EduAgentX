@@ -214,13 +214,18 @@ async function readRecord(client, attemptId) {
   const responses = await client.query('SELECT * FROM examination_engine.attempt_responses WHERE attempt_id = $1 ORDER BY seq', [attemptId]);
   const commands = await client.query('SELECT * FROM examination_engine.attempt_commands WHERE attempt_id = $1', [attemptId]);
   const remediation = await client.query('SELECT envelope FROM examination_engine.remediation_events WHERE attempt_id = $1', [attemptId]);
-  return { attempt: rowToAttempt(manifest.rows[0]), events: events.rows.map((r) => ({ attemptId: r.attempt_id,
+  return { ...recordFromRows({ attempt: manifest.rows[0], events: events.rows, responses: responses.rows }),
+    commands: commands.rows.map((r) => ({ key: r.idempotency_key, digest: r.command_digest, eventId: r.event_id, receipt: r.receipt })),
+    remediation: remediation.rows[0]?.envelope ?? null };
+}
+
+/** @returns {{ attempt: object, events: object[], responses: object[] }} an attempt's stored rows in the shape derive() reads */
+function recordFromRows({ attempt, events, responses }) {
+  return { attempt: rowToAttempt(attempt), events: events.map((r) => ({ attemptId: r.attempt_id,
     seq: r.seq, eventType: r.event_type, eventId: r.event_id, payload: r.payload,
     occurredAt: new Date(r.occurred_at).toISOString(), correlationId: r.correlation_id })),
-  responses: responses.rows.map((r) => ({ itemId: r.item_id, response: r.response, responseDigest: r.response_digest,
-    acceptedAt: new Date(r.accepted_at).toISOString(), seq: r.seq, receipt: r.receipt })),
-  commands: commands.rows.map((r) => ({ key: r.idempotency_key, digest: r.command_digest, eventId: r.event_id, receipt: r.receipt })),
-  remediation: remediation.rows[0]?.envelope ?? null };
+  responses: responses.map((r) => ({ itemId: r.item_id, response: r.response, responseDigest: r.response_digest,
+    acceptedAt: new Date(r.accepted_at).toISOString(), seq: r.seq, receipt: r.receipt })) };
 }
 
 async function insertRemediation(client, event) {
@@ -475,4 +480,4 @@ function createMemoryStore() {
     }); },
   };
 }
-module.exports = { createPgStore, createMemoryStore };
+module.exports = { createPgStore, createMemoryStore, recordFromRows };

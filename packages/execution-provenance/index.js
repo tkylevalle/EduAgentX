@@ -190,6 +190,22 @@ function validateReceipt(run, a, evidence, rec, phase, item, response, attemptId
   if (!same(rec, expected.executionEvidence) || response !== expected.response) throw fail();
   return structuredClone(rec);
 }
+// A receipt read back from a stored attempt. New receipts are checked against
+// the reference code when they are written (validateReceipt, episodeReceipt);
+// history is not, because that code and the sandbox's digest change between
+// releases. Here every field must agree with the run, the item, the attempt and
+// the stored response, and the receipt id must be the hash of its fields, which
+// binds what the code produced then (entryId, contextDigest).
+function validateRecordedReceipt(run, rec, phase, item, response, attemptId) {
+  if (!validRun(run, false) || !exact(rec, ['schemaVersion','runId','phase','itemId','attemptId','executorId',
+    'source','entryId','contextDigest','responseDigest','receiptId','executedAt']) || rec.schemaVersion !== RECEIPT ||
+    rec.runId !== run.runId || rec.phase !== phase || rec.itemId !== (phase === 'training' ? item.deliveryItemId : item.id) ||
+    rec.attemptId !== attemptId || rec.executorId !== run.executorId || !same(rec.source, run.source) || !text(rec.entryId) ||
+    !text(rec.contextDigest) || rec.responseDigest !== responseHash(response) || !ISO_TIME.test(String(rec.executedAt))) throw fail();
+  const { receiptId, executedAt, ...fields } = rec;
+  if (receiptId !== hash(fields)) throw fail();
+  return structuredClone(rec);
+}
 // Behaviour items (recorded sandbox episodes). A provenance run does not
 // answer them with a reference text, and no captured replay covers them: the
 // Examination Engine plays the source's reference policy itself, refuses any
@@ -220,8 +236,9 @@ function validateEpisodeReceipt(run, rec, item, response, attemptId) {
   return structuredClone(rec);
 }
 
-function coverage(run, phase, itemIds, receipts, attemptId = null) {
-  if (!validRun(run) || !Array.isArray(itemIds) || !itemIds.length || new Set(itemIds).size !== itemIds.length ||
+// catalog: false when summarising a stored attempt, whose run may name a reference source the catalog no longer lists.
+function coverage(run, phase, itemIds, receipts, attemptId = null, catalog = true) {
+  if (!validRun(run, catalog) || !Array.isArray(itemIds) || !itemIds.length || new Set(itemIds).size !== itemIds.length ||
       receipts.length !== itemIds.length || new Set(receipts.map((r) => r?.receiptId)).size !== receipts.length ||
       receipts.some((r, i) => r?.schemaVersion !== RECEIPT || r.runId !== run.runId || r.phase !== phase ||
         r.itemId !== itemIds[i] || r.attemptId !== attemptId || r.executorId !== run.executorId || !same(r.source, run.source))) throw fail();
@@ -270,9 +287,10 @@ function credentialProvenance(vc) {
       !Array.isArray(safety.criticalViolationRuleIds) || safety.criticalViolationRuleIds.length ||
       !Array.isArray(safety.failureReasons) || safety.failureReasons.length ||
       !same(scores, vc.evidence?.scores) || !same(safety, vc.evidence?.safetyResult) ||
-      // The grader behind the score is part of the claim (assurance audit A11).
-      !validGrader(competency.grader) ||
-      !same(competency.grader, vc.evidence?.grader) ||
+      // The grader behind the score is part of the claim (assurance audit A11):
+      // absent in both copies on credentials issued before graders were recorded, else valid.
+      !same(competency.grader ?? null, vc.evidence?.grader ?? null) ||
+      (competency.grader != null && !validGrader(competency.grader)) ||
       // So is the behaviour evidence: absent or null (not measured), or passing and self-consistent.
       !same(competency.behaviour ?? null, vc.evidence?.behaviour ?? null) ||
       // And the attestation level (assurance audit D1): absent on older credentials, else a known level in both copies.
@@ -289,6 +307,6 @@ function credentialProvenance(vc) {
     issuerPermits(vc.environment, vc.issuer);
 }
 
-module.exports = { ATTESTATION_LEVELS, POLICY, RUN, RECEIPT, COVERAGE, SCHEMA, UUID, SIMULATION_ISSUER, validGrader, episodePolicy, episodeReceipt, validateEpisodeReceipt, replayReviewed, issuerPermits, hash, responseHash, same, pair, fail,
+module.exports = { validateRecordedReceipt, ATTESTATION_LEVELS, POLICY, RUN, RECEIPT, COVERAGE, SCHEMA, UUID, SIMULATION_ISSUER, validGrader, episodePolicy, episodeReceipt, validateEpisodeReceipt, replayReviewed, issuerPermits, hash, responseHash, same, pair, fail,
   source, sourceMode, validSource, enrollments, authority, validAuthority, bindRun, validRun, matchesAuthority, runAuthority,
   context, generated, receipt, validateReceipt, coverage, validCoverage, validCompletion, validSummary, credentialProvenance };

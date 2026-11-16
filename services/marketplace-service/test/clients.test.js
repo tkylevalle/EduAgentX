@@ -319,3 +319,20 @@ test('verification: a credential INVALID only for its status keeps a valid schem
   assert.equal(toSignatureAndSchema({ ...report({ overall: 'INVALID' }), reasonCodes: ['SUSPENDED', 'EXPIRED'] }).schema, 'invalid');
   assert.equal(toSignatureAndSchema({ ...report({ overall: 'INVALID' }), reasonCodes: [] }).schema, 'invalid');
 });
+
+// main's own executor credential; its Marketplace projection was written before
+// the candidate carried grader, behaviour and attestationLevel.
+test('a projection of an older shape is derived again from its signed credential; a same-shape edit is kept', () => {
+  const { withCurrentCandidate } = require('../clients');
+  const vc = require('../../../packages/execution-provenance/test/fixtures/main-provenance-credential.json');
+  const credentialId = vc.id.split('/').at(-1);
+  const compactJws = `h.${Buffer.from(JSON.stringify(vc)).toString('base64url')}.s`;
+  const current = toCandidate({ credentialId, credential: vc, compactJws });
+  const { grader, behaviour, attestationLevel, ...older } = current;
+  const record = { credentialId, agentLearnerKey: current.agentLearnerKey, status: 'active', candidate: older };
+  assert.deepEqual(withCurrentCandidate(record).candidate, current);
+  const edited = { ...record, candidate: { ...current, overallPercent: 1 } };
+  assert.equal(withCurrentCandidate(edited), edited, 'a candidate of the current shape is never replaced');
+  const unreadable = { ...record, candidate: { ...older, compactJws: 'not-a-jws' } };
+  assert.equal(withCurrentCandidate(unreadable), unreadable);
+});
