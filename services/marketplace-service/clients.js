@@ -83,6 +83,9 @@ function toPackageAnswer(body, packageId, version) {
 
 // POST /verify on credential-verification, used for signature and schema only.
 // Each check is mapped on its own and only an explicit PASS counts.
+// The verifier's reason codes for a credential's status (credential-verification verifier.js).
+const STATUS_REASON_CODES = Object.freeze(['SUSPENDED', 'REVOKED']);
+
 function toSignatureAndSchema(report) {
   if (!object(report)) return null;
   const check = (part) => ({ PASS: 'pass', FAIL: 'fail' })[part?.status] ?? null;
@@ -91,8 +94,11 @@ function toSignatureAndSchema(report) {
   let signature = both(check(report.signature), check(report.issuerPolicy));
   let schema = both(check(report.schema), check(report.credentialPolicy));
   // Without a credentialId the verifier cannot judge status, so INDETERMINATE overall is
-  // expected. INVALID while both parts look fine means a check we do not map failed (time).
-  if (report.overall === 'INVALID' && signature === 'valid' && schema === 'valid') schema = 'invalid';
+  // expected. INVALID while both parts look fine means a check we do not map failed (time),
+  // unless the only reasons are status ones: the status gate reports those itself.
+  const statusOnly = Array.isArray(report.reasonCodes) && report.reasonCodes.length > 0 &&
+    report.reasonCodes.every((code) => STATUS_REASON_CODES.includes(code));
+  if (report.overall === 'INVALID' && signature === 'valid' && schema === 'valid' && !statusOnly) schema = 'invalid';
   if (!['VALID', 'INVALID', 'INDETERMINATE'].includes(report.overall)) signature = signature === 'invalid' ? 'invalid' : null;
   return { signature, schema };
 }
