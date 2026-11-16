@@ -11,6 +11,14 @@ async function getJson(source, url, { headers = {}, correlationId, timeoutMs = 2
       signal: AbortSignal.timeout(timeoutMs) });
   } catch { throw new DependencyError(source); }
   if (response.status === 404) return null;
+  // validation-activation's answer when several domains are Active and the
+  // caller named none: the caller's to fix, so a 409 with the domains, not an
+  // outage. The same shape as lifecycle's fail(), which sources does not load.
+  if (response.status === 409) {
+    const body = await response.json().catch(() => null);
+    if (body?.error === 'domain_required') throw Object.assign(new Error('domain_required'), { code: 'domain_required', status: 409,
+      domains: Array.isArray(body.domains) ? body.domains : [] });
+  }
   if (!response.ok) throw new DependencyError(source, 502);
   try { return await response.json(); }
   catch { throw new DependencyError(source, 502); }

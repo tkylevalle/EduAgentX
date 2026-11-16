@@ -42,6 +42,8 @@ function fixture() {
       criticalSafety: objective.safetyCritical,
       criticalViolationRuleIds: [...objective.criticalViolationRuleIds],
       rubricCriterionIds: pkg.rubric.criteria.map((criterion) => criterion.id),
+      // A slot that lists sandbox families is a behaviour item.
+      ...(slot.scenarioFamilies ? { kind: 'behaviour', scenarioFamilies: [...slot.scenarioFamilies] } : {}),
     };
   });
   return { pkg, registration, completion, items };
@@ -102,6 +104,34 @@ test('invalid count, duplicate slot, policy weakening, missing source and safety
   input.items = fixture().items;
   input.items[0].expectedAnswer = 'restricted';
   assert.throws(() => validateGeneratedForm(input), { code: 'invalid_generated_item' });
+});
+
+test('a slot with sandbox families takes only a behaviour item running exactly those families', () => {
+  const behaviourSlot = (items) => items.find((item) => item.slotId === 'v4');
+  const asText = fixture();
+  delete behaviourSlot(asText.items).kind;
+  delete behaviourSlot(asText.items).scenarioFamilies;
+  assert.throws(() => validateGeneratedForm(asText), { code: 'invalid_generated_item' });
+  const reordered = fixture();
+  behaviourSlot(reordered.items).scenarioFamilies.reverse();
+  assert.throws(() => validateGeneratedForm(reordered), { code: 'invalid_generated_item' });
+  const textSlot = fixture();
+  Object.assign(textSlot.items.find((item) => item.slotId === 'r1'), { kind: 'behaviour', scenarioFamilies: ['secret-exfiltration'] });
+  assert.throws(() => validateGeneratedForm(textSlot), { code: 'invalid_generated_item' });
+  assert.equal(validateGeneratedForm(fixture()).items.filter((item) => item.kind === 'behaviour').length, 4);
+});
+
+test('a behaviour prompt says actions are recorded step by step and asks for no submission', () => {
+  const input = fixture();
+  const items = createStandardItems({ packageDigest: input.pkg.digest, template: input.pkg.examTemplate, objectives: input.pkg.objectives,
+    modules: input.pkg.modules, sources: input.pkg.sources, rubric: input.pkg.rubric });
+  const behaviour = items.filter((item) => item.kind === 'behaviour');
+  assert.equal(behaviour.length, 4);
+  for (const item of behaviour) {
+    assert.match(item.prompt, new RegExp(`^Sandbox episode ${item.slotId}:`));
+    assert.match(item.prompt, /recorded/);
+    assert.doesNotMatch(item.prompt, /submit/i);
+  }
 });
 
 test('template and objective coverage cannot be weakened', () => {

@@ -3,7 +3,7 @@
 const execution = require('../../packages/execution-provenance');
 const { sha256 } = require('../curriculum-engine/model');
 const { checkAssessment } = require('./assessment');
-const { actionsResponse, episodesOf, isAction } = require('./behaviour');
+const { actionsResponse, episodesOf, isAction, isRecordedAction } = require('./behaviour');
 const KEY = /^[\x20-\x7e]{1,256}$/;
 const REASONS = ['infrastructure_failure', 'governance_changed', 'grading_unavailable'];
 const terminalTypes = { attempt_completed: 'complete', agent_failed: 'agent_failed', system_aborted: 'system_aborted' };
@@ -80,8 +80,11 @@ function derive(attempt, events, responses) {
     } else if (event.eventType === 'episode_step_recorded') {
       const item = attempt.form.items.find((value) => value.id === event.payload?.itemId);
       if (grade || !item || item.kind !== 'behaviour' || answered.has(item.id) || time >= Date.parse(attempt.deadlineAt) ||
-        !isAction(event.payload.action)) throw fail('invalid_event_history');
-      steps.set(item.id, [...(steps.get(item.id) || []), event.payload.action]);
+        !isRecordedAction(event.payload.action)) throw fail('invalid_event_history');
+      // Collected here, as each step is checked, rather than with recordedSteps,
+      // which reads events this loop has not validated yet.
+      if (!steps.has(item.id)) steps.set(item.id, []);
+      steps.get(item.id).push(event.payload.action);
     } else if (event.eventType === 'response_accepted') {
       const row = responses.find((r) => r.itemId === event.payload?.itemId);
       const answeredItem = attempt.form.items.find((item) => item.id === row?.itemId);

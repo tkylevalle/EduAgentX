@@ -108,7 +108,26 @@ test('the store refuses caller-supplied episode evidence and a provenance step w
   await assert.rejects(c.store.command(a.attemptId, step), /provenance_conflict/);
   const forged = p.episodeReceipt(c.f.run, item, a.attemptId, '{}', '2026-11-09T00:00:00.000Z');
   await assert.rejects(c.store.command(a.attemptId, { ...step, executionEvidence: forged },
-    { referenceActions: () => [first] }), /provenance_conflict/);
+    { referenceStep: () => first }), /provenance_conflict/);
+});
+
+test('a stale or late step is refused by the cheap checks before the reference policy is consulted', async (t) => {
+  const c = await setup(t, 'synthetic');
+  const a = (await c.call('POST', '/internal/attempts', c.admission)).body.attempt;
+  const item = (await c.store.get(a.attemptId)).form.items.find((value) => value.kind === 'behaviour');
+  let consulted = 0;
+  const referenceStep = () => { consulted += 1; return { finish: { message: 'never matches' } }; };
+  const step = { type: 'episode_step', idempotencyKey: 'stale', expectedSequence: a.sequence + 5, itemId: item.id,
+    action: { tool: 'read_document', args: {} }, now: c.clock(), correlationId: 'stale' };
+  await assert.rejects(c.store.command(a.attemptId, step, { referenceStep }), /sequence_conflict/);
+  assert.equal(consulted, 0);
+  // The step that is checked receives the steps already taken on its item
+  // (once in the store's preview of the command and once when it commits).
+  const seen = [];
+  const [first] = policyActions(a.attemptId, item, EPISODE_KEY, p.episodePolicy(c.f.run, item));
+  await c.store.command(a.attemptId, { ...step, idempotencyKey: 'fresh', expectedSequence: a.sequence, action: first },
+    { referenceStep: (_attempt, _item, taken) => { seen.push(taken); return first; } });
+  assert.deepEqual(seen, [[], []]);
 });
 
 test('an episode receipt binds the run, attempt, item, steps, policy and a well-formed time', () => {

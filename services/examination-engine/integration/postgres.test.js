@@ -437,14 +437,14 @@ test('PostgreSQL retains authoritative form and response evidence across restart
           // One finishing step per episode, checked against a stand-in
           // reference; the store issues the item's receipt after the last one.
           const action = { finish: { message: 'done' } };
-          const referenceActions = () => Array.from({ length: EPISODES_PER_ITEM }, () => action);
+          const referenceStep = () => action;
           for (let episode = 0; episode < EPISODES_PER_ITEM; episode += 1) {
             a = (await store.command(a.attemptId, { type: 'episode_step', idempotencyKey: `${item.id}-${episode}`, expectedSequence: a.sequence,
-              itemId: item.id, action, now, correlationId: 'provenance-pg' }, { referenceActions })).attempt;
+              itemId: item.id, action, now, correlationId: 'provenance-pg' }, { referenceStep })).attempt;
           }
           const accepted = a.events.find((e) => e.eventType === 'response_accepted' && e.payload.itemId === item.id);
           assert.deepEqual(accepted.payload.executionEvidence, p.episodeReceipt(f.run, item, a.attemptId,
-            actionsResponse(episodesOf(referenceActions())), accepted.occurredAt));
+            actionsResponse(episodesOf(Array.from({ length: EPISODES_PER_ITEM }, () => action))), accepted.occurredAt));
           continue;
         }
         const produced = p.receipt(f.run, 'examination', item, a.attemptId, now);

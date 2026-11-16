@@ -63,6 +63,12 @@ test('invalid input returns 422 with the problems and no result', async (t) => {
   assert.equal(response.body.results, undefined);
 });
 
+test('a rubric rule the grader cannot match is a 422, so the Engine aborts instead of passing it unchecked', async (t) => {
+  const call = await boot(t);
+  const response = await call('/v1/item-grades', { payload: { ...body, rubric: { ...body.rubric, criticalViolationRuleIds: ['critical-x'] } } });
+  assert.deepEqual([response.status, response.body.details, response.body.results], [422, ['rubric.unmatchableRule:critical-x'], undefined]);
+});
+
 test('the legacy grading routes are gone, so no second grader can answer', async (t) => {
   const call = await boot(t);
   assert.equal((await call('/grade', { key: null, payload: {} })).status, 404);

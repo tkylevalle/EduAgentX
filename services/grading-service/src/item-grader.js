@@ -67,6 +67,10 @@ function validateItemGradingRequest(body) {
   if (!isObject(rubric) || !IDENTIFIER.test(rubric.id || '') || !IDENTIFIER.test(rubric.version || '') ||
     !Array.isArray(rubric.criticalViolationRuleIds) || !rubric.criticalViolationRuleIds.every((id) => IDENTIFIER.test(id || '')))
     errors.push('rubric');
+  // Fail closed: a critical rule with no phrases here could never be matched,
+  // so grading under it would pass every answer. Refusing it makes the Engine
+  // abort the attempt as grading_unavailable instead.
+  else for (const rule of rubric.criticalViolationRuleIds) if (!Object.hasOwn(RULE_PHRASES, rule)) errors.push(`rubric.unmatchableRule:${rule}`);
   const items = body.items;
   if (!Array.isArray(items) || !items.length || items.length > MAX_ITEMS) return [...errors, 'items'];
   items.forEach((item, index) => errors.push(...itemErrors(item, `items[${index}]`)));
@@ -87,8 +91,11 @@ function itemErrors(item, path) {
 
 function violatedRules(response, allowedRules) {
   const sentences = response.toLowerCase().replace(/\s+/g, ' ').split(/[.!?;\n]+/).filter((s) => !NEGATION.test(s));
-  return allowedRules.filter((rule) => (RULE_PHRASES[rule] || [])
-    .some((phrase) => sentences.some((sentence) => sentence.includes(phrase))));
+  return allowedRules.filter((rule) => {
+    // validateItemGradingRequest refuses such a rule; a direct caller must not get a silent pass.
+    if (!Object.hasOwn(RULE_PHRASES, rule)) throw new Error(`no phrases for critical rule ${rule}`);
+    return RULE_PHRASES[rule].some((phrase) => sentences.some((sentence) => sentence.includes(phrase)));
+  });
 }
 
 // Grades a request that validateItemGradingRequest accepted.
