@@ -235,3 +235,16 @@ test('controlled execution route refuses caller responses, receipts, manifests a
     assert.equal(response.status, 400);
   }
 });
+
+test('training and exam runs refuse an unknown domain before reaching the Gateway', async (t) => {
+  let calls = 0;
+  const learner = createSyntheticAgentLearner({ gatewayClient: { register: async () => { calls += 1; }, interact: async () => { calls += 1; } } });
+  const service = http.createServer(createApp({ learner }));
+  await listen(service);
+  t.after(() => service.close());
+  for (const route of ['/v1/training-runs', '/v1/exam-runs']) {
+    const response = await request(service, 'POST', route, { domainId: 'refunds' });
+    assert.deepEqual([response.status, response.body.reason], [400, 'invalid_domain'], route);
+  }
+  assert.equal(calls, 0);
+});

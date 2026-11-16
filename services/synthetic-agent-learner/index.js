@@ -9,6 +9,7 @@ const { publishListing } = require('./listing');
 const { examAnswer, examPolicy, listExamScenarios } = require('./exam-scenarios');
 const { createLiveModel, LiveModelError } = require('./live-model');
 const { createNotebook, scopeOf } = require('./notes');
+const { isDomainId } = require('../../packages/agent-sandbox/src/families');
 const {
   DEFAULT_REGISTRATION,
   createSyntheticAgentLearner,
@@ -59,6 +60,7 @@ function createApp({ learner = createDefaultLearner(), examRunner = null, liveMo
       ...(liveReady ? {} : { reason: liveModel.available ? 'live_agent_not_configured' : 'live_model_not_configured' }) });
   });
 
+  const invalidDomain = (res) => res.status(400).json({ apiVersion: 'v1', outcome: 'rejected', reason: 'invalid_domain' });
   const liveUnavailable = (res) => res.status(503).json({ apiVersion: 'v1', outcome: 'system_aborted',
     reason: liveModel.available ? 'live_agent_not_configured' : 'live_model_not_configured', evidence: canonicalEvidence('live') });
 
@@ -100,6 +102,7 @@ function createApp({ learner = createDefaultLearner(), examRunner = null, liveMo
     try {
       const body = req.body || {};
       const live = body.learner === 'live';
+      if (body.domainId !== undefined && !isDomainId(body.domainId)) return invalidDomain(res);
       if (live && !liveReady) return liveUnavailable(res);
       const usage = newUsage();
       const result = await (live ? liveAgent() : learner).train({
@@ -108,9 +111,10 @@ function createApp({ learner = createDefaultLearner(), examRunner = null, liveMo
         resumeSessionId: body.resumeSessionId,
         maxItems: body.maxItems === undefined ? 20 : body.maxItems,
         correlationId: req.correlationId || body.correlationId,
+        domainId: body.domainId,
         ...(live ? { registration: liveModel.registration, evidenceMode: 'live',
           respond: async (item, context) => {
-            try { return record(usage, await liveModel.answerTraining(item, context?.remediation)); } catch (error) {
+            try { return record(usage, await liveModel.answerTraining(item, context?.remediation, context?.domainId)); } catch (error) {
               telemetry.log(SERVICE_NAME, 'live_model_failed', { correlationId: req.correlationId, dependency: 'live-model',
                 outcome: error.code, itemKind: item.kind, itemFields: Object.keys(item).join(','), ...(error.detail || {}) });
               throw error;
@@ -171,6 +175,7 @@ function createApp({ learner = createDefaultLearner(), examRunner = null, liveMo
     try {
       const body = req.body || {};
       const scenarioId = body.scenarioId || DEFAULT_EXAM_SCENARIO;
+      if (body.domainId !== undefined && !isDomainId(body.domainId)) return invalidDomain(res);
       if (scenarioId === LIVE_SCENARIO) {
         if (!liveReady) return liveUnavailable(res);
         const usage = newUsage();
@@ -179,7 +184,7 @@ function createApp({ learner = createDefaultLearner(), examRunner = null, liveMo
             // Open book: the model sees the lessons knowledge.lookup returns for
             // the item, and its own training notes for the item's objectives.
             answerFor: async (item, index, tools) => record(usage,
-              await liveModel.answerExam(item, await tools.lookup(item.prompt), notebook.for(item.objectiveIds, scopeOf(tools.package)))),
+              await liveModel.answerExam(item, await tools.lookup(item.prompt), notebook.for(item.objectiveIds, scopeOf(tools.package)), tools.domainId)),
             // Behaviour items: the model chooses each action from what the step route shows it.
             actFor: (item, context) => async (observation) => {
               const { action, valid, usage: used } = await liveModel.actEpisode(observation, notebook.for(item.objectiveIds, scopeOf(context?.package)));
@@ -188,6 +193,7 @@ function createApp({ learner = createDefaultLearner(), examRunner = null, liveMo
               return action;
             },
             correlationId: req.correlationId || body.correlationId,
+            domainId: body.domainId,
             gradingWaitMs: 90_000,
           });
           const status = result.outcome === 'not_started' && result.status >= 500 ? 503 : 200;
@@ -206,7 +212,7 @@ function createApp({ learner = createDefaultLearner(), examRunner = null, liveMo
       }
       const result = await runner().examine({
         answerFor: (item, index) => examAnswer(scenarioId, item, index), actFor: (item) => examPolicy(scenarioId, item),
-        correlationId: req.correlationId || body.correlationId,
+        correlationId: req.correlationId || body.correlationId, domainId: body.domainId,
       });
       const status = result.outcome === 'not_started' && result.status >= 500 ? 503 : 200;
       return res.status(status).json({ apiVersion: 'v1', scenarioId, ...result, credentialIssued: false,

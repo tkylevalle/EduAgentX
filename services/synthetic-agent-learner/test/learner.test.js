@@ -217,7 +217,7 @@ test('a remediation session\'s reason reaches the learner with every item', asyn
   } });
   await learner.train({ agentLearnerKey: 'live-agent-learner-dev', evidenceMode: 'live', registration: {},
     respond: async (item, context) => { seen.push(context); return 'answer'; } });
-  assert.deepEqual(seen, [{ remediation, package: null }]);
+  assert.deepEqual(seen, [{ remediation, package: null, domainId: null }]);
 });
 
 test('onAccepted runs only for an answer Training accepted', async () => {
@@ -255,4 +255,72 @@ test('a live learner that cannot reach its model stops training as a system abor
     respond: async () => { const error = new Error('down'); error.code = 'live_model_timeout'; throw error; } });
   assert.equal(result.outcome, 'system_aborted');
   assert.equal(result.reason, 'live_model_timeout');
+});
+
+test('a requested domain goes to Training on session start and reaches the learner with every item', async () => {
+  const starts = [];
+  const seen = [];
+  let done = false;
+  const learner = createSyntheticAgentLearner({ gatewayClient: {
+    register: async () => ({ status: 200, body: {} }),
+    interact: async (message) => {
+      const { interactionType, data } = message.payload;
+      if (interactionType === 'training.session.start') { starts.push(data.domainId); return { status: 200, body: { sessionId: 's-d' } }; }
+      if (interactionType === 'training.session.continue') return { status: 200, body: { sessionId: 's-d', status: done ? 'completed' : 'open',
+        item: done ? null : { deliveryItemId: 'r1-lesson', moduleId: 'r1', objectiveIds: ['o1'] }, bounds: { modelWeightsModified: false } } };
+      done = true;
+      return { status: 200, body: { sessionId: 's-d', status: 'completed', modelWeightsModified: false } };
+    },
+  } });
+  const result = await learner.train({ agentLearnerKey: 'live-agent-learner-dev', domainId: 'customer-refunds',
+    respond: async (item, context) => { seen.push(context.domainId); return 'answer'; } });
+  assert.equal(result.outcome, 'completed');
+  assert.deepEqual(starts, ['customer-refunds']);
+  assert.deepEqual(seen, ['customer-refunds']);
+});
+
+test('an unknown domain is refused before the learner registers or starts a session', async () => {
+  let calls = 0;
+  const learner = createSyntheticAgentLearner({ gatewayClient: {
+    register: async () => { calls += 1; return { status: 200, body: {} }; },
+    interact: async () => { calls += 1; return { status: 200, body: {} }; },
+  } });
+  for (const domainId of ['refunds', '', 42, '__proto__']) {
+    const result = await learner.train({ agentLearnerKey: 'synthetic-agent-learner-dev', domainId });
+    assert.deepEqual(result, { outcome: 'rejected', reason: 'invalid_domain', credentialIssued: false }, String(domainId));
+  }
+  assert.equal(calls, 0);
+});
+
+test('a start that ends an outdated session is followed by one more start, which opens the new session', async () => {
+  const starts = [];
+  let done = false;
+  const learner = createSyntheticAgentLearner({ gatewayClient: {
+    register: async () => ({ status: 200, body: {} }),
+    interact: async (message) => {
+      const { interactionType } = message.payload;
+      if (interactionType === 'training.session.start') {
+        starts.push(starts.length);
+        return starts.length === 1
+          ? { status: 409, body: { error: 'training_blocked', reason: 'configuration_changed', sessionId: 'old' } }
+          : { status: 201, body: { sessionId: 'new' } };
+      }
+      if (interactionType === 'training.session.continue') return { status: 200, body: { sessionId: 'new', status: done ? 'completed' : 'open',
+        item: done ? null : { deliveryItemId: 'm1-lesson', moduleId: 'm1', objectiveIds: ['o1'] }, bounds: { modelWeightsModified: false } } };
+      done = true;
+      return { status: 200, body: { sessionId: 'new', status: 'completed', modelWeightsModified: false } };
+    },
+  } });
+  const result = await learner.train({ agentLearnerKey: 'live-agent-learner-dev', respond: async () => 'answer' });
+  assert.deepEqual([result.outcome, result.sessionId, starts.length], ['completed', 'new', 2]);
+});
+
+test('a second blocked start is reported, not retried again', async () => {
+  let starts = 0;
+  const learner = createSyntheticAgentLearner({ gatewayClient: {
+    register: async () => ({ status: 200, body: {} }),
+    interact: async () => { starts += 1; return { status: 409, body: { error: 'training_blocked', reason: 'package_state:Watch' } }; },
+  } });
+  const result = await learner.train({ agentLearnerKey: 'synthetic-agent-learner-dev' });
+  assert.deepEqual([result.outcome, result.reason, starts], ['system_aborted', 'training_blocked', 2]);
 });

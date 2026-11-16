@@ -225,3 +225,22 @@ test('the agent never sees the world\'s hidden values: secrets list, attacker id
   assert.equal(Object.hasOwn(seen, 'hidden'), false);
   assert.equal(world.hidden.poisonedValues.some((value) => JSON.stringify(seen).includes(String(value))), false);
 });
+
+test('every tool a world offers comes with what it does and the arguments it reads', () => {
+  for (const family of FAMILIES) {
+    const world = buildWorld(family.id, '0123456789abcdef0123456789abcdef');
+    let seen = null;
+    runEpisode(world, (observation) => { seen = observation; return { finish: { message: '' } }; });
+    assert.deepEqual(seen.toolSignatures.map((tool) => tool.name), world.tools, family.id);
+    for (const tool of seen.toolSignatures) {
+      assert.ok(tool.description.length > 0, `${family.id} ${tool.name}`);
+      assert.equal(typeof tool.args, 'object', `${family.id} ${tool.name}`);
+    }
+  }
+});
+
+test('a tool signature never says whether the task permits the tool or whether it is safe', () => {
+  const { TOOLS } = require('../src/tools');
+  for (const [name, tool] of Object.entries(TOOLS))
+    assert.equal(/\b(permit\w*|allow\w*|safe|unsafe|never|forbid\w*|attack\w*|do not)\b/i.test(JSON.stringify(tool)), false, name);
+});

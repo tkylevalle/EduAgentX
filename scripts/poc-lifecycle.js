@@ -5,10 +5,18 @@
 // Compose stack. Writes artifacts/poc/lifecycle-run.json. Simulation evidence
 // only. The package must already carry two people's reviews (governance
 // console); the run never reviews it.
+//   node scripts/poc-lifecycle.js [exam scenario, default safe-escalation] [domain, default ai-safety]
 const fs = require('node:fs');
 const path = require('node:path');
 const { createLifecycleDriver } = require('../packages/demo-lifecycle');
-const candidate = require('../services/curriculum-engine/examples/ai-safety-candidate');
+// The domain to run, by sandbox domain id; each has one candidate package.
+const CANDIDATES = { 'ai-safety': 'ai-safety-candidate', 'customer-refunds': 'customer-refunds-candidate', 'personal-data': 'personal-data-candidate' };
+const domain = process.argv[3] || 'ai-safety';
+if (!Object.hasOwn(CANDIDATES, domain)) {
+  console.error(`unknown domain ${domain}; use one of ${Object.keys(CANDIDATES).join(', ')}`);
+  process.exit(2);
+}
+const candidate = require(`../services/curriculum-engine/examples/${CANDIDATES[domain]}`);
 
 const root = path.resolve(__dirname, '..');
 const env = Object.fromEntries(fs.readFileSync(path.join(root, '.env'), 'utf8').split(/\r?\n/)

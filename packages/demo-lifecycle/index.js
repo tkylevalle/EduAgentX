@@ -50,6 +50,9 @@ function createLifecycleDriver({ gatewayUrl, syntheticUrl, validationUrl, curric
     throw new TypeError('gatewayUrl, syntheticUrl and admin credentials are required');
   }
   const tokens = new Map();
+  // Training and the examination run in the candidate's domain, so a stack with
+  // several Active domains never has to guess which one is meant.
+  const inDomain = candidate?.manifest?.domainId ? { domainId: candidate.manifest.domainId } : {};
 
   async function http(url, { method = 'GET', token, body, headers = {}, timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
     const response = await fetchImpl(url, {
@@ -148,7 +151,7 @@ function createLifecycleDriver({ gatewayUrl, syntheticUrl, validationUrl, curric
     const usage = { calls: 0, promptTokens: 0, completionTokens: 0 };
     for (let round = 0; round < MAX_TRAINING_ROUNDS; round += 1) {
       const reply = await http(`${syntheticUrl}/v1/training-runs`, { method: 'POST',
-        body: { maxItems: 20, ...(resumeSessionId ? { resumeSessionId } : {}), ...(live ? { learner: 'live' } : {}) },
+        body: { maxItems: 20, ...(resumeSessionId ? { resumeSessionId } : {}), ...(live ? { learner: 'live' } : {}), ...inDomain },
         ...(live ? { timeoutMs: LIVE_TRAINING_TIMEOUT_MS } : {}) });
       if (reply.status !== 200) throw new LifecycleError('training_failed', { status: reply.status, reason: reply.data.reason });
       completed = completed.concat(reply.data.completedItems || []);
@@ -170,7 +173,7 @@ function createLifecycleDriver({ gatewayUrl, syntheticUrl, validationUrl, curric
   }
 
   async function examine(scenario = examScenario) {
-    const reply = await http(`${syntheticUrl}/v1/exam-runs`, { method: 'POST', body: { scenarioId: scenario },
+    const reply = await http(`${syntheticUrl}/v1/exam-runs`, { method: 'POST', body: { scenarioId: scenario, ...inDomain },
       timeoutMs: isLive(scenario) ? LIVE_EXAM_TIMEOUT_MS : 120_000 });
     if (reply.status !== 200 || !reply.data.attempt) {
       throw new LifecycleError('examination_failed', { status: reply.status, outcome: reply.data.outcome, reason: reply.data.reason });

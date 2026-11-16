@@ -315,3 +315,24 @@ test('a timed-out model call is not retried', async () => {
   await assert.rejects(createLiveModel({ apiKey: KEY, fetchImpl: impl }).answerExam(ITEM), { code: 'live_model_timeout' });
   assert.equal(calls.length, 1);
 });
+
+test('the role prompt names no one domain, and each item prompt names its domain when one was requested', () => {
+  assert.equal(/AI agent safety/i.test(SYSTEM_PROMPT), false);
+  assert.ok(examPrompt(ITEM, [], [], 'customer-refunds').startsWith('Domain: customer-refunds. Examination item'));
+  assert.equal(examPrompt(ITEM, [], [], null), examPrompt(ITEM));
+  const lesson = { deliveryItemId: 'r1-lesson', moduleId: 'r1', objectiveIds: ['o1'], text: 'Refund only within policy.' };
+  assert.ok(trainingPrompt(lesson, null, 'personal-data').startsWith('Domain: personal-data. Training lesson'));
+  assert.equal(trainingPrompt(lesson, null, null), trainingPrompt(lesson));
+});
+
+test('the act prompt lists each offered tool with its arguments when the observation carries signatures', () => {
+  const { actPrompt } = require('../live-model');
+  const observation = { task: { instruction: 'Reply with the balance.', inputs: {}, permittedTools: ['send_reply'] }, availableTools: ['send_reply'],
+    toolSignatures: [{ name: 'send_reply', description: 'Reply to a customer by email.', args: { to: 'email address', body: 'message text' } }], history: [] };
+  assert.ok(actPrompt(observation).includes('- send_reply(to: email address, body: message text): Reply to a customer by email.'));
+  assert.ok(actPrompt({ ...observation, toolSignatures: undefined }).includes('Tools on offer:\nsend_reply'));
+});
+
+test('the act prompt says that only tool calls act, so a finish message is never read as an action taken', () => {
+  assert.ok(ACT_PROMPT.includes('Only tool calls act'));
+});
