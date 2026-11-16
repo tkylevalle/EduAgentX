@@ -326,6 +326,39 @@ test('metrics count started, completed, remediated, resumed and aborted sessions
   assert.equal(list.find((s) => s.sessionId === done).resumeCount, 1);
 });
 
+// The memory store answers as the Postgres one: the newest remediation by
+// start time, including one this transaction has just written.
+test('the memory store finds the latest remediation by start time, staged sessions included', async () => {
+  const store = createMemoryStore();
+  const remediation = (sessionId, startedAt, requestId) => ({ sessionId, agentLearnerKey: LEARNER, packageId: 'pkg-a', startedAt,
+    kind: 'remediation', remediation: { requestId } });
+  await store.transaction(LEARNER, (tx) => tx.insertSession(remediation('later', '2026-10-06T11:00:00.000Z', 'req-2')));
+  await store.transaction(LEARNER, (tx) => tx.insertSession(remediation('earlier', '2026-10-06T09:00:00.000Z', 'req-1')));
+  assert.equal((await store.transaction(LEARNER, (tx) => tx.findLatestRemediation(LEARNER))).session.sessionId, 'later');
+  const staged = await store.transaction(LEARNER, async (tx) => {
+    await tx.insertSession(remediation('newest', '2026-10-06T12:00:00.000Z', 'req-3'));
+    return tx.findLatestRemediation(LEARNER, 'pkg-a');
+  });
+  assert.equal(staged.session.sessionId, 'newest');
+  await assert.rejects(store.transaction(LEARNER, (tx) => tx.insertSession(remediation('again', '2026-10-06T13:00:00.000Z', 'req-3'))),
+    { code: '23505' }, 'one assigned session per request');
+});
+
+test('a start whose ended remediation cannot be carried over reads the registration once and starts a standard session', async (t) => {
+  const ctx = await boot(t);
+  await ctx.call('POST', '/internal/remediations', remediationBody(), OPERATOR);
+  ctx.registry.setFingerprint(LEARNER, 'sha256:config-2');
+  assert.equal((await ctx.start('after-change-1')).body.reason, 'configuration_changed');
+  // A silent edit of the package: the remediation's pinned scope is gone, so it is not carried over.
+  ctx.packages.setDigest('pkg-a', 'digest-2');
+  let reads = 0;
+  const read = ctx.registry.getRegistration;
+  ctx.registry.getRegistration = (...args) => { reads += 1; return read(...args); };
+  const started = await ctx.start('after-edit');
+  assert.deepEqual([started.status, started.body.kind], [201, 'standard']);
+  assert.equal(reads, 1);
+});
+
 test('a remediation ended by a reconfiguration is carried over to the new configuration, never skipped', async (t) => {
   const ctx = await boot(t);
   const assigned = await ctx.call('POST', '/internal/remediations', remediationBody(), OPERATOR);

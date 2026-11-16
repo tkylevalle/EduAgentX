@@ -26,6 +26,17 @@ const requireInternalActor = (req, res, next) => {
   next();
 };
 
+// The reviews and resolutions of one package version, read together, and the
+// review state they give.
+async function loadReviewState(pkg) {
+  const [reviews, resolutions] = await Promise.all([packageDb.getReviews(pkg.id, pkg.version), packageDb.getResolutions(pkg.id, pkg.version)]);
+  return { reviews, resolutions, state: reviewState(pkg, reviews, resolutions) };
+}
+
+// Activation failures the store raises on purpose; any other error is the
+// store's own and may carry database text, so it is logged, not returned.
+const ACTIVATION_PRECONDITIONS = new Set(['activation_precondition_failed', 'stale_candidate', 'insufficient_approvals']);
+
 // Health check
 route('get', '/health', async (req, res) => {
   try { await packageDb.listPackages(); res.json({ status: 'ok', service: 'validation-activation' }); }
@@ -89,7 +100,7 @@ route('post', '/review', requireInternalActor, async (req, res) => {
   if (!await packageDb.submitReview(package_id, version, pkg.digest, review))
     return res.status(409).json({ error: 'duplicate_reviewer' });
   await packageDb.appendEvidence(package_id, { event: 'review_submitted', ...review }, version);
-  const state = reviewState(pkg, await packageDb.getReviews(package_id, version), await packageDb.getResolutions(package_id, version));
+  const { state } = await loadReviewState(pkg);
   res.json({ score: scored.score, ...state });
 });
 
@@ -103,7 +114,9 @@ route('post', '/review/resolutions', requireInternalActor, async (req, res) => {
     resolution.length > MAX_RESOLUTION_CHARS) return res.status(400).json({ error: 'missing_fields' });
   const pkg = await packageDb.getPackage(package_id, version);
   if (!pkg) return res.status(404).json({ error: 'package_not_found' });
-  const state = reviewState(pkg, await packageDb.getReviews(package_id, version), await packageDb.getResolutions(package_id, version));
+  // Once a package has left review, its record is closed.
+  if (pkg.state !== 'AwaitingReview') return res.status(409).json({ error: 'not_awaiting_review', state: pkg.state });
+  const { state } = await loadReviewState(pkg);
   const open = state.disagreements.find((item) => item.criterionId === criterionId);
   if (!open) return res.status(409).json({ error: 'no_open_disagreement', criterionId });
   if (!Object.hasOwn(open.scores, actor)) return res.status(403).json({ error: 'only_a_disagreeing_reviewer_may_resolve' });
@@ -124,14 +137,18 @@ route('post', '/activate', requireInternalActor, async (req, res) => {
   const validation = (await packageDb.getEvidence(package_id, version)).find(entry =>
     entry.event === 'validation_run' && entry.digest === pkg.digest && entry.result?.passed === true);
   if (!validation) return res.status(409).json({ error: 'validation_evidence_required' });
-  const state = reviewState(pkg, await packageDb.getReviews(package_id, version), await packageDb.getResolutions(package_id, version));
+  const { state } = await loadReviewState(pkg);
   if (state.approvals < state.required)
     return res.status(403).json({ error: 'insufficient_approvals', required: state.required, distinct_approvers: state.approvals });
   if (state.mean < state.floor) return res.status(422).json({ error: 'score_below_floor', floor: state.floor, average: state.mean });
   if (state.disagreements.length) return res.status(409).json({ error: 'unresolved_review_disagreement', disagreements: state.disagreements });
   let result;
   try { result = await packageDb.activatePackage(package_id, version, pkg.digest); }
-  catch (error) { return res.status(409).json({ error: 'activation_precondition_failed', reason: error.message }); }
+  catch (error) {
+    if (ACTIVATION_PRECONDITIONS.has(error.message)) return res.status(409).json({ error: 'activation_precondition_failed', reason: error.message });
+    telemetry.log('validation-activation', 'activation_failed', { operation: 'activate', outcome: error.code || error.name });
+    return res.status(503).json({ error: 'package_store_unavailable' });
+  }
   await packageDb.appendEvidence(package_id, { event: 'activated', previous_active: result.superseded_id, ts: now().toISOString() }, version);
   res.json({ activated: true, packageId: package_id, superseded_id: result.superseded_id });
 });
@@ -173,12 +190,9 @@ route('get', '/packages/:id', requireInternalActor, async (req, res) => {
   if (!req.query.version) return res.status(400).json({ error: 'version_required' });
   const pkg = await packageDb.getPackage(req.params.id, req.query.version);
   if (!pkg) return res.status(404).json({ error: 'not_found' });
-  const evidence = await packageDb.getEvidence(req.params.id, pkg.version);
-  const packageReviews = await packageDb.getReviews(req.params.id, pkg.version);
-  const quarantinedScopes = await packageDb.getScopedQuarantines(pkg.id, pkg.version);
-  const resolutions = await packageDb.getResolutions(pkg.id, pkg.version);
+  const [evidence, quarantinedScopes, { reviews: packageReviews, resolutions, state }] = await Promise.all([
+    packageDb.getEvidence(pkg.id, pkg.version), packageDb.getScopedQuarantines(pkg.id, pkg.version), loadReviewState(pkg)]);
   const { fallbackBank, fallback_bank, ...safePackage } = pkg;
-  const state = reviewState(pkg, packageReviews, resolutions);
   res.json({ ...safePackage, packageId: pkg.id, digest: pkg.digest || null, evidence, reviews: packageReviews, resolutions,
     openDisagreements: state.disagreements, reviewState: state, reviewPolicy: REVIEW_POLICY, citedSources: citedSources(pkg),
     quarantinedScopes, certificationBlocked: quarantinedScopes.length > 0 });
@@ -251,8 +265,20 @@ route('post', '/packages/:id/freshness-checks', requireInternalActor, async (req
 
 // The scheduled source check (C5), run on demand by an admin. The schedule
 // itself runs it every FRESHNESS_JOB_INTERVAL_MS (see startFreshnessSchedule).
-const runFreshness = () => runFreshnessJob({ packageDb, fetchImpl, now,
-  record: async (pkg, sourceId, evidence, actor) => (await recordFreshnessCheck(pkg, sourceId, evidence, actor)).body });
+// One run at a time: a run asked for while one is in flight gets that run's
+// report, so a timer tick and an admin's request never check a source twice.
+let freshnessRun = null;
+async function runFreshnessOnce() {
+  const report = await runFreshnessJob({ packageDb, fetchImpl, now, record: recordFreshnessCheck });
+  for (const line of report.filter((item) => item.result === 'record_failed')) {
+    telemetry.log('validation-activation', 'freshness_record_failed', { operation: 'freshness', outcome: `${line.status}:${line.error}` });
+  }
+  return report;
+}
+const runFreshness = () => {
+  freshnessRun ??= runFreshnessOnce().finally(() => { freshnessRun = null; });
+  return freshnessRun;
+};
 route('post', '/freshness/run', requireInternalActor, async (req, res) => {
   if (req.header('x-actor-role') !== 'admin') return res.status(403).json({ error: 'admin_role_required' });
   res.json({ ranAt: now().toISOString(), sources: await runFreshness() });

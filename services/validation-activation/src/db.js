@@ -5,6 +5,7 @@
  */
 const { Pool } = require('pg');
 const { sha256 } = require('../../curriculum-engine/model');
+const { REQUIRED_APPROVALS, REVIEW_FLOOR } = require('./reviews');
 
 const pool = process.env.DATABASE_URL
   ? new Pool({ connectionString: process.env.DATABASE_URL })
@@ -19,7 +20,6 @@ const _scopeEvents = new Map();
 const _reviews = new Map();
 const _fallbackScores = new Set();
 const _resolutions = new Map();
-let _activePointer = null;
 let activationQueue = Promise.resolve();
 const keyOf = (id, version) => `${id}@${version}`;
 
@@ -85,11 +85,6 @@ const db = {
     return r.rows.map((row) => ({ ...row.payload, id: row.id, version: row.version, digest: row.digest, state: 'Active' }));
   },
 
-
-  async setActivePointer(id, version) {
-    if (!pool) { _activePointer = keyOf(id, version || (await this.getPackage(id))?.version); return; }
-    // State already written by setPackageState — nothing extra needed
-  },
 
   async appendEvidence(package_id, entry, version) {
     if (!pool) {
@@ -268,7 +263,6 @@ const db = {
             pkg.manifest?.predecessor?.version !== current.version)) throw new Error('stale_candidate');
         if (current) await this.setPackageState(current.id, 'Superseded', current.version);
         await this.setPackageState(id, 'Active', version);
-        await this.setActivePointer(id, version);
         return { superseded_id: current?.id || null };
       }
       const client = await pool.connect();
@@ -284,9 +278,9 @@ const db = {
         const reviews = await client.query(
           `SELECT reviewer_id,score::float,approved FROM curriculum_engine.package_reviews
            WHERE package_id=$1 AND version=$2 AND digest=$3`, [id, version, digest]);
-        const approvals = reviews.rows.filter(review => review.approved && review.score >= 3.5);
-        if (new Set(approvals.map(review => review.reviewer_id)).size < 2 ||
-            approvals.reduce((sum, review) => sum + review.score, 0) / approvals.length < 3.5)
+        const approvals = reviews.rows.filter(review => review.approved && review.score >= REVIEW_FLOOR);
+        if (new Set(approvals.map(review => review.reviewer_id)).size < REQUIRED_APPROVALS ||
+            approvals.reduce((sum, review) => sum + review.score, 0) / approvals.length < REVIEW_FLOOR)
           throw new Error('insufficient_approvals');
         const active = await client.query(
           `SELECT p.package_id,p.version FROM curriculum_engine.packages p JOIN LATERAL

@@ -9,18 +9,20 @@
 // disagree, and the package cannot be activated until one of them records how
 // that was resolved.
 
+const { RUBRIC_POLICY } = require('../../curriculum-engine/model');
+
 const MAX_COMMENT_CHARS = 2000;
 const MAX_RESOLUTION_CHARS = 2000;
 // The rubric's own floor and target (validation gate rubric_policy): a package
 // needs an approval mean of at least the floor; the target is reported.
-const REVIEW_FLOOR = 3.5;
-const REVIEW_TARGET = 4;
+const REVIEW_FLOOR = RUBRIC_POLICY.scoreFloor;
+const REVIEW_TARGET = RUBRIC_POLICY.scoreTarget;
 // Two people outside the authoring role (target design 3.1, review record).
 const REQUIRED_APPROVALS = 2;
 // One point on the 0-5 scale is the difference between adjacent rubric anchors;
 // more than that is a different judgement, not rounding.
 const DISAGREEMENT_SPREAD = 1;
-const SCALE = Object.freeze({ min: 0, max: 5 });
+const SCALE = RUBRIC_POLICY.scoreScale;
 const SOURCE_CHECKS = Object.freeze(['edition', 'licence', 'quotes']);
 
 /** @param {object} pkg @returns {string[]} the sources some claim quotes, sorted */

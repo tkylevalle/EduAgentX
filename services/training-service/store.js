@@ -11,6 +11,9 @@ const isUniqueViolation = (error) => error?.code === '23505';
 const isTerminal = (eventType) => eventType === 'session_completed' || eventType === 'session_blocked';
 // One relay at a time publishes the completion outbox, across every Training instance.
 const RELAY_LOCK = 'training-relay:completions';
+// A page of incidents when the caller names none: as many as the completion
+// outbox view shows, enough for an operator to see the recent failures.
+const DEFAULT_INCIDENT_LIMIT = 100;
 
 async function decideAndAppend(store, lockKey, decide) {
   for (let attempt = 1; ; attempt += 1) {
@@ -264,12 +267,13 @@ function createPgStore(pool) {
       const { total, published, quarantined } = result.rows[0];
       return { total, published, pending: total - published - quarantined, quarantined };
     },
-    async listCompletionIncidents() {
+    // Newest first, at most `limit`: callers read a page, never the whole table.
+    async listCompletionIncidents({ limit = DEFAULT_INCIDENT_LIMIT } = {}) {
       const result = await pool.query(
         `SELECT event_id AS "eventId", category, severity, safe_state AS "safeState",
           cause_code AS "causeCode", correlation_id AS "correlationId", affected,
           retry_count AS "retryCount", occurred_at AS "occurredAt"
-         FROM training_service.completion_delivery_incidents ORDER BY occurred_at DESC`);
+         FROM training_service.completion_delivery_incidents ORDER BY occurred_at DESC, event_id LIMIT $1`, [limit]);
       return result.rows;
     },
   };
@@ -334,6 +338,18 @@ async function publishUnderRelayLock(pool, publish, limit) {
 // --- In-memory store with the same interface, for route tests only. It
 // enforces the same unique constraints so the retry path can be exercised.
 
+// The two unique indexes on remediation sessions in schema.sql. An assigned
+// remediation (not a carry-over): one per learner and request.
+const sameAssignedRequest = (existing, session) => existing.kind === 'remediation' && session.kind === 'remediation' &&
+  !existing.remediation.carriedFromSessionId && !session.remediation.carriedFromSessionId &&
+  existing.agentLearnerKey === session.agentLearnerKey && existing.remediation.requestId === session.remediation.requestId;
+// A carry-over: one per ended session it carries.
+const sameCarryOver = (existing, session) => existing.kind === 'remediation' && session.kind === 'remediation' &&
+  Boolean(session.remediation.carriedFromSessionId) &&
+  existing.remediation.carriedFromSessionId === session.remediation.carriedFromSessionId;
+// Oldest first, as ORDER BY started_at reads it; ISO timestamps compare as instants.
+const byStartedAt = (a, b) => new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime();
+
 function createMemoryStore() {
   const sessions = new Map();
   const events = [];
@@ -351,6 +367,10 @@ function createMemoryStore() {
       const run = queue.then(async () => {
         const staged = { sessions: [], events: [], completions: [] };
         const allEvents = () => [...events, ...staged.events];
+        const allSessions = () => [...sessions.values(), ...staged.sessions];
+        const withEvents = (session) => (session
+          ? structuredClone({ session, events: allEvents().filter((e) => e.sessionId === session.sessionId) })
+          : null);
         const tx = {
           async findStart(actor, key) {
             const e = allEvents().find((e) => e.actor === actor && e.eventType === 'session_started' && e.idempotencyKey === key);
@@ -363,30 +383,20 @@ function createMemoryStore() {
                 deriveSessionState(allEvents().filter((e) => e.sessionId === s.sessionId)).status));
             return structuredClone(candidates.at(-1) || null);
           },
+          // As Postgres within a transaction: committed sessions and this transaction's own.
           async findRemediation(agentLearnerKey, requestId) {
-            const session = [...sessions.values()].find((s) => s.agentLearnerKey === agentLearnerKey &&
-              s.kind === 'remediation' && s.remediation.requestId === requestId && !s.remediation.carriedFromSessionId);
-            return session
-              ? structuredClone({ session, events: allEvents().filter((e) => e.sessionId === session.sessionId) })
-              : null;
+            return withEvents(allSessions().find((s) => s.agentLearnerKey === agentLearnerKey &&
+              s.kind === 'remediation' && s.remediation.requestId === requestId && !s.remediation.carriedFromSessionId));
           },
           async findLatestRemediation(agentLearnerKey, packageId = null) {
-            const session = [...sessions.values()].filter((s) => s.agentLearnerKey === agentLearnerKey && s.kind === 'remediation' &&
-              (packageId === null || s.packageId === packageId)).at(-1);
-            return session
-              ? structuredClone({ session, events: allEvents().filter((e) => e.sessionId === session.sessionId) })
-              : null;
+            return withEvents(allSessions().filter((s) => s.agentLearnerKey === agentLearnerKey && s.kind === 'remediation' &&
+              (packageId === null || s.packageId === packageId)).sort(byStartedAt).at(-1));
           },
           async getSession(sessionId) { return structuredClone(sessions.get(sessionId) || null); },
           async getEvents(sessionId) { return structuredClone(allEvents().filter((e) => e.sessionId === sessionId)); },
           async insertSession(session) {
-            if (sessions.has(session.sessionId)) throw uniqueViolation();
-            // As the two unique indexes: one assigned session per request, and one carry-over per ended session.
-            const sameRequest = (s) => s.kind === 'remediation' && session.kind === 'remediation' && (session.remediation.carriedFromSessionId
-              ? s.remediation.carriedFromSessionId === session.remediation.carriedFromSessionId
-              : !s.remediation.carriedFromSessionId && s.agentLearnerKey === session.agentLearnerKey &&
-                s.remediation.requestId === session.remediation.requestId);
-            if ([...sessions.values(), ...staged.sessions].some(sameRequest)) throw uniqueViolation();
+            if (allSessions().some((s) => s.sessionId === session.sessionId)) throw uniqueViolation();
+            if (allSessions().some((s) => sameAssignedRequest(s, session) || sameCarryOver(s, session))) throw uniqueViolation();
             staged.sessions.push(structuredClone(session));
           },
           async insertEvents(list) {
@@ -466,7 +476,10 @@ function createMemoryStore() {
       return { total: completions.size, published: publications.size,
         pending: completions.size - publications.size - deliveryIncidents.size, quarantined: deliveryIncidents.size };
     },
-    async listCompletionIncidents() { return structuredClone([...deliveryIncidents.values()]); },
+    // As Postgres: newest first, at most `limit`.
+    async listCompletionIncidents({ limit = DEFAULT_INCIDENT_LIMIT } = {}) {
+      return structuredClone([...deliveryIncidents.values()].reverse().slice(0, limit));
+    },
   };
   return store;
 }
