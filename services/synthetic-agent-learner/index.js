@@ -211,7 +211,7 @@ function createApp({ learner = createDefaultLearner(), examRunner = null, liveMo
           evidence: canonicalEvidence('synthetic') });
       }
       const result = await runner().examine({
-        answerFor: (item, index) => examAnswer(scenarioId, item, index), actFor: (item) => examPolicy(scenarioId, item),
+        answerFor: (item, index) => examAnswer(scenarioId, item, index), actFor: (item) => examPolicy(scenarioId, item, body.domainId),
         correlationId: req.correlationId || body.correlationId, domainId: body.domainId,
       });
       const status = result.outcome === 'not_started' && result.status >= 500 ? 503 : 200;
