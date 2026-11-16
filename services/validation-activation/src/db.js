@@ -18,6 +18,7 @@ const _freshness = new Map();
 const _scopeEvents = new Map();
 const _reviews = new Map();
 const _fallbackScores = new Set();
+const _resolutions = new Map();
 let _activePointer = null;
 let activationQueue = Promise.resolve();
 const keyOf = (id, version) => `${id}@${version}`;
@@ -210,16 +211,39 @@ const db = {
       reviews.push({ ...review, digest }); _reviews.set(key, reviews); return true;
     }
     const inserted = await pool.query(
-      `INSERT INTO curriculum_engine.package_reviews (package_id,version,digest,reviewer_id,score,approved)
-       VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING RETURNING reviewer_id`,
-      [id, version, digest, review.reviewer_id, review.score, review.approved]);
+      `INSERT INTO curriculum_engine.package_reviews (package_id,version,digest,reviewer_id,score,approved,criterion_scores,review_comment)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING RETURNING reviewer_id`,
+      [id, version, digest, review.reviewer_id, review.score, review.approved, review.criterionScores || {}, review.comment || '']);
     return inserted.rowCount === 1;
+  },
+
+  // A disagreement is resolved once per criterion; a second resolution is refused.
+  async addResolution(id, version, resolution) {
+    const key = keyOf(id, version);
+    if (!pool) {
+      const resolutions = _resolutions.get(key) || [];
+      if (resolutions.some((item) => item.criterionId === resolution.criterionId)) return false;
+      resolutions.push({ ...resolution }); _resolutions.set(key, resolutions); return true;
+    }
+    const inserted = await pool.query(
+      `INSERT INTO curriculum_engine.package_review_resolutions (package_id,version,criterion_id,resolved_by,resolution)
+       VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING RETURNING criterion_id`,
+      [id, version, resolution.criterionId, resolution.resolvedBy, resolution.resolution]);
+    return inserted.rowCount === 1;
+  },
+
+  async getResolutions(id, version) {
+    if (!pool) return [...(_resolutions.get(keyOf(id, version)) || [])];
+    const rows = await pool.query(
+      `SELECT criterion_id AS "criterionId", resolved_by AS "resolvedBy", resolution, recorded_at AS ts
+       FROM curriculum_engine.package_review_resolutions WHERE package_id=$1 AND version=$2 ORDER BY recorded_at`, [id, version]);
+    return rows.rows;
   },
 
   async getReviews(id, version) {
     if (!pool) return [...(_reviews.get(keyOf(id, version)) || [])];
     const rows = await pool.query(
-      `SELECT reviewer_id, score::float, approved, digest, recorded_at AS ts
+      `SELECT reviewer_id, score::float, approved, digest, criterion_scores AS "criterionScores", review_comment AS comment, recorded_at AS ts
        FROM curriculum_engine.package_reviews WHERE package_id=$1 AND version=$2 ORDER BY recorded_at`, [id, version]);
     return rows.rows;
   },

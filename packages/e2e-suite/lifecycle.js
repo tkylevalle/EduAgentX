@@ -56,8 +56,10 @@ async function setupPackage({ admin, reviewers }) {
   const made = requireReply(await call('POST', '/v1/admin/curriculum/packages', candidate), [200, 201], 'package_ingestion');
   const validated = requireReply(await call('POST', '/v1/admin/curriculum/validate', { package_id: id, version }), [200], 'package_validation');
   if (validated.passed !== true || validated.gates.length !== 6) throw new SuiteError('MISMATCH', 'package_six_gates');
+  // Configured test reviewer accounts on a disposable stack, not people's review.
+  const criterionScores = Object.fromEntries(candidate.rubric.criteria.map((criterion) => [criterion.id, 4]));
   for (const reviewer of reviewers) requireReply(await reviewer.call('POST', '/v1/curriculum/review',
-    { package_id: id, version, score: 4, approved: true }, command('suite', 'review').correlationId), [200], 'package_review');
+    { package_id: id, version, criterionScores, approved: true }, command('suite', 'review').correlationId), [200], 'package_review');
   requireReply(await call('POST', '/v1/admin/curriculum/activate', { package_id: id, version }), [200], 'package_activation');
   const stored = requireReply(await call('GET', `/v1/admin/curriculum/packages/${id}/${version}`), [200], 'package_read');
   if (stored.state !== 'Active' || stored.digest !== made.digest || stored.certificationBlocked !== false)

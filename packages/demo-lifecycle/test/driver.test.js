@@ -136,3 +136,25 @@ test('a failure that is not a lifecycle error is reported by its kind, not its m
   assert.deepEqual([failed.error, failed.detail], ['step_failed', { kind: 'TypeError' }]);
   assert.equal(JSON.stringify(report).includes('ECONNREFUSED'), false);
 });
+
+// Assurance audit C3: the demo never reviews a package; it activates only what two people approved.
+test('the package step never posts a review, and stops with the review state until two people have approved', async () => {
+  const candidate = { manifest: { packageId: 'pkg-x', version: '1.0.0', domainId: 'customer-refunds', domain: 'Refunds' }, modules: [] };
+  const make = (activation) => {
+    const { fetchImpl, calls } = fakeFetch({
+      '/v1/auth/tokens': [200, { accessToken: 'token', expiresIn: 3600 }],
+      '/packages/active?domain=customer-refunds': [404, { error: 'no_active_package' }],
+      '/v1/admin/curriculum/packages/pkg-x/1.0.0': [200, { state: 'AwaitingReview', digest: 'd', openDisagreements: [],
+        reviews: [{ reviewer_id: 'person-a', score: 4.2, approved: true }] }],
+      '/v1/admin/curriculum/activate': activation,
+    });
+    return { calls, driver: createLifecycleDriver({ gatewayUrl: GATEWAY, syntheticUrl: LEARNER, validationUrl: 'http://validation',
+      curriculumInternalKey: 'key', admin, candidate, fetchImpl }) };
+  };
+  const waiting = make([403, { error: 'insufficient_approvals' }]);
+  await assert.rejects(waiting.driver.ensurePackage(), (error) => error.code === 'package_awaiting_review' &&
+    error.detail.reason === 'insufficient_approvals' && error.detail.reviews.length === 1);
+  const approved = make([200, { activated: true }]);
+  assert.equal((await approved.driver.ensurePackage()).packageId, 'pkg-x');
+  for (const { calls } of [waiting, approved]) assert.equal(calls.some((call) => call.url.includes('/review')), false, 'no review is ever posted');
+});

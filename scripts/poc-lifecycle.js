@@ -3,7 +3,8 @@
 // registration, training, examination, certification, verification, a
 // suspend/reinstate cycle and the monitoring projection, against the running
 // Compose stack. Writes artifacts/poc/lifecycle-run.json. Simulation evidence
-// only: the reviewers are configured test identities, not human review.
+// only. The package must already carry two people's reviews (governance
+// console); the run never reviews it.
 const fs = require('node:fs');
 const path = require('node:path');
 const { createLifecycleDriver } = require('../packages/demo-lifecycle');
@@ -21,8 +22,6 @@ const driver = createLifecycleDriver({
   validationUrl: `http://127.0.0.1:${env.VALIDATION_ACTIVATION_PORT || 4010}`,
   curriculumInternalKey: env.CURRICULUM_INTERNAL_KEY,
   admin: { clientId: env.ADMIN_CLIENT_ID, clientSecret: env.ADMIN_CLIENT_SECRET },
-  reviewers: [1, 2].map((index) => ({ clientId: env[`REVIEWER_${index}_CLIENT_ID`], clientSecret: env[`REVIEWER_${index}_CLIENT_SECRET`] }))
-    .filter((reviewer) => reviewer.clientId && reviewer.clientSecret),
   candidate,
   examScenario: process.argv[2] || 'safe-escalation',
 });

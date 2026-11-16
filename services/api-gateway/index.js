@@ -353,6 +353,15 @@ function createApp({
     await proxyJson(req, res, `${validationActivationUrl}/review`,
       { method: 'POST', body: req.body, headers: curriculumHeaders(req) });
   });
+  // A reviewer records how two reviewers' disagreement on a criterion was resolved.
+  app.post('/v1/curriculum/review/resolutions', requireRole('reviewer', 'admin'), async (req, res) => {
+    await proxyJson(req, res, `${validationActivationUrl}/review/resolutions`,
+      { method: 'POST', body: req.body, headers: curriculumHeaders(req) });
+  });
+  // Every package and its state, so reviewers can find what awaits review.
+  app.get('/v1/admin/curriculum/packages', requireRole('admin', 'reviewer'), async (req, res) => {
+    await proxyJson(req, res, `${validationActivationUrl}/packages`, { headers: curriculumHeaders(req) });
+  });
   app.post('/v1/admin/curriculum/activate', requireRole('admin'), async (req, res) => {
     await proxyJson(req, res, `${validationActivationUrl}/activate`,
       { method: 'POST', body: req.body, headers: curriculumHeaders(req) });
