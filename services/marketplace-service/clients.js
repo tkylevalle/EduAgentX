@@ -187,9 +187,28 @@ async function requestJson(source, url, { method = 'GET', body, headers = {}, ac
 // --- batching (assurance audit F6)
 
 // The batch routes take at most this many keys; a longer queue is sent in chunks.
-// 500 bounds one request body to about a megabyte of compact JWS and one SQL
-// ANY() list, and is twice the largest match the e2e suite measures.
+// 500 bounds one SQL ANY() list and is twice the largest match the e2e suite measures.
 const MAX_BATCH = 500;
+// A verify batch also stops at this many bytes of compact JWS: a credential with
+// behaviour evidence is about 34 kB, and the verifier takes at most 2 MB on
+// /verify/batch (credential-verification VERIFY_BATCH_BODY_LIMIT), so 1 MiB
+// leaves room for JSON overhead and larger credentials.
+const VERIFY_BATCH_BYTES = 1024 * 1024;
+
+// Consecutive chunks of at most MAX_BATCH calls and maxBytes of key text; a
+// single key larger than maxBytes still goes, alone.
+function chunksOf(calls, maxBytes) {
+  const chunks = [];
+  let current = [], bytes = 0;
+  for (const call of calls) {
+    const size = String(call.key).length;
+    if (current.length && (current.length === MAX_BATCH || bytes + size > maxBytes)) { chunks.push(current); current = []; bytes = 0; }
+    current.push(call);
+    bytes += size;
+  }
+  if (current.length) chunks.push(current);
+  return chunks;
+}
 
 /**
  * Coalesces calls made in the same turn of the event loop into batch calls:
@@ -197,9 +216,10 @@ const MAX_BATCH = 500;
  * one request per source instead of one each. A failed batch rejects every
  * call in it, which the caller turns into an uncheckable answer, as before.
  * @param {(keys: string[], options: object) => Promise<unknown[]>} run  answers in key order
+ * @param {{ maxBytes?: number }} limits  maxBytes: the most key text one batch call carries
  * @returns {(key: string, options?: object) => Promise<unknown>}
  */
-function createBatcher(run) {
+function createBatcher(run, { maxBytes = Infinity } = {}) {
   let pending = [];
   const flush = () => {
     const queued = pending;
@@ -210,8 +230,7 @@ function createBatcher(run) {
       const id = call.options.correlationId ?? '';
       groups.set(id, [...(groups.get(id) || []), call]);
     }
-    for (const group of groups.values()) for (let start = 0; start < group.length; start += MAX_BATCH) {
-      const chunk = group.slice(start, start + MAX_BATCH);
+    for (const group of groups.values()) for (const chunk of chunksOf(group, maxBytes)) {
       run(chunk.map((call) => call.key), chunk[0].options)
         .then((answers) => chunk.forEach((call, index) => call.resolve(answers[index])))
         .catch((error) => chunk.forEach((call) => call.reject(error)));
@@ -298,7 +317,7 @@ function createBatchVerificationSource({ baseUrl, timeoutMs }) {
     const body = await requestJson('credential-verification', `${baseUrl}/verify/batch`, { ...options, timeoutMs, method: 'POST', body: { jws: jwsList } });
     if (!Array.isArray(body?.results) || body.results.length !== jwsList.length) throw new SourceError('credential-verification', 'contract_violation');
     return body.results;
-  });
+  }, { maxBytes: VERIFY_BATCH_BYTES });
   const statusMany = createBatcher(async (ids, options) => {
     const body = await requestJson('credential-verification', `${baseUrl}/status/batch`, { ...options, timeoutMs, method: 'POST', body: { credentialIds: ids } });
     if (!Array.isArray(body?.statuses) || body.statuses.length !== ids.length) throw new SourceError('credential-verification', 'contract_violation');
@@ -383,6 +402,6 @@ function createLifecycleSource({ baseUrl, internalKey, timeoutMs, batch = false 
 }
 
 module.exports = {
-  MAX_BATCH, coalesce, createBatcher, SourceError, askSource, toCurrentFingerprint, toPackageAnswer, toSignatureAndSchema, toStatus, toCandidate, toLifecycleOrigin,
+  MAX_BATCH, VERIFY_BATCH_BYTES, coalesce, createBatcher, SourceError, askSource, toCurrentFingerprint, toPackageAnswer, toSignatureAndSchema, toStatus, toCandidate, toLifecycleOrigin,
   createRegistrySource, createPackageSource, createVerificationSource, createLifecycleSource,
 };

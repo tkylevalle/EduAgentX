@@ -8,7 +8,14 @@ const { statusStore, StatusTransitionError } = require('./statusStore');
 const { issuerJwks, isStatusListKid, publicKeyForKid } = require('./issuer-keys');
 
 const app = express();
-app.use(express.json({ limit: '64kb' }));
+// One credential fits in 64 kB (a credential with behaviour evidence is about
+// 34 kB). A verify batch carries many, so only that route takes a larger body;
+// Marketplace splits its batches to stay under it (clients.js VERIFY_BATCH_BYTES).
+const BODY_LIMIT = '64kb';
+const VERIFY_BATCH_BODY_LIMIT = '2mb';
+const smallJson = express.json({ limit: BODY_LIMIT });
+const batchJson = express.json({ limit: VERIFY_BATCH_BODY_LIMIT });
+app.use((req, res, next) => (req.path === '/verify/batch' ? batchJson : smallJson)(req, res, next));
 
 // Load public key from env or file
 function getPublicKey() {

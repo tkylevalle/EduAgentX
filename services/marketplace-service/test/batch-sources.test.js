@@ -64,3 +64,18 @@ test('candidates that share a package version share its read', async (t) => {
   await Promise.all([source.getPackage('pkg', '1.0.0'), source.getPackage('pkg', '1.0.0'), source.getPackage('pkg', '2.0.0')]);
   assert.equal(upstream.seen.length, 2);
 });
+
+test('verify batches are split by size, so real credentials (about 34 kB each) never exceed the verifier body limit', async (t) => {
+  const { VERIFY_BATCH_BYTES } = require('../clients');
+  const upstream = await stub(t, (req, body) => (req.url === '/verify/batch'
+    ? [200, { results: body.jws.map(() => ({ httpStatus: 200, report })) }]
+    : [200, { statuses: body.credentialIds.map((credentialId) => ({ credentialId, status: 'active' })) }]));
+  const source = createVerificationSource({ baseUrl: upstream.url, timeoutMs: 1000, batch: true });
+  const large = Array.from({ length: 80 }, (_, index) => ({ credentialId: `big-${index}`, compactJws: `h.${'p'.repeat(34000)}${index}.s` }));
+  const answers = await Promise.all(large.map((candidate) => source.verify(candidate)));
+  assert.ok(answers.every((answer) => answer.signature === 'valid'));
+  const verifyCalls = upstream.seen.filter((call) => call.url === '/verify/batch');
+  assert.ok(verifyCalls.length > 1, 'more than one verify request');
+  assert.ok(verifyCalls.every((call) => call.body.jws.reduce((sum, jws) => sum + jws.length, 0) <= VERIFY_BATCH_BYTES));
+  assert.equal(verifyCalls.reduce((sum, call) => sum + call.body.jws.length, 0), 80);
+});
