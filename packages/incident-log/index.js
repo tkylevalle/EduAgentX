@@ -89,19 +89,46 @@ function startIncidentForwarding({ source, list, env = process.env, onError, fet
 }
 
 /**
- * Forwards a service's own incident records to the log on a timer. Each run
- * sends every record list() returns; the log keeps one per sourceId, so
- * re-sending is harmless and a failed run is simply repeated.
- * @param {{ list: () => Promise<object[]>, reporter: object, intervalMs: number, onError: (error: Error) => void }} options
- * @returns {{ runOnce: () => Promise<number>, stop: () => void }} runOnce resolves to how many were sent
+ * Forwards a service's own incident records to the log on a timer. Each
+ * incident is reported on its own: one the log refuses goes to onError and
+ * the rest are still sent, and it is tried again next run. The forwarder
+ * remembers which listed incidents the log has accepted and does not send
+ * them again; the memory holds only what list() still returns, so it stays
+ * as small as one listing. After a restart everything listed is sent once
+ * more, which is harmless because the log keeps one incident per sourceId.
+ * A run that starts while another is in flight joins it, so runs never overlap.
+ * @param {{ list: () => Promise<object[]>, reporter: object, intervalMs: number, onError?: (error: Error) => void }} options
+ *   onError: called once per refused incident; without it a run with any refusal rejects (after trying every incident)
+ * @returns {{ runOnce: () => Promise<number>, stop: () => void }} runOnce resolves to how many the log accepted in that run
  */
 function forwardIncidents({ list, reporter, intervalMs, onError }) {
-  async function runOnce() {
+  let forwarded = new Set();
+  let inFlight = null;
+  async function forward() {
     const incidents = await list();
-    for (const incident of incidents) await reporter.report(incident);
-    return incidents.length;
+    const accepted = new Set();
+    const refusals = [];
+    for (const incident of incidents) {
+      if (forwarded.has(incident.sourceId)) { accepted.add(incident.sourceId); continue; }
+      try {
+        await reporter.report(incident);
+        accepted.add(incident.sourceId);
+      } catch (error) { refusals.push(error); }
+    }
+    const sent = incidents.filter((incident) => accepted.has(incident.sourceId) && !forwarded.has(incident.sourceId)).length;
+    forwarded = accepted;
+    // Without onError the run itself fails, after every other incident was tried.
+    if (refusals.length && typeof onError !== 'function') throw new AggregateError(refusals, `${refusals.length} incident(s) not forwarded`);
+    refusals.forEach((error) => onError(error));
+    return sent;
   }
-  const timer = intervalMs > 0 ? setInterval(() => runOnce().catch(onError), intervalMs) : null;
+  function runOnce() {
+    inFlight ??= forward().finally(() => { inFlight = null; });
+    return inFlight;
+  }
+  // A tick that finds a run in flight is skipped, so one failure is never reported twice.
+  const tick = () => { if (!inFlight) runOnce().catch(onError); };
+  const timer = intervalMs > 0 ? setInterval(tick, intervalMs) : null;
   timer?.unref();
   return { runOnce, stop: () => timer && clearInterval(timer) };
 }

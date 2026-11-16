@@ -157,6 +157,29 @@ test('the package step never posts a review, and stops with the review state unt
   const approved = make([200, { activated: true }]);
   assert.equal((await approved.driver.ensurePackage()).packageId, 'pkg-x');
   for (const { calls } of [waiting, approved]) assert.equal(calls.some((call) => call.url.includes('/review')), false, 'no review is ever posted');
+  const disputed = make([409, { error: 'unresolved_review_disagreement' }]);
+  await assert.rejects(disputed.driver.ensurePackage(), (error) => error.code === 'package_awaiting_review' &&
+    error.detail.reason === 'unresolved_review_disagreement');
+  // Any other refusal is not a review state: saying "awaiting review" would send the operator to the wrong place.
+  for (const [status, body] of [[409, { error: 'validation_evidence_required' }], [502, { error: 'upstream_unavailable' }]]) {
+    await assert.rejects(make([status, body]).driver.ensurePackage(), (error) => error.code === 'activation_failed' &&
+      error.detail.status === status && error.detail.reason === body.error);
+  }
+});
+
+test('a reused package whose review record cannot be read stops the run instead of reporting no reviews', async () => {
+  const active = { packageId: 'pkg-x', version: '1.0.0', digest: 'd', manifest: { domain: 'Refunds' }, modules: [] };
+  const make = (details) => fakeFetch({
+    '/v1/auth/tokens': [200, { accessToken: 'token', expiresIn: 3600 }],
+    '/packages/active?domain=customer-refunds': [200, active],
+    '/v1/admin/curriculum/packages/pkg-x/1.0.0': details,
+  }).fetchImpl;
+  const driver = (fetchImpl) => createLifecycleDriver({ gatewayUrl: GATEWAY, syntheticUrl: LEARNER, validationUrl: 'http://validation',
+    curriculumInternalKey: 'key', admin, candidate: { manifest: { domainId: 'customer-refunds' } }, fetchImpl });
+  await assert.rejects(driver(make([503, { error: 'unavailable' }])).ensurePackage(), (error) => error.code === 'package_details_unavailable' &&
+    error.detail.status === 503);
+  const reused = await driver(make([200, { reviews: [{ reviewer_id: 'person-a', score: 4, approved: true }] }])).ensurePackage();
+  assert.deepEqual(reused.reviews, [{ reviewer: 'person-a', score: 4, approved: true }]);
 });
 
 test('training and the examination run in the domain of the candidate package', async () => {

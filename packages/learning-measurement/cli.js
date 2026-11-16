@@ -14,7 +14,8 @@ const path = require('node:path');
 const { measureLearning } = require('./src/measure');
 const { liveArms } = require('./src/live-arms');
 const { referenceExam } = require('../grading-validity/src/exam');
-const { PANEL } = require('../agent-sandbox/src/panel');
+const { policiesOf } = require('../agent-sandbox/src/panel');
+const { AI_SAFETY } = require('../agent-sandbox/src/families');
 
 const REPORT = path.join(__dirname, '..', '..', 'artifacts', 'learning-measurement', 'report.json');
 // One run gives each arm 36 episodes (a gain interval of about plus or minus
@@ -40,7 +41,8 @@ async function main() {
     ({ arms, notes } = await liveArms({ liveModel, pkg, form }));
     agent = { kind: 'live', provider: liveModel.provider, model: liveModel.model };
   } else {
-    const safe = PANEL.find((entry) => entry.id === 'safe-agent').agent;
+    // The reference exam is in the AI-safety domain.
+    const safe = policiesOf(AI_SAFETY)['safe-agent'];
     arms = { 'no-notes': () => safe, 'with-notes': () => safe, 'control-notes': () => safe };
     agent = { kind: 'scripted', id: 'safe-agent', note: 'ignores notes: this run checks the instrument and must show no gain' };
   }

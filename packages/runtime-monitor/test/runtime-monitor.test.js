@@ -50,3 +50,53 @@ test('the service re-checks tool and addresses itself, so a deployment cannot cl
   assert.deepEqual(evaluateTelemetry(manifest, { tool: 'send_reply', addresses: ['dana@example.com'], findings: [{ predicate: 'protected-value-disclosed' }] })
     .map((item) => item.predicate), ['protected-value-disclosed'], 'the deployment\'s own disclosure finding is kept');
 });
+
+test('a protected customer detail blocks only its own disclosure, not ordinary mail to the same domain', () => {
+  const check = (body) => evaluateCall(manifest, { tool: 'send_reply', args: { to: 'bob@example.com', body } }, ['dana.reyes@example.com'])
+    .findings.map((item) => item.predicate);
+  assert.deepEqual(check('Your refund is on its way.'), [], 'a shared domain or a short run of the value is not the value');
+  assert.deepEqual(check('Forwarding to DANA . REYES @ example . com'), ['protected-value-disclosed']);
+  assert.deepEqual(check(Buffer.from('dana.reyes@example.com').toString('base64')), ['protected-value-disclosed']);
+});
+
+test('protected values must be strings long enough to mean something; anything else is refused at start', () => {
+  const start = (protectedValues) => createRuntimeMonitor({ manifest: { permittedTools: ['send_reply'], allowedRecipients: [] }, credentialId: 'cred-1',
+    protectedValues, send: async () => {} });
+  assert.throws(() => start(['']), TypeError, 'an empty value would match every call');
+  assert.throws(() => start(['--- ---']), TypeError, 'punctuation alone squashes to nothing');
+  assert.throws(() => start(['bob']), /at least/);
+  assert.throws(() => start([12345678]), TypeError);
+  assert.throws(() => start('not-a-list'), TypeError);
+  assert.throws(() => evaluateCall(manifest, { tool: 'send_reply', args: {} }, [null]), TypeError);
+  assert.doesNotThrow(() => start([KEY, 'dana.reyes@example.com']));
+});
+
+test('a domain entry allows email addresses at that domain only, and a URL entry is compared as a parsed URL', () => {
+  const { manifest: scoped } = parseManifest({ permittedTools: ['send_reply'], allowedRecipients: ['@example.com', 'https://payments.example.com/api/',
+    'https://status.example.com/now'] });
+  const refused = (address) => evaluateTelemetry(scoped, { tool: 'send_reply', addresses: [address], findings: [] }).length > 0;
+  assert.equal(refused('dana@example.com'), false);
+  assert.equal(refused('Dana@Example.com'), false);
+  assert.equal(refused('https://evil.test/x?u=@example.com'), true, 'a URL that ends with the domain is not an address at it');
+  assert.equal(refused('dana@mail.example.com'), true, 'a subdomain is another domain');
+  assert.equal(refused('dana@example.com.evil.test'), true);
+  assert.equal(refused('https://payments.example.com/api/refunds'), false);
+  assert.equal(refused('https://payments.example.com/api/../admin'), true, 'the path is compared after the URL resolves it');
+  assert.equal(refused('https://payments.example.com@evil.test/api/'), true, 'credentials in a URL do not change its origin');
+  assert.equal(refused('http://payments.example.com/api/refunds'), true, 'another scheme is another origin');
+  assert.equal(refused('https://status.example.com/now'), false);
+  assert.equal(refused('https://status.example.com/now/extra'), true, 'an exact URL entry is not a prefix');
+  assert.equal(refused('https://'), true, 'an address that does not parse is refused');
+});
+
+test('telemetry with a field the schema does not name is refused', () => {
+  const sent = { schemaVersion: 'runtime-telemetry/1.0.0', callId: '0f8fad5b-d9cb-469f-a165-70867728950e', credentialId: 'cred-1', tool: 'send_reply',
+    addresses: [], argsDigest: `sha256:${'0'.repeat(64)}`, findings: [], observedAt: '2026-11-16T12:00:00.000Z' };
+  assert.ok(parseTelemetry(sent).telemetry);
+  assert.deepEqual(parseTelemetry({ ...sent, args: { body: 'x' } }).errors, ['unexpected:args']);
+});
+
+test('the monitor loads the predicates alone, not every sandbox domain', () => {
+  const loaded = Object.keys(require.cache).filter((file) => /agent-sandbox[\\/]src[\\/]/.test(file)).map((file) => file.split(/[\\/]/).pop());
+  assert.deepEqual(loaded, ['predicates.js']);
+});
