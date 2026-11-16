@@ -69,11 +69,10 @@ const db = {
       [id, state, `State set to ${state} by validation-activation`, version || null]);
   },
 
-  async getActivePackage() {
-    if (!pool) {
-      if (!_activePointer) return null;
-      return _packages.get(_activePointer) || null;
-    }
+  // Every Active package, newest first: activation keeps one per domain, so
+  // this is at most one row per domain.
+  async getActivePackages() {
+    if (!pool) return [..._packages.values()].filter((pkg) => pkg.state === 'Active').reverse();
     const r = await pool.query(
       `SELECT p.package_id AS id, p.version, p.domain, p.payload, p.digest
        FROM curriculum_engine.packages p
@@ -81,10 +80,12 @@ const db = {
          SELECT state FROM curriculum_engine.package_lifecycle_events e
          WHERE e.package_id=p.package_id AND e.version=p.version ORDER BY e.event_id DESC LIMIT 1
        ) e ON e.state='Active'
-       ORDER BY p.created_at DESC LIMIT 1`);
-    if (!r.rows[0]) return null;
-    const row = r.rows[0];
-    return { ...row.payload, id: row.id, version: row.version, digest: row.digest, state: 'Active' };
+       ORDER BY p.created_at DESC`);
+    return r.rows.map((row) => ({ ...row.payload, id: row.id, version: row.version, digest: row.digest, state: 'Active' }));
+  },
+
+  async getActivePackage() {
+    return (await this.getActivePackages())[0] || null;
   },
 
   async setActivePointer(id, version) {

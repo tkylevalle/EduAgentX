@@ -91,8 +91,8 @@ function createApp({ store, sources, internalKey = process.env.EXAMINATION_INTER
     try {
       const actor = req.header('x-actor-subject');
       if (req.header('x-actor-role') !== 'agent') throw fail('forbidden', 403);
-      if (!req.body || Object.keys(req.body).some((k) => !['idempotencyKey','trainingSessionId','trustedExecution'].includes(k)) || typeof req.body.idempotencyKey !== 'string' ||
-        !KEY.test(req.body.idempotencyKey)) throw fail('invalid_request', 400);
+      if (!req.body || Object.keys(req.body).some((k) => !['idempotencyKey','trainingSessionId','trustedExecution','domainId'].includes(k)) || typeof req.body.idempotencyKey !== 'string' ||
+        !KEY.test(req.body.idempotencyKey) || (req.body.domainId !== undefined && !KEY.test(String(req.body.domainId)))) throw fail('invalid_request', 400);
       const a = req.body.trustedExecution || null;
       if (a && (!execution.validAuthority(a) || a.executorId !== actor || !execution.UUID.test(req.body.trainingSessionId || ''))) throw fail('provenance_conflict');
       const existing = await store.findByKey(actor, req.body.idempotencyKey);
@@ -103,7 +103,8 @@ function createApp({ store, sources, internalKey = process.env.EXAMINATION_INTER
         const attempt = await reconcile(existing, req);
         return res.json({ apiVersion: 'v1', outcome: 'replay', attempt: learnerView(attempt, clock()), correlationId: req.correlationId });
       }
-      const pkg = await active(req.correlationId);
+      // The package to examine: the Active one of the domain the caller names, or the only Active one.
+      const pkg = await active(req.correlationId, req.body.domainId ? { domain: req.body.domainId } : {});
       const registration = await sources.registration(actor, req.correlationId);
       const completion = await sources.completion(actor, pkg, req.correlationId, req.body.trainingSessionId);
       if (a && (!execution.validCompletion(completion) || completion.sessionId !== req.body.trainingSessionId ||
@@ -161,7 +162,8 @@ function createApp({ store, sources, internalKey = process.env.EXAMINATION_INTER
         // derive() takes terminalReason from the system_aborted event's payload.reason.
         if (cause.terminalReason !== 'grading_unavailable') throw fail('fallback_cause_reason_mismatch');
       }
-      const pkg = await active(req.correlationId);
+      // A fallback for an aborted attempt stays on that attempt's package.
+      const pkg = await active(req.correlationId, cause ? { packageId: cause.package.id } : {});
       const registration = await sources.registration(agentLearnerKey, req.correlationId);
       if (!registration?.configurationFingerprint) throw fail('registration_required');
       // A changed configuration is a different Agent Learner state; it never carries over.
@@ -182,7 +184,7 @@ function createApp({ store, sources, internalKey = process.env.EXAMINATION_INTER
         executionBinding.provenance.configurationFingerprint !== registration.configurationFingerprint)) throw fail('provenance_conflict');
       const selected = await selectFallback({ pkg, reason, correlationId: req.correlationId });
       // /fallback/select returns no version or digest, so confirm governance did not move during the call.
-      const confirmed = await active(req.correlationId);
+      const confirmed = await active(req.correlationId, { packageId: pkg.packageId });
       if (confirmed.packageId !== pkg.packageId || confirmed.version !== selected.packageVersion ||
         confirmed.digest !== selected.packageDigest) throw fail('fallback_governance_changed');
       const form = buildFallbackForm({ selection: selected.selection, packageId: confirmed.packageId,
@@ -380,7 +382,7 @@ function createApp({ store, sources, internalKey = process.env.EXAMINATION_INTER
       // A quarantine or replacement since admission ends the attempt before scoring.
       // An unreachable dependency propagates and leaves it in progress, safe to retry.
       let pkg;
-      try { pkg = await active(req.correlationId); }
+      try { pkg = await active(req.correlationId, { packageId: attempt.package.id }); }
       catch (error) {
         if (error.status !== 409) throw error;
         return reply('accepted', await abort('governance_changed'));

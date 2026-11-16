@@ -110,10 +110,18 @@ route('post', '/activate', requireInternalActor, async (req, res) => {
   res.json({ activated: true, packageId: package_id, superseded_id: result.superseded_id });
 });
 
-// GET /packages/active — active package with digest + packageId for training service
+// GET /packages/active[?domain=<domainId>|?packageId=<id>] — the Active package
+// for one domain, with digest + packageId. With several domains active and no
+// selector, the caller must say which: guessing would examine the wrong domain.
 route('get', '/packages/active', requireInternalActor, async (req, res) => {
-  const pkg = await packageDb.getActivePackage();
-  if (!pkg) return res.status(404).json({ error: 'no_active_package' });
+  const { domain, packageId } = req.query;
+  if ([domain, packageId].some((value) => value !== undefined && (typeof value !== 'string' || !value.trim())))
+    return res.status(400).json({ error: 'invalid_selector' });
+  const matches = (await packageDb.getActivePackages()).filter((value) =>
+    (!domain || value.manifest?.domainId === domain) && (!packageId || value.id === packageId));
+  if (!matches.length) return res.status(404).json({ error: 'no_active_package' });
+  if (matches.length > 1) return res.status(409).json({ error: 'domain_required', domains: matches.map((value) => value.manifest?.domainId) });
+  const [pkg] = matches;
   const evidence = await packageDb.getEvidence(pkg.id, pkg.version);
   const quarantinedScopes = await packageDb.getScopedQuarantines(pkg.id, pkg.version);
   res.json({
@@ -121,6 +129,7 @@ route('get', '/packages/active', requireInternalActor, async (req, res) => {
     digest: pkg.digest || null,
     version: pkg.version,
     state: pkg.state,
+    domainId: pkg.manifest?.domainId || null,
     examTemplate: pkg.examTemplate || pkg.examination_template,
     curriculumTrack: pkg.curriculumTrack,
     sources: pkg.sources,

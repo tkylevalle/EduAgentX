@@ -43,6 +43,7 @@ function toPackageRecord(body) {
   return {
     id: body.packageId,
     version: body.version,
+    domainId: body.domainId ?? null,
     state: body.state,
     digest: body.digest,
     quarantinedScopes: body.quarantinedScopes,
@@ -97,7 +98,8 @@ function createPackageSource({
     return body === null ? null : toPackageRecord(body);
   };
   return {
-    getActive: (options) => read('/packages/active', options),
+    // selector: { domain } or { packageId }; none asks for the only Active package.
+    getActive: (options, selector = {}) => read(`/packages/active${Object.keys(selector).length ? `?${new URLSearchParams(selector)}` : ''}`, options),
     getById: (id, version, options) => read(`/packages/${encodeURIComponent(id)}?version=${encodeURIComponent(version)}`, options),
   };
 }
