@@ -17,7 +17,7 @@ const { checkEligibility } = require('./eligibility');
 const { POLICY_VERSION, matchCandidates } = require('./matching');
 const { createPgStore, withRetry, isUniqueViolation } = require('./store');
 const { askSource, createRegistrySource, createPackageSource, createVerificationSource,
-  createLifecycleSource } = require('./clients');
+  createLifecycleSource, withCurrentCandidate } = require('./clients');
 const { DEFAULT_STREAM, createCredentialConsumer, createRedisClient } = require('./stream-consumer');
 const { DEFAULT_CONCURRENCY, concurrency, createAuthorityDispatch } = require('./authority-dispatch');
 
@@ -241,7 +241,7 @@ function createApp({
     const state = deriveRequestState(found.events);
     if (state.status !== 'open') throw new HttpError(409, 'request_not_open');
     const version = found.versions.find((v) => v.version === state.openVersion);
-    const records = await store.listProjection();
+    const records = (await store.listProjection()).map(withCurrentCandidate);
 
     // 2. Ask the owning services with no transaction or lock held, so slow
     // sources never block a close, a new version or another check.
@@ -294,7 +294,7 @@ function createApp({
     if (!version) throw new HttpError(409, 'request_version_changed');
     // A corrupted/unsupported stored request must never widen matching.
     const valid = validateRequestVersion(version.content);
-    const records = valid.ok ? await store.listProjection() : [];
+    const records = valid.ok ? (await store.listProjection()).map(withCurrentCandidate) : [];
     const answers = await dispatchAuthorities(records, (record) => gatherAnswers(record, req.correlationId));
     return withRetry(store, `request:${id}`, async (tx) => {
       const again = await tx.findMatchByKey(req.actor, idempotencyKey);

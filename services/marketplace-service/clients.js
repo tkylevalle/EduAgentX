@@ -168,6 +168,27 @@ function toCandidate(record) {
   };
 }
 
+/**
+ * A projected record with its candidate in the current shape. A projection
+ * written by an earlier release lacks fields added since (the grader, the
+ * behaviour bound, the attestation level), and the origin check compares the
+ * candidate with the one derived from its signed credential, so it would fail
+ * for every older projection. A candidate of another shape is derived again
+ * from its own compact JWS, which the signature, schema and origin gates still
+ * check; a candidate of the current shape is never replaced.
+ * @param {object} record a credential_projection record
+ * @returns {object} the record, or a copy with its candidate derived again
+ */
+function withCurrentCandidate(record) {
+  const stored = record?.candidate;
+  if (!object(stored) || !text(stored.compactJws) || !text(stored.credentialId)) return record;
+  let credential;
+  try { credential = JSON.parse(Buffer.from(stored.compactJws.split('.')[1], 'base64url').toString('utf8')); } catch { return record; }
+  const current = toCandidate({ credentialId: stored.credentialId, credential, compactJws: stored.compactJws });
+  const shape = (value) => Object.keys(value).sort().join(',');
+  return current && shape(current) !== shape(stored) ? { ...record, candidate: current } : record;
+}
+
 // --- HTTP
 
 // Returns the parsed body for an accepted status, null on 404, and throws otherwise.
@@ -409,6 +430,6 @@ function createLifecycleSource({ baseUrl, internalKey, timeoutMs, batch = false 
 }
 
 module.exports = {
-  MAX_BATCH, VERIFY_BATCH_BYTES, coalesce, createBatcher, SourceError, askSource, toCurrentFingerprint, toPackageAnswer, toSignatureAndSchema, toStatus, toCandidate, toLifecycleOrigin,
+  MAX_BATCH, VERIFY_BATCH_BYTES, withCurrentCandidate, coalesce, createBatcher, SourceError, askSource, toCurrentFingerprint, toPackageAnswer, toSignatureAndSchema, toStatus, toCandidate, toLifecycleOrigin,
   createRegistrySource, createPackageSource, createVerificationSource, createLifecycleSource,
 };

@@ -117,3 +117,18 @@ test('simulation evidence is permitted only under the test issuer', () => {
   assert.equal(p.issuerPermits('live', 'https://eduagentx.example/issuers/eduagentx'), true);
   assert.equal(p.issuerPermits(undefined, p.SIMULATION_ISSUER), false);
 });
+
+// main's own executor credential, issued before graders were recorded, exported from a copy of its demo database.
+test('a provenance credential issued before graders were recorded still carries valid provenance', () => {
+  const p = require('..');
+  const legacy = require('./fixtures/main-provenance-credential.json');
+  assert.equal(legacy.credentialSubject.competency.grader, undefined);
+  assert.equal(p.credentialProvenance(legacy), true);
+  const withBadGrader = structuredClone(legacy);
+  withBadGrader.credentialSubject.competency.grader = { id: '' };
+  withBadGrader.evidence.grader = { id: '' };
+  assert.equal(p.credentialProvenance(withBadGrader), false, 'a recorded grader must still be valid');
+  const oneCopy = structuredClone(legacy);
+  oneCopy.evidence.grader = { id: 'deterministic-keyword-grader', version: '1.1.0' };
+  assert.equal(p.credentialProvenance(oneCopy), false, 'both copies must agree');
+});

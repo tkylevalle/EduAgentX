@@ -55,7 +55,10 @@ function derive(attempt, events, responses) {
     attempt.form.subject.configurationFingerprint !== attempt.configurationFingerprint || attempt.form.mode !== attempt.mode ||
     sha256(attempt.form.package) !== sha256(attempt.package) || Date.parse(attempt.deadlineAt) <= Date.parse(attempt.startedAt))
     throw fail('invalid_manifest');
-  if ((attempt.form.provenanceProfile || attempt.form.schemaVersion.endsWith('/1.1.0')) && (!execution.validRun(attempt.form.provenance) ||
+  // A stored run is history: it is checked whole, but not against today's
+  // reference-source catalog, which changes whenever the reference code does.
+  // New runs are checked against the catalog when they are admitted.
+  if ((attempt.form.provenanceProfile || attempt.form.schemaVersion.endsWith('/1.1.0')) && (!execution.validRun(attempt.form.provenance, false) ||
     attempt.form.provenanceProfile !== execution.RUN || attempt.form.provenance.agentLearnerKey !== attempt.agentLearnerKey ||
     attempt.form.provenance.configurationFingerprint !== attempt.configurationFingerprint ||
     !execution.same(attempt.form.provenance.package, attempt.package) ||
@@ -96,10 +99,8 @@ function derive(attempt, events, responses) {
         throw fail('invalid_event_history');
       if (attempt.form.provenanceProfile) {
         const r = attempt.form.provenance;
-        // A behaviour item's receipt was issued by the Engine over its recorded steps.
-        if (answeredItem.kind === 'behaviour') execution.validateEpisodeReceipt(r, event.payload.executionEvidence, answeredItem, row.response, attempt.attemptId);
-        else execution.validateReceipt(r, execution.runAuthority(r), { mode: r.evidenceMode, environment: r.environment },
-          event.payload.executionEvidence, 'examination', answeredItem, row.response, attempt.attemptId);
+        // Receipts were checked against the reference code when written; read back, they must be intact.
+        execution.validateRecordedReceipt(r, event.payload.executionEvidence, 'examination', answeredItem, row.response, attempt.attemptId);
         executionReceipts.push(event.payload.executionEvidence);
       }
       answered.add(row.itemId);
@@ -134,7 +135,7 @@ function derive(attempt, events, responses) {
     throw fail('invalid_response_history');
   return { ...attempt, ...state,
     ...(attempt.form.provenanceProfile && state.responseCollectionComplete ? { executionCoverage: execution.coverage(attempt.form.provenance,
-      'examination', attempt.form.items.map((i) => i.id), attempt.form.items.map((i) => executionReceipts.find((r) => r.itemId === i.id)), attempt.attemptId) } : {}), responseSetDigest: orderedDigest(), events, responses };
+      'examination', attempt.form.items.map((i) => i.id), attempt.form.items.map((i) => executionReceipts.find((r) => r.itemId === i.id)), attempt.attemptId, false) } : {}), responseSetDigest: orderedDigest(), events, responses };
 }
 
 function stateReceipt(snapshot) {
