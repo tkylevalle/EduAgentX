@@ -6,7 +6,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
-  decideContinue, decideRemediation, decideStart, decideSubmit, deriveSessionState,
+  decideCarriedRemediation, decideContinue, decideRemediation, decideStart, decideSubmit, deriveSessionState,
 } = require('../session');
 const { completionPolicy } = require('../plan');
 
@@ -237,4 +237,37 @@ test('a remediation request is idempotent by requestId and refuses unsafe or unk
   assert.equal(reason(pkg({ payload: unlinked }), registration, { objectiveIds: ['o3'] }), 'no_targeted_content');
   assert.equal(reason(pkg(), registration, { policy: completionPolicy({ minPracticeItemsPerModule: 2 }) }),
     'insufficient_practice');
+});
+
+// A remediation assigned to config-1 and ended when the learner came back as config-2.
+function remediationEndedByReconfiguration() {
+  const assigned = decideRemediation(pkg(), registration, {}, remediationInput());
+  const reconfigured = { ...registration, configurationFingerprint: 'sha256:config-2', configurationVersion: 2 };
+  const ended = decideStart(pkg(), reconfigured, { session: assigned.session, state: deriveSessionState(assigned.events) },
+    input({ agentLearnerKey: LEARNER }));
+  assert.deepEqual([ended.outcome, ended.reason], ['blocked', 'configuration_changed']);
+  return { previous: assigned.session, events: [...assigned.events, ...ended.events], reconfigured };
+}
+
+test('a remediation ended by a reconfiguration is opened again for the new configuration on the same request', () => {
+  const { previous, events, reconfigured } = remediationEndedByReconfiguration();
+  const carried = decideCarriedRemediation(pkg(), reconfigured, { session: previous, state: deriveSessionState(events) },
+    input({ sessionId: 'rem-2', agentLearnerKey: LEARNER }));
+  assert.equal(carried.outcome, 'ok');
+  assert.deepEqual([carried.session.kind, carried.session.configurationFingerprint, carried.session.remediation.requestId,
+    carried.session.remediation.carriedFromSessionId], ['remediation', 'sha256:config-2', 'req-1', 'rem-1']);
+  assert.deepEqual(carried.session.remediation.objectiveIds, ['o2']);
+  assert.deepEqual(carried.events.map((event) => event.eventType), ['session_started']);
+  assert.equal(carried.response.remediation.requestId, 'req-1');
+});
+
+test('only a remediation ended by a reconfiguration, on the package it was assigned for, is carried over', () => {
+  const { previous, events, reconfigured } = remediationEndedByReconfiguration();
+  const state = deriveSessionState(events);
+  const carry = (overrides) => decideCarriedRemediation(overrides.pkg || pkg(), reconfigured, { session: overrides.session || previous,
+    state: overrides.state || state }, input({ sessionId: 'rem-x', agentLearnerKey: LEARNER }));
+  assert.equal(carry({ pkg: pkg({ version: '1.1.0' }) }), null, 'a newer Active version is a new examination scope');
+  assert.equal(carry({ state: { ...state, blockReason: 'session_timed_out' } }), null);
+  assert.equal(carry({ state: { ...state, status: 'completed', blockReason: null } }), null);
+  assert.equal(carry({ session: { ...previous, kind: 'standard', remediation: null } }), null);
 });

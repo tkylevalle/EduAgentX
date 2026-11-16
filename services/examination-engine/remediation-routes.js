@@ -11,14 +11,10 @@ const { fail } = require('./lifecycle');
 // become a failure, so a new attempt waits for its outcome. It is read before
 // the events: its outcome and its remediation event commit together, so one of
 // the two reads always sees it.
-// The remediation belongs to the configuration that failed: a reconfigured
-// agent is different evidence (Training ends the old configuration's sessions
-// as configuration_changed), so it starts from standard training and a new
-// standard attempt. With no known fingerprint, any configuration's remediation gates.
-async function requireRemediation(store, { actor, pkg, completion, now, configurationFingerprint = null }) {
+async function requireRemediation(store, { actor, pkg, completion, now }) {
   const scope = { agentLearnerKey: actor, packageId: pkg.packageId || pkg.id, packageVersion: pkg.version };
   if (await store.hasAttemptAwaitingOutcome({ ...scope, now })) throw fail('previous_attempt_awaiting_outcome');
-  const event = await store.latestRemediationEvent({ ...scope, configurationFingerprint });
+  const event = await store.latestRemediationEvent(scope);
   if (!event) return;
   if (completion?.sessionKind === 'remediation' && completion.remediationRequestId === event.eventId) return;
   // A remediation closed by a passing re-examination no longer gates new attempts.
