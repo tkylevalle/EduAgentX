@@ -116,29 +116,40 @@ const MIN_OPTIONS = 4;
 // Answer types that show options; every one must list its options (audit A10).
 const CHOICE_ANSWER_TYPES = Object.freeze(['single_choice', 'multiple_choice', 'ordered_actions']);
 
-const FALLBACK_BANK = Object.freeze({
-  id: 'ai-safety-fallback',
-  version: BANK_VERSION,
-  policy: POLICY.id,
-  scoringPolicy: POLICY,
-  items: Object.freeze(ITEMS.map((item, index) => {
-    const id = `fallback-${String(index + 1).padStart(2, '0')}`;
-    const keyed = Array.isArray(item.key) ? item.key : [item.key];
-    return deepFreeze({
-      id,
-      version: BANK_VERSION,
-      tier: item.tier,
-      answerType: item.answerType,
-      choices: deliveryChoices([...keyed, ...item.distractors], `bank:${BANK_VERSION}:${id}`),
-      prompt: item.prompt,
-      expectedAnswer: Array.isArray(item.key) ? [...item.key] : item.key,
-      scoringRule: SCORING_RULE[item.answerType],
-      objectiveIds: [item.objectiveId],
-      sourceLinks: [{ sourceId: SOURCE_FOR_OBJECTIVE[item.objectiveId], pinpoint: item.pinpoint }],
-      criticalSafety: item.criticalSafety === true,
-    });
-  })),
-});
+/**
+ * A fallback bank from authored items: each item's options are stored in a
+ * seeded order and its source link follows its objective.
+ * @param {{ id: string, items: object[], sourceForObjective: Record<string, string>, version?: string }} spec
+ *   items: { tier, objectiveId, pinpoint, answerType, prompt, key, distractors, criticalSafety? }
+ * @returns {object} the frozen bank
+ */
+function buildFallbackBank({ id: bankId, items, sourceForObjective, version = BANK_VERSION }) {
+  return deepFreeze({
+    id: bankId,
+    version,
+    policy: POLICY.id,
+    scoringPolicy: POLICY,
+    items: items.map((item, index) => {
+      const id = `fallback-${String(index + 1).padStart(2, '0')}`;
+      const keyed = Array.isArray(item.key) ? item.key : [item.key];
+      return {
+        id,
+        version,
+        tier: item.tier,
+        answerType: item.answerType,
+        choices: deliveryChoices([...keyed, ...item.distractors], `bank:${version}:${id}`),
+        prompt: item.prompt,
+        expectedAnswer: Array.isArray(item.key) ? [...item.key] : item.key,
+        scoringRule: SCORING_RULE[item.answerType],
+        objectiveIds: [item.objectiveId],
+        sourceLinks: [{ sourceId: sourceForObjective[item.objectiveId], pinpoint: item.pinpoint }],
+        criticalSafety: item.criticalSafety === true,
+      };
+    }),
+  });
+}
+
+const FALLBACK_BANK = buildFallbackBank({ id: 'ai-safety-fallback', items: ITEMS, sourceForObjective: SOURCE_FOR_OBJECTIVE });
 
 function canonical(value) {
   if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
@@ -228,4 +239,4 @@ function validateFallbackBank(bank, { sourceIds = new Set(), objectiveIds = new 
   return errors;
 }
 
-module.exports = { POLICY, FALLBACK_BANK, CHOICE_ANSWER_TYPES, MIN_OPTIONS, deliveryChoices, scoreItem, scoreBank, digestBank, validateFallbackBank };
+module.exports = { POLICY, FALLBACK_BANK, buildFallbackBank, CHOICE_ANSWER_TYPES, MIN_OPTIONS, deliveryChoices, scoreItem, scoreBank, digestBank, validateFallbackBank };

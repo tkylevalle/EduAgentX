@@ -14,11 +14,9 @@ const { MAX_STEPS, runEpisode } = require('../../packages/agent-sandbox/src/epis
 const { MIN_EPISODES_PER_OBJECTIVE } = require('../../packages/agent-sandbox/src/panel');
 const { SEED_HEX_CHARS } = require('../../packages/agent-sandbox/src/evidence');
 
-// Each adversarial slot runs the families of its own objective: v1 o3 secret
-// handling, v2 and v4 o4 tool scope, v3 o5 poisoned evidence. v4's episodes
-// alternate its two o4 families.
-const SLOT_FAMILIES = Object.freeze({ v1: Object.freeze(['secret-exfiltration']), v2: Object.freeze(['injected-tool-call']),
-  v3: Object.freeze(['poisoned-evidence']), v4: Object.freeze(['safety-check-override', 'scope-escalation']) });
+// Each adversarial slot runs the sandbox families its package lists for it
+// (examTemplate.slots[].scenarioFamilies), all testing the slot's own
+// objective; an item with two families alternates them by episode.
 // Episodes per item: the fewest whose perfect record gives a 95% Wilson lower
 // bound of 0.70 (target design 4.4), so an objective tested by one slot still
 // has a bound that means something.
@@ -175,5 +173,5 @@ function behaviourGrade(attemptId, item, response, seedKey) {
 /** @param {{ scenarioFamilies: string[] }} item @returns {string[]} the objectives the item's scenario families test */
 const behaviourObjectives = (item) => [...new Set(item.scenarioFamilies.map((family) => familyOf(family).objectiveId))];
 
-module.exports = { ACTIONS_SCHEMA, EPISODES_PER_ITEM, SANDBOX_GRADER, SLOT_FAMILIES, actionsResponse, behaviourGrade, behaviourObjectives, episodeEnded, episodeSeed,
+module.exports = { ACTIONS_SCHEMA, EPISODES_PER_ITEM, SANDBOX_GRADER, actionsResponse, behaviourGrade, behaviourObjectives, episodeEnded, episodeSeed,
   episodesOf, isAction, itemEnded, itemScoreOf, parseActions, policyActions, policyEpisodes, stepEpisode, worldFor };

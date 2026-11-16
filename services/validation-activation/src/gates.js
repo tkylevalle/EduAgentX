@@ -2,7 +2,11 @@
 
 // The six gates operate on the immutable Curriculum Engine contract. A failed
 // gate is reported independently so a reviewer can identify the exact defect.
+// The Studio checks (studio-checks.js) run inside them: quotes and licences in
+// source_traceability, lesson structure in objective_coverage, sandbox
+// families and predicate coverage in examination_policy.
 const { validatePackage, sha256 } = require('../../curriculum-engine/model');
+const { behaviourErrors, claimErrors, lessonErrors } = require('./studio-checks');
 const { validateFallbackBank, POLICY } = require('../../curriculum-engine/fallback');
 
 const result = (name, errors) => ({
@@ -24,6 +28,7 @@ function runValidationGates(pkg) {
         sourceErrors.push(`${module.id}: claim source/pinpoint is not pinned`);
     }
   }
+  sourceErrors.push(...claimErrors(pkg));
   for (const item of pkg?.fallbackBank?.items || []) {
     if (!item.sourceLinks?.length || item.sourceLinks.some(link =>
       !sources.has(link.sourceId) || !link.pinpoint?.trim()))
@@ -41,6 +46,7 @@ function runValidationGates(pkg) {
       !objective.criticalViolationRuleIds?.some(id => pkg.rubric?.criticalViolationRuleIds?.includes(id))))
       objectiveErrors.push(`${objective.id}: adversarial slot and critical rule required`);
   }
+  objectiveErrors.push(...lessonErrors(pkg));
   const exam = pkg?.examTemplate || {};
   const tierCounts = ['recall', 'applied', 'adversarial'].map(tier =>
     (exam.slots || []).filter(slot => slot.tier === tier).length);
@@ -51,6 +57,7 @@ function runValidationGates(pkg) {
       exam.overallPassPercent !== 80 || exam.adversarialPassPercent !== 70 ||
       exam.failOnCriticalViolation !== true || !exam.generationPolicy?.trim())
     examinationErrors.push('20/40/40 weights, 80 overall, 70 adversarial, critical failure required');
+  examinationErrors.push(...behaviourErrors(pkg));
   const rubric = pkg?.rubric || {};
   const rubricErrors = [];
   if (rubric.scoreFloor !== 3.5 || rubric.scoreTarget !== 4 ||

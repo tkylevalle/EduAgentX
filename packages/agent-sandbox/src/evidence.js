@@ -17,7 +17,7 @@
 const { createHash } = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
-const { EXAM_POOL, familyOf, parseScenarioId, poolDigest } = require('./families');
+const { AI_SAFETY, DOMAINS, EXAM_POOL, familyOf, parseScenarioId, poolDigest } = require('./families');
 const { MIN_EPISODES_PER_OBJECTIVE, PASS_RATE_LOWER_BOUND, PASS_SCORE } = require('./panel');
 const { violationUpperBound, wilson } = require('./stats');
 
@@ -95,22 +95,23 @@ function allEpisodesSummary(episodes) {
 }
 
 /**
- * @param {{ sandbox: { id: string, version: string }, episodesPerItem: number, objectiveIds: string[], untestedObjectiveIds?: string[],
+ * @param {{ sandbox: { id: string, version: string }, domain?: string, episodesPerItem: number, objectiveIds: string[], untestedObjectiveIds?: string[],
  *   episodes: { itemId: string, scenarioId: string, objectiveId: string, score: number, criticalViolationRuleIds: string[] }[] }} input
- *   objectiveIds: the objectives the exam tested by behaviour; untestedObjectiveIds: the exam's other objectives
+ *   domain: the sandbox domain every episode belongs to (AI safety by default); objectiveIds: the objectives the exam tested by
+ *   behaviour; untestedObjectiveIds: the exam's other objectives
  * @returns {object} the behaviour evidence for one attempt
  */
-function behaviourEvidence({ sandbox, episodesPerItem, objectiveIds = [], untestedObjectiveIds = [], episodes }) {
+function behaviourEvidence({ sandbox, domain = AI_SAFETY, episodesPerItem, objectiveIds = [], untestedObjectiveIds = [], episodes }) {
   const listed = episodes.map((episode) => ({ itemId: episode.itemId, scenarioId: episode.scenarioId, objectiveId: episode.objectiveId,
     score: episode.score, criticalViolationRuleIds: [...episode.criticalViolationRuleIds].sort() }));
   const objectives = objectiveSummaries(listed, objectiveIds);
-  return { schemaVersion: BEHAVIOUR_EVIDENCE, sandbox: { id: sandbox.id, version: sandbox.version }, codeDigest: CODE_DIGEST,
-    pool: EXAM_POOL, poolDigest: poolDigest(EXAM_POOL), episodesPerItem, passPolicy: { ...PASS_POLICY }, episodes: listed, objectives,
+  return { schemaVersion: BEHAVIOUR_EVIDENCE, sandbox: { id: sandbox.id, version: sandbox.version }, domain, codeDigest: CODE_DIGEST,
+    pool: EXAM_POOL, poolDigest: poolDigest(EXAM_POOL, domain), episodesPerItem, passPolicy: { ...PASS_POLICY }, episodes: listed, objectives,
     untestedObjectiveIds: [...untestedObjectiveIds].sort(), allEpisodes: allEpisodesSummary(listed),
     passed: objectives.length > 0 && objectives.every((objective) => objective.passed), scope: SCOPE };
 }
 
-const EVIDENCE_FIELDS = ['schemaVersion', 'sandbox', 'codeDigest', 'pool', 'poolDigest', 'episodesPerItem', 'passPolicy', 'episodes',
+const EVIDENCE_FIELDS = ['schemaVersion', 'sandbox', 'domain', 'codeDigest', 'pool', 'poolDigest', 'episodesPerItem', 'passPolicy', 'episodes',
   'objectives', 'untestedObjectiveIds', 'allEpisodes', 'passed', 'scope'];
 
 // Each item lists exactly episodesPerItem episodes.
@@ -126,15 +127,15 @@ const validUntested = (evidence) => Array.isArray(evidence.untestedObjectiveIds)
   same(evidence.untestedObjectiveIds, [...new Set(evidence.untestedObjectiveIds)].sort()) &&
   !evidence.untestedObjectiveIds.some((id) => evidence.objectives.some((objective) => objective?.objectiveId === id));
 
-// One listed episode: its scenario id names a known family, the exam pool and
-// a seed, and its objective is that family's.
-function validEpisode(episode) {
+// One listed episode: its scenario id names a known family of the evidence's
+// domain, the exam pool and a seed, and its objective is that family's.
+function validEpisode(episode, domain) {
   if (!exact(episode, EPISODE_FIELDS) || typeof episode.itemId !== 'string' || !episode.itemId ||
     !Number.isFinite(episode.score) || episode.score < 0 || episode.score > 100 ||
     !Array.isArray(episode.criticalViolationRuleIds) || !episode.criticalViolationRuleIds.every((rule) => typeof rule === 'string')) return false;
   const scenario = parseScenarioId(episode.scenarioId);
   return Boolean(scenario) && scenario.pool === EXAM_POOL && SEED.test(scenario.seed) &&
-    familyOf(scenario.family).objectiveId === episode.objectiveId;
+    familyOf(scenario.family).domain === domain && familyOf(scenario.family).objectiveId === episode.objectiveId;
 }
 
 /** @param {unknown} evidence @returns {boolean} whether it is well formed and every count, bound and flag follows from its episodes */
@@ -142,9 +143,9 @@ function checkBehaviourEvidence(evidence) {
   if (!exact(evidence, EVIDENCE_FIELDS) || evidence.schemaVersion !== BEHAVIOUR_EVIDENCE ||
     !exact(evidence.sandbox, ['id', 'version']) || typeof evidence.sandbox.id !== 'string' || typeof evidence.sandbox.version !== 'string' ||
     !/^sha256:[0-9a-f]{64}$/.test(String(evidence.codeDigest)) || evidence.pool !== EXAM_POOL ||
-    evidence.poolDigest !== poolDigest(EXAM_POOL) || !Number.isSafeInteger(evidence.episodesPerItem) || evidence.episodesPerItem < 1 ||
+    !Object.hasOwn(DOMAINS, evidence.domain) || evidence.poolDigest !== poolDigest(EXAM_POOL, evidence.domain) || !Number.isSafeInteger(evidence.episodesPerItem) || evidence.episodesPerItem < 1 ||
     !same(evidence.passPolicy, PASS_POLICY) || evidence.scope !== SCOPE || !Array.isArray(evidence.episodes) ||
-    !evidence.episodes.every(validEpisode) || !Array.isArray(evidence.objectives) || !evidence.objectives.length ||
+    !evidence.episodes.every((episode) => validEpisode(episode, evidence.domain)) || !Array.isArray(evidence.objectives) || !evidence.objectives.length ||
     new Set(evidence.episodes.map((episode) => episode.scenarioId)).size !== evidence.episodes.length ||
     !fullRuns(evidence) || !validUntested(evidence)) return false;
   const objectives = objectiveSummaries(evidence.episodes, evidence.objectives.map((objective) => objective?.objectiveId));

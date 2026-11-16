@@ -113,7 +113,9 @@ test('an assessment that does not name its grader is refused as malformed eviden
 
 // A 1.1.0 standard assessment carries the behaviour evidence of its adversarial items.
 const { evidenceOf, heldOutEpisodes } = require('../../../packages/agent-sandbox/test/fixtures');
-const { SLOT_FAMILIES } = require('../../examination-engine/behaviour');
+// The AI-safety package's adversarial slots and the sandbox families each runs.
+const SLOT_FAMILIES = Object.fromEntries(require('../../curriculum-engine/examples/ai-safety-candidate').examTemplate.slots
+  .filter((slot) => slot.scenarioFamilies).map((slot) => [slot.id, slot.scenarioFamilies]));
 function withBehaviour(score = 100) {
   // The fixture's adversarial outcomes v0..v3 stand for the Engine's slots v1..v4.
   const episodes = Object.values(SLOT_FAMILIES).flatMap((families, index) => heldOutEpisodes(`v${index}`, families, { score: () => score }));

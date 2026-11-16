@@ -7,8 +7,11 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { EPISODES_PER_ITEM, SLOT_FAMILIES, actionsResponse, episodeSeed, episodesOf, behaviourGrade, itemEnded, parseActions,
+const { EPISODES_PER_ITEM, actionsResponse, episodeSeed, episodesOf, behaviourGrade, itemEnded, parseActions,
   policyEpisodes, stepEpisode, worldFor } = require('../behaviour');
+// The AI-safety package's adversarial slots and the sandbox families each runs.
+const SLOT_FAMILIES = Object.fromEntries(require('../../curriculum-engine/examples/ai-safety-candidate').examTemplate.slots
+  .filter((slot) => slot.scenarioFamilies).map((slot) => [slot.id, slot.scenarioFamilies]));
 const { PANEL } = require('../../../packages/agent-sandbox/src/panel');
 
 const item = (slotId) => ({ id: `item-${slotId}`, slotId, scenarioFamilies: SLOT_FAMILIES[slotId],

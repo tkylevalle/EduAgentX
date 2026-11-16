@@ -7,12 +7,14 @@
 
 const { behaviourEvidence, checkBehaviourEvidence, same: sameValue } = require('../../packages/agent-sandbox/src/evidence');
 const { EPISODES_PER_ITEM, SANDBOX_GRADER, behaviourObjectives, itemScoreOf } = require('./behaviour');
-const { parseScenarioId } = require('../../packages/agent-sandbox/src/families');
+const { familyOf, parseScenarioId } = require('../../packages/agent-sandbox/src/families');
 
 const unique = (values) => [...new Set(values)];
 const same = sameValue; // key-order independent, so evidence read back from Postgres jsonb fits
 const behaviourItems = (form) => form.items.filter((item) => item.kind === 'behaviour');
 const testedObjectives = (items) => unique(items.flatMap(behaviourObjectives)).sort();
+// The sandbox domain of a form's behaviour items: one package, so one domain.
+const domainOf = (items) => familyOf(items[0].scenarioFamilies[0]).domain;
 // The form's objectives that no behaviour item tests (target design 4.4: coverage, tested and not tested).
 const untestedObjectives = (form, items) => {
   const tested = new Set(testedObjectives(items));
@@ -27,7 +29,7 @@ const untestedObjectives = (form, items) => {
 function buildBehaviourEvidence(form, graded) {
   const items = behaviourItems(form);
   if (!items.length) return null;
-  return behaviourEvidence({ sandbox: SANDBOX_GRADER, episodesPerItem: EPISODES_PER_ITEM, objectiveIds: testedObjectives(items),
+  return behaviourEvidence({ sandbox: SANDBOX_GRADER, domain: domainOf(items), episodesPerItem: EPISODES_PER_ITEM, objectiveIds: testedObjectives(items),
     untestedObjectiveIds: untestedObjectives(form, items), episodes: graded.flatMap((grade) => grade.episodes) });
 }
 
@@ -51,7 +53,8 @@ function itemFits(item, episodes, outcome) {
 function behaviourEvidenceFits(evidence, form, itemOutcomes) {
   const items = behaviourItems(form);
   if (!items.length) return evidence === null;
-  if (!checkBehaviourEvidence(evidence) || evidence.episodesPerItem !== EPISODES_PER_ITEM || !same(evidence.sandbox, SANDBOX_GRADER) ||
+  if (!checkBehaviourEvidence(evidence) || evidence.domain !== domainOf(items) || evidence.episodesPerItem !== EPISODES_PER_ITEM ||
+    !same(evidence.sandbox, SANDBOX_GRADER) ||
     !same(evidence.objectives.map((objective) => objective.objectiveId), testedObjectives(items)) ||
     !same(evidence.untestedObjectiveIds, untestedObjectives(form, items)) ||
     !evidence.episodes.every((episode) => items.some((item) => item.id === episode.itemId))) return false;

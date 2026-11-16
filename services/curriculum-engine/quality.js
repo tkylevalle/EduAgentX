@@ -1,19 +1,24 @@
 'use strict';
 const { sha256 } = require('./model');
+const { quoteFound } = require('./sections');
 
 // These are mechanical coverage measurements. They do not assert that cited
 // claims are factually true; that requires the recorded independent review.
+// A module claim counts as traced only when its quote is in its stored
+// section (assurance audit C4); a fallback link needs a pinpoint.
 function measureCurriculum(pkg, reviews = []) {
   const sources = new Map((pkg.sources || []).map(source => [source.id, source]));
   const modules = new Map((pkg.modules || []).map(module => [module.id, module]));
   const slots = new Map((pkg.examTemplate?.slots || []).map(slot => [slot.id, slot]));
+  const sections = new Map((pkg.sourceSections || []).map(section => [section.id, section]));
   const references = [
-    ...(pkg.modules || []).flatMap(module => (module.claims || []).map(claim => ({ ...claim, owner: module.id }))),
+    ...(pkg.modules || []).flatMap(module => (module.claims || []).map(claim => ({ ...claim, owner: module.id, claim: true }))),
     ...(pkg.fallbackBank?.items || []).flatMap(item => (item.sourceLinks || []).map(link => ({ ...link, owner: item.id }))),
   ];
   const traced = references.filter(link => {
     const source = sources.get(link.sourceId);
     return source && typeof link.pinpoint === 'string' && link.pinpoint.trim() &&
+      (!link.claim || (sections.get(link.sectionId)?.sourceId === source.id && quoteFound(sections.get(link.sectionId), link.quote))) &&
       typeof source.edition === 'string' && source.edition.trim() &&
       pkg.manifest?.sourcePins?.some(pin => pin.id === source.id && pin.sha256 === sha256(source));
   });

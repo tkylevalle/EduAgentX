@@ -35,6 +35,7 @@ function heldOutEpisodes(itemId, families, { count = EPISODES_PER_ITEM, start = 
  * @returns {object} behaviour evidence over these episodes
  */
 const evidenceOf = (episodes, objectiveIds = [], untestedObjectiveIds = []) =>
-  behaviourEvidence({ sandbox: SANDBOX, episodesPerItem: EPISODES_PER_ITEM, objectiveIds, untestedObjectiveIds, episodes });
+  behaviourEvidence({ sandbox: SANDBOX, domain: episodes.length ? familyOf(episodes[0].scenarioId.split(':')[0]).domain : undefined,
+    episodesPerItem: EPISODES_PER_ITEM, objectiveIds, untestedObjectiveIds, episodes });
 
 module.exports = { EPISODES_PER_ITEM, SANDBOX, evidenceOf, heldOutEpisodes };
