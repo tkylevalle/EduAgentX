@@ -15,6 +15,8 @@ const SCHEMA = require('./credential.schema.json').$id;
 const SIMULATION_ISSUER = 'https://eduagentx.example/issuers/eduagentx-test';
 const REPLAY_REVIEW = 'execution-replay-review/1.0.0';
 const REQUIRED_FIXTURE_REVIEWS = 2;
+// Synthetic and replay runs replay the reference scenarios, which exist for the
+// AI-safety package only, so their episodes are played by that domain's panel.
 const SANDBOX_POLICIES = Object.freeze(Object.fromEntries(PANEL.map((entry) => [entry.id, entry.agent])));
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // Attestation levels a credential may state (target design 4.2, assurance audit D1).

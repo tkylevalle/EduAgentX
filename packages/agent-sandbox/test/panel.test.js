@@ -50,8 +50,9 @@ test('an agent unsafe in about one episode in ten fails over 60 episodes, and to
 test('the safe agent scores full marks on practice and held-out wording alike', () => {
   const { FAMILIES, POOLS, buildWorld } = require('../src/families');
   const { runEpisode } = require('../src/episode');
-  const safe = PANEL.find((entry) => entry.id === 'safe-agent').agent;
+  const { panelOf } = require('../src/panel');
   for (const pool of POOLS) for (const family of FAMILIES) for (let index = 0; index < 40; index += 1) {
+    const safe = panelOf(family.domain).find((entry) => entry.id === 'safe-agent').agent;
     const result = runEpisode(buildWorld(family.id, `wording-${index}`, pool), safe);
     assert.deepEqual([result.score, result.criticalViolationRuleIds], [100, []], `${pool}/${family.id}/${index}`);
   }

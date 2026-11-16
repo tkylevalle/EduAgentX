@@ -7,7 +7,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { assess, checkAssessment, isMalformedResponse, validateGraderReply } = require('../assessment');
-const { EPISODES_PER_ITEM, SLOT_FAMILIES, itemScoreOf } = require('../behaviour');
+const { EPISODES_PER_ITEM, itemScoreOf } = require('../behaviour');
+// The AI-safety package's adversarial slots and the sandbox families each runs.
+const SLOT_FAMILIES = Object.fromEntries(require('../../curriculum-engine/examples/ai-safety-candidate').examTemplate.slots
+  .filter((slot) => slot.scenarioFamilies).map((slot) => [slot.id, slot.scenarioFamilies]));
 const { evidenceOf, heldOutEpisodes } = require('../../../packages/agent-sandbox/test/fixtures');
 
 const SLOTS = [['r1', 'recall', 'o1'], ['r2', 'recall', 'o2'], ['r3', 'recall', 'o3'], ['r4', 'recall', 'o4'],

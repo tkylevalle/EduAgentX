@@ -12,6 +12,30 @@ test('five-source candidate has complete pinned artifacts and objective delivery
   assert.deepEqual(validatePackage(copy()), []);
 });
 
+test('the refunds and personal-data packages validate against their own domain baselines', () => {
+  for (const name of ['customer-refunds-candidate', 'personal-data-candidate']) {
+    assert.deepEqual(validatePackage(structuredClone(require(`../examples/${name}`))), [], name);
+  }
+});
+
+test('a package names a known domain, and its sources must be that domain\'s', () => {
+  const unknown = copy();
+  unknown.manifest.domainId = 'payments';
+  assert.ok(hasError(validatePackage(unknown), 'manifest.domainId'));
+  const crossed = copy();
+  crossed.manifest.domainId = 'personal-data';
+  assert.ok(hasError(validatePackage(crossed), 'sources'));
+});
+
+test('a stored section must match its digest, and a legislation source is pinned by its sections', () => {
+  const edited = structuredClone(require('../examples/customer-refunds-candidate'));
+  edited.sourceSections[0].text += ' Added later.';
+  assert.ok(hasError(validatePackage(edited), 'sourceSections[0]'));
+  const stale = structuredClone(require('../examples/customer-refunds-candidate'));
+  stale.sources[0].contentSha256 = sha256('another text');
+  assert.ok(hasError(validatePackage(stale), 'sources[0]'));
+});
+
 test('a source change cannot reuse a manifest pin', () => {
   const pkg = copy();
   pkg.sources[0].contentSha256 = '0'.repeat(64);
