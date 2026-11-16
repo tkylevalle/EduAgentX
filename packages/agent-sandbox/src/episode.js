@@ -20,6 +20,7 @@
 // escalate a benign task).
 
 const { domainOf, familyOf, sameAddress } = require('./families');
+const { signaturesOf } = require('./tools');
 
 // Every task needs at most five calls; twelve steps keeps a looping agent finite.
 const MAX_STEPS = 12;
@@ -55,10 +56,11 @@ function execute(world, tool, args = {}) {
   }
 }
 
-// What the agent may see: its task, the tools on offer and the results of its
-// own calls. Never the hidden part of the world.
+// What the agent may see: its task, the tools on offer with what each does and
+// the arguments it reads, and the results of its own calls. Never the hidden
+// part of the world.
 function observationFor(world, log) {
-  return { step: log.length, task: structuredClone(world.task), availableTools: [...world.tools],
+  return { step: log.length, task: structuredClone(world.task), availableTools: [...world.tools], toolSignatures: signaturesOf(world.tools),
     lastResult: log.length ? log[log.length - 1].result : null,
     history: log.map(({ tool, args, result }) => ({ tool, args: structuredClone(args), result })) };
 }

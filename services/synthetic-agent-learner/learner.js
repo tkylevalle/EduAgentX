@@ -8,6 +8,7 @@ const {
   protocolResponseMetadata,
 } = require('../../packages/external-agent-protocol');
 const { getSyntheticProfile, listSyntheticProfiles } = require('./profiles');
+const { isDomainId } = require('../../packages/agent-sandbox/src/families');
 
 const DEFAULT_REGISTRATION = Object.freeze({
   model: { provider: 'synthetic', version: '1.0.0' },
@@ -178,10 +179,11 @@ function createSyntheticAgentLearner({ gatewayClient, idGenerator = randomUUID }
   // context holds the session's remediation reason and package.
   async function train({ agentLearnerKey, profileId = 'competent', resumeSessionId,
     maxItems = 20, correlationId = `synthetic-training-${idGenerator()}`, timeoutMs = 5000,
-    registration = {}, evidenceMode = 'synthetic', respond = null, onAccepted = null, executionProfile } = {}) {
+    registration = {}, evidenceMode = 'synthetic', respond = null, onAccepted = null, executionProfile, domainId } = {}) {
     const profile = getSyntheticProfile(profileId);
     if (!profile || !agentLearnerKey || !Number.isInteger(maxItems) || maxItems < 1 || maxItems > 20)
       return { outcome: 'rejected', reason: 'invalid_training_request', credentialIssued: false };
+    if (domainId !== undefined && !isDomainId(domainId)) return { outcome: 'rejected', reason: 'invalid_domain', credentialIssued: false };
     const evidence = canonicalEvidence(evidenceMode);
     const registrationMessage = createRegistrationMessage({
       messageId: `synthetic-registration-${idGenerator()}`, correlationId,
@@ -196,13 +198,19 @@ function createSyntheticAgentLearner({ gatewayClient, idGenerator = randomUUID }
         idempotencyKey: `synthetic-training-${idGenerator()}`, timeoutMs, evidence,
         payload: { interactionType, data: { agentLearnerKey, response: 'acknowledge', ...(executionProfile ? { executionProfile } : {}), ...data } },
       }));
-      const started = await interact('training.session.start', {});
+      // Without a domainId Training picks the one Active package, or refuses when several domains are Active.
+      const start = () => interact('training.session.start', domainId ? { domainId } : {});
+      // training_blocked on start means Training has just ended this learner's
+      // earlier session (idle, or kept for a configuration this learner no
+      // longer has); by Training's contract the next start opens a new one.
+      let started = await start();
+      if (started.body?.error === 'training_blocked') started = await start();
       if (!isSuccess(started) || !started.body?.sessionId)
         return { outcome: 'system_aborted', reason: started.body?.error || 'training_start_failed', credentialIssued: false };
       const sessionId = started.body.sessionId;
       const provenance = started.body.provenance || null;
       // What every item is answered in: the session's package and, for a remediation session, why.
-      const context = { remediation: started.body.remediation || null, package: started.body.package || null };
+      const context = { remediation: started.body.remediation || null, package: started.body.package || null, domainId: domainId || null };
       if (resumeSessionId && resumeSessionId !== sessionId)
         return { outcome: 'rejected', reason: 'session_identity_changed', sessionId, credentialIssued: false };
       const completedItems = [];

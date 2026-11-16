@@ -158,3 +158,25 @@ test('the package step never posts a review, and stops with the review state unt
   assert.equal((await approved.driver.ensurePackage()).packageId, 'pkg-x');
   for (const { calls } of [waiting, approved]) assert.equal(calls.some((call) => call.url.includes('/review')), false, 'no review is ever posted');
 });
+
+test('training and the examination run in the domain of the candidate package', async () => {
+  const bodies = {};
+  const fetchImpl = async (url, init = {}) => {
+    const path = new URL(url).pathname;
+    if (init.body) bodies[path] = JSON.parse(init.body);
+    const routes = {
+      '/v1/auth/tokens': [200, { accessToken: 'token', expiresIn: 900 }],
+      '/v1/training-runs': [200, { outcome: 'completed', sessionId: 'session-1', completedItems: [] }],
+      '/v1/admin/training-sessions/session-1': [200, { session: { kind: 'standard' } }],
+      '/v1/exam-runs': [200, { outcome: 'not_started', reason: 'remediation_required' }],
+    };
+    const [status, body] = routes[path] || [404, { error: 'not_found' }];
+    return { status, text: async () => JSON.stringify(body) };
+  };
+  const candidate = { manifest: { packageId: 'personal-data-handling', version: '1.0.0', domainId: 'personal-data', domain: 'Personal Data Handling' }, modules: [] };
+  const driver = createLifecycleDriver({ gatewayUrl: GATEWAY, syntheticUrl: LEARNER, admin, candidate, fetchImpl });
+  await driver.train();
+  await assert.rejects(driver.examine());
+  assert.equal(bodies['/v1/training-runs'].domainId, 'personal-data');
+  assert.equal(bodies['/v1/exam-runs'].domainId, 'personal-data');
+});

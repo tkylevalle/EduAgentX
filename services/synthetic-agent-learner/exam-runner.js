@@ -39,7 +39,7 @@ function createExamRunner({ gatewayClient, idGenerator = randomUUID, pollInterva
   // actFor(item) returns the policy for a behaviour item, played through the
   // Engine's step route; without it a behaviour item gets answerFor's text.
   async function examine({ answerFor, actFor, correlationId = `exam-run-${idGenerator()}`,
-    gradingWaitMs = DEFAULT_GRADING_WAIT_MS, trainingSessionId, executionProfile, onProgress = () => {} } = {}) {
+    gradingWaitMs = DEFAULT_GRADING_WAIT_MS, trainingSessionId, executionProfile, domainId, onProgress = () => {} } = {}) {
     const call = (method, path, body) => gatewayClient.request(method, path, { body, correlationId });
     // A failed lookup gives no lessons and the item is still answered; the
     // result counts lookups, failures, empty answers and answers from the
@@ -57,7 +57,8 @@ function createExamRunner({ gatewayClient, idGenerator = randomUUID, pollInterva
       if (!reply.body.results.length) knowledge.empty += 1;
       return reply.body.results;
     };
-    const started = await call('POST', '/v1/examinations', { idempotencyKey: `exam-${idGenerator()}`, ...(trainingSessionId ? { trainingSessionId } : {}), ...(executionProfile ? { executionProfile } : {}) });
+    const started = await call('POST', '/v1/examinations', { idempotencyKey: `exam-${idGenerator()}`, ...(trainingSessionId ? { trainingSessionId } : {}), ...(executionProfile ? { executionProfile } : {}),
+      ...(domainId ? { domainId } : {}) });
     if (started.status !== 201 && started.status !== 200) {
       return { outcome: 'not_started', status: started.status, reason: started.body?.error || 'examination_unavailable',
         correlationId };
@@ -91,7 +92,7 @@ function createExamRunner({ gatewayClient, idGenerator = randomUUID, pollInterva
         onProgress({ stage: 'answered', attemptId: attempt.attemptId, itemId: item.id, answered: answered.length, itemCount: items.length });
         continue;
       }
-      const response = produced ? produced.response : await answerFor(item, index, { lookup, package: attempt.form?.package || null });
+      const response = produced ? produced.response : await answerFor(item, index, { lookup, package: attempt.form?.package || null, domainId: domainId || null });
       if (response === null || response === undefined) break;
       const receipt = await call('POST', `/v1/examinations/${attempt.attemptId}/responses`, {
         idempotencyKey: `answer-${attempt.attemptId}-${item.id}`, expectedSequence: attempt.sequence,

@@ -74,3 +74,19 @@ test('a null answer stops answering so the attempt can reach its deadline', asyn
     .examine({ answerFor: (item, index) => (index < 1 ? 'answer' : null), gradingWaitMs: 5 });
   assert.equal(result.answered.length, 1);
 });
+
+test('a requested domain goes to the Examination start and reaches every answer', async () => {
+  const gateway = fakeGateway();
+  const seen = [];
+  const result = await createExamRunner({ gatewayClient: gateway, pollIntervalMs: 1 }).examine({ domainId: 'personal-data',
+    answerFor: (item, index, tools) => { seen.push(tools.domainId); return examAnswer('safe-escalation', item, index); } });
+  assert.equal(result.outcome, 'complete');
+  assert.equal(gateway.calls.find((call) => call.path === '/v1/examinations').body.domainId, 'personal-data');
+  assert.deepEqual(seen, ['personal-data', 'personal-data', 'personal-data']);
+});
+
+test('without a domain the Examination start carries no domainId', async () => {
+  const gateway = fakeGateway();
+  await createExamRunner({ gatewayClient: gateway, pollIntervalMs: 1 }).examine({ answerFor: (item, index) => examAnswer('safe-escalation', item, index) });
+  assert.equal('domainId' in gateway.calls.find((call) => call.path === '/v1/examinations').body, false);
+});
