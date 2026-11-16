@@ -76,9 +76,16 @@ ALTER TABLE training_service.sessions DROP CONSTRAINT IF EXISTS sessions_kind_ch
 ALTER TABLE training_service.sessions ADD CONSTRAINT sessions_kind_check
   CHECK (kind IN ('standard', 'remediation') AND ((kind = 'remediation') = (remediation IS NOT NULL)));
 
--- One session per remediation request, so a retried request cannot assign twice.
-CREATE UNIQUE INDEX IF NOT EXISTS remediation_request_once
-  ON training_service.sessions (agent_learner_key, (remediation->>'requestId')) WHERE kind = 'remediation';
+-- One assigned session per remediation request, so a retried request cannot
+-- assign twice. A remediation ended by a reconfiguration is carried over to a
+-- new session on the same request, at most once per ended session.
+DROP INDEX IF EXISTS training_service.remediation_request_once;
+CREATE UNIQUE INDEX IF NOT EXISTS remediation_request_assigned_once
+  ON training_service.sessions (agent_learner_key, (remediation->>'requestId'))
+  WHERE kind = 'remediation' AND NOT (remediation ? 'carriedFromSessionId');
+CREATE UNIQUE INDEX IF NOT EXISTS remediation_carried_once
+  ON training_service.sessions ((remediation->>'carriedFromSessionId'))
+  WHERE kind = 'remediation' AND remediation ? 'carriedFromSessionId';
 
 ALTER TABLE training_service.session_events
   ADD COLUMN IF NOT EXISTS item_kind text CHECK (item_kind IN ('lesson', 'practice'));

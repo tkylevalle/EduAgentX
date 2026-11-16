@@ -353,9 +353,6 @@ test('PostgreSQL commits one immutable remediation event with a failure and keep
   assert.ok((await restarted.listPendingRemediations(1000)).some((value) => value.eventId === event.eventId));
   const key = { agentLearnerKey: answered.agentLearnerKey, packageId: answered.package.id, packageVersion: answered.package.version };
   assert.deepEqual(await restarted.latestRemediationEvent(key), event);
-  // The gate belongs to the configuration that failed; another configuration of the same agent is not gated.
-  assert.deepEqual(await restarted.latestRemediationEvent({ ...key, configurationFingerprint: answered.configurationFingerprint }), event);
-  assert.equal(await restarted.latestRemediationEvent({ ...key, configurationFingerprint: 'sha256:another-configuration' }), null);
   const [first, second] = await Promise.all(['delivered', 'refused'].map((outcome) => restarted.recordRemediationDelivery({
     eventId: event.eventId, outcome, trainingSessionId: outcome === 'delivered' ? 'pg-remediation-session' : null,
     detail: { status: outcome === 'delivered' ? 201 : 422 }, recordedAt: AFTER_DEADLINE })));

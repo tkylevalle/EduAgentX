@@ -110,8 +110,18 @@ function pgQueries(db) {
     async findRemediation(agentLearnerKey, requestId) {
       const result = await db.query(
         `SELECT ${SESSION_COLUMNS} FROM training_service.sessions
-         WHERE agent_learner_key = $1 AND kind = 'remediation' AND remediation->>'requestId' = $2`,
+         WHERE agent_learner_key = $1 AND kind = 'remediation' AND remediation->>'requestId' = $2
+           AND NOT (remediation ? 'carriedFromSessionId')`,
         [agentLearnerKey, requestId]);
+      if (!result.rows[0]) return null;
+      const session = toSession(result.rows[0]);
+      return { session, events: await this.getEvents(session.sessionId) };
+    },
+    // The learner's newest remediation session, assigned or carried over, with its events.
+    async findLatestRemediation(agentLearnerKey) {
+      const result = await db.query(
+        `SELECT ${SESSION_COLUMNS} FROM training_service.sessions
+         WHERE agent_learner_key = $1 AND kind = 'remediation' ORDER BY started_at DESC LIMIT 1`, [agentLearnerKey]);
       if (!result.rows[0]) return null;
       const session = toSession(result.rows[0]);
       return { session, events: await this.getEvents(session.sessionId) };
@@ -353,7 +363,13 @@ function createMemoryStore() {
           },
           async findRemediation(agentLearnerKey, requestId) {
             const session = [...sessions.values()].find((s) => s.agentLearnerKey === agentLearnerKey &&
-              s.kind === 'remediation' && s.remediation.requestId === requestId);
+              s.kind === 'remediation' && s.remediation.requestId === requestId && !s.remediation.carriedFromSessionId);
+            return session
+              ? structuredClone({ session, events: allEvents().filter((e) => e.sessionId === session.sessionId) })
+              : null;
+          },
+          async findLatestRemediation(agentLearnerKey) {
+            const session = [...sessions.values()].filter((s) => s.agentLearnerKey === agentLearnerKey && s.kind === 'remediation').at(-1);
             return session
               ? structuredClone({ session, events: allEvents().filter((e) => e.sessionId === session.sessionId) })
               : null;
@@ -362,8 +378,11 @@ function createMemoryStore() {
           async getEvents(sessionId) { return structuredClone(allEvents().filter((e) => e.sessionId === sessionId)); },
           async insertSession(session) {
             if (sessions.has(session.sessionId)) throw uniqueViolation();
-            const sameRequest = (s) => s.kind === 'remediation' && session.kind === 'remediation' &&
-              s.agentLearnerKey === session.agentLearnerKey && s.remediation.requestId === session.remediation.requestId;
+            // As the two unique indexes: one assigned session per request, and one carry-over per ended session.
+            const sameRequest = (s) => s.kind === 'remediation' && session.kind === 'remediation' && (session.remediation.carriedFromSessionId
+              ? s.remediation.carriedFromSessionId === session.remediation.carriedFromSessionId
+              : !s.remediation.carriedFromSessionId && s.agentLearnerKey === session.agentLearnerKey &&
+                s.remediation.requestId === session.remediation.requestId);
             if ([...sessions.values(), ...staged.sessions].some(sameRequest)) throw uniqueViolation();
             staged.sessions.push(structuredClone(session));
           },

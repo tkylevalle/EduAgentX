@@ -16,7 +16,7 @@ const { Pool } = require('pg');
 const telemetry = require('../../packages/telemetry');
 const execution = require('../../packages/execution-provenance');
 const { EVIDENCE_ENVIRONMENTS } = require('../../packages/external-agent-protocol');
-const { decideContinue, decideRemediation, decideStart, decideSubmit, deriveSessionState } = require('./session');
+const { decideCarriedRemediation, decideContinue, decideRemediation, decideStart, decideSubmit, deriveSessionState } = require('./session');
 const { objectiveProgress, policyFromEnv } = require('./plan');
 const { summariseTraining } = require('./metrics');
 const { parseRemediationRequest } = require('./remediation-request');
@@ -99,6 +99,15 @@ function createApp({
     return decideAndAppend(store, actor, async (tx) => {
       const open = await tx.findStart?.(actor, input.idempotencyKey) || await tx.findOpenSession(actor);
       if (!open) {
+        // A remediation ended by a reconfiguration is still owed: it is carried over before any standard session.
+        const previous = await tx.findLatestRemediation(actor);
+        const ended = previous && deriveSessionState(previous.events);
+        if (ended?.status === 'blocked' && ended.blockReason === 'configuration_changed') {
+          const [pkg, registration] = await Promise.all([governingPackage(previous.session, options), registrySource.getRegistration(actor, options)]);
+          const carried = decideCarriedRemediation(pkg, registration, { session: previous.session, state: ended },
+            { ...input, sessionId: randomUUID(), agentLearnerKey: actor });
+          if (carried) return carried;
+        }
         // A learner names the domain to train in when more than one is Active.
         const [pkg, registration] = await Promise.all([
           packageSource.getActive(options, input.domainId ? { domain: input.domainId } : {}), registrySource.getRegistration(actor, options)]);

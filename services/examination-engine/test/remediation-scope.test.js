@@ -1,41 +1,32 @@
 'use strict';
-// The re-examination gate belongs to the configuration that failed. Training
-// ends a reconfigured agent's old sessions as configuration_changed, so if the
-// gate followed the agent key alone, a reconfigured agent could never be
-// examined on that package version again.
+// The re-examination gate belongs to the agent, not to one configuration of it:
+// an L1 fingerprint is self-declared, so changing a declared field must not
+// skip a remediation. Training carries the remediation over to the new
+// configuration instead (training-service, decideCarriedRemediation).
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { requireRemediation } = require('../remediation-routes');
 
 const PKG = { id: 'ai-safety-fundamentals', version: '0.2.0' };
-const FAILED = 'sha256:failed-configuration';
-const event = { eventId: 'examination.remediation.requested:attempt-1', agentLearnerKey: 'agent-1', configurationFingerprint: FAILED,
-  package: PKG };
+const event = { eventId: 'examination.remediation.required:attempt-1', agentLearnerKey: 'agent-1',
+  configurationFingerprint: 'sha256:failed-configuration', package: PKG };
 
-// A store holding one remediation event for the failed configuration and no re-examination.
-const storeWith = () => ({
+// A store holding one remediation event for the agent and no re-examination.
+const store = {
   hasAttemptAwaitingOutcome: async () => false,
-  latestRemediationEvent: async ({ agentLearnerKey, packageId, packageVersion, configurationFingerprint = null }) =>
-    (agentLearnerKey === event.agentLearnerKey && packageId === PKG.id && packageVersion === PKG.version &&
-      (configurationFingerprint === null || configurationFingerprint === event.configurationFingerprint) ? event : null),
+  latestRemediationEvent: async ({ agentLearnerKey, packageId, packageVersion }) =>
+    (agentLearnerKey === event.agentLearnerKey && packageId === PKG.id && packageVersion === PKG.version ? event : null),
   findReexaminations: async () => [],
   get: async () => null,
-});
-const gate = (configurationFingerprint, completion = { sessionKind: 'standard' }) =>
-  requireRemediation(storeWith(), { actor: 'agent-1', pkg: PKG, completion, now: '2026-11-16T00:00:00Z', configurationFingerprint });
+};
+const gate = (completion) => requireRemediation(store, { actor: 'agent-1', pkg: PKG, completion, now: '2026-11-16T00:00:00Z' });
 
-test('the configuration that failed still needs its remediation before a new attempt', async () => {
-  await assert.rejects(gate(FAILED), (error) => error.code === 'remediation_required');
-});
-
-test('a reconfigured agent may sit a new standard attempt after its earlier configuration failed', async () => {
-  await assert.doesNotReject(gate('sha256:changed-configuration'));
+test('a standard training completion, from any configuration, does not open the gate after a failure', async () => {
+  await assert.rejects(gate({ sessionKind: 'standard', configurationFingerprint: 'sha256:changed-configuration' }),
+    (error) => error.code === 'remediation_required');
 });
 
-test('with no known fingerprint, any configuration\'s remediation gates the attempt', async () => {
-  await assert.rejects(gate(null), (error) => error.code === 'remediation_required');
-});
-
-test('the completed remediation session opens the gate for the configuration that failed', async () => {
-  await assert.doesNotReject(gate(FAILED, { sessionKind: 'remediation', remediationRequestId: event.eventId }));
+test('completing the remediation, also when it was carried over to a new configuration, opens the gate', async () => {
+  await assert.doesNotReject(gate({ sessionKind: 'remediation', remediationRequestId: event.eventId,
+    configurationFingerprint: 'sha256:changed-configuration' }));
 });

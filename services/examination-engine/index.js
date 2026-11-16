@@ -111,8 +111,7 @@ function createApp({ store, sources, internalKey = process.env.EXAMINATION_INTER
       if (a && (!execution.validCompletion(completion) || completion.sessionId !== req.body.trainingSessionId ||
         !execution.matchesAuthority(completion.provenance, a, { mode: a.evidenceMode, environment: a.environment }))) throw fail('provenance_conflict');
       if (!a && completion?.provenance) throw fail('provenance_conflict');
-      await requireRemediation(store, { actor, pkg, completion, now: clock(),
-        configurationFingerprint: registration?.configurationFingerprint || null });
+      await requireRemediation(store, { actor, pkg, completion, now: clock() });
       const form = await generateStandardForm({ pkg, registration, completion, generateItems });
       const now = clock();
       const deadlineAt = new Date(Date.parse(now) + durationMinutes * 60000).toISOString();

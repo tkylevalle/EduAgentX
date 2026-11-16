@@ -157,6 +157,28 @@ function decideRemediation(pkg, registration, { existingRequest = null, openSess
   })] };
 }
 
+// The Engine's re-examination gate belongs to the agent, not to one
+// configuration of it, so a remediation ended as configuration_changed is still
+// owed. The next start opens it again, for the new configuration, on the same
+// request and package version; otherwise a reconfiguration would skip it, or
+// leave the agent unable to sit another examination. Returns null when the
+// previous session is not such a remediation, so the caller starts a standard session.
+function decideCarriedRemediation(pkg, registration, { session: previous, state }, input) {
+  if (previous?.kind !== 'remediation' || state.status !== 'blocked' || state.blockReason !== 'configuration_changed') return null;
+  if (!pkg || pkg.state !== 'Active' || pinMismatch(pkg, previous)) return null;
+  if (!registration || registration.agentLearnerKey !== input.agentLearnerKey) return rejected('not_registered');
+  const plan = deliveryPlan(pkg.payload);
+  const targeted = plan && targetPlan(plan, previous.remediation.objectiveIds);
+  if (!targeted?.length) return rejected('no_targeted_content');
+  const quarantine = quarantineReason(pkg, targeted);
+  if (quarantine) return rejected(quarantine);
+  if (practiceShortfall(targeted, input.policy).length) return rejected('insufficient_practice');
+  const remediation = { ...previous.remediation, carriedFromSessionId: previous.sessionId };
+  const session = newSession(pkg, registration, input, { kind: 'remediation', remediation, plan: targeted });
+  const response = { ...startResponse(session), resumed: false };
+  return { outcome: 'ok', session, response, events: [event(session, 1, 'session_started', input, replyFields(input, response))] };
+}
+
 function newSession(pkg, registration, input, { kind, remediation, plan }) {
   return {
     sessionId: input.sessionId,
@@ -405,6 +427,6 @@ const rejected = (reason) => ({ outcome: 'rejected', reason, events: [] });
 const conflict = (reason) => ({ outcome: 'conflict', reason, events: [] });
 
 module.exports = {
-  EVENT_TYPES, decideContinue, decideRemediation, decideStart, decideSubmit, decideTimeout, deliveryPlan,
+  EVENT_TYPES, decideCarriedRemediation, decideContinue, decideRemediation, decideStart, decideSubmit, decideTimeout, deliveryPlan,
   deriveSessionState, nextItem, pinGoverningPackage, pinMismatch, quarantineReason,
 };

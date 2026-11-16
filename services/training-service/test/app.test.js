@@ -325,3 +325,26 @@ test('metrics count started, completed, remediated, resumed and aborted sessions
   const list = (await ctx.call('GET', '/internal/sessions')).body.sessions;
   assert.equal(list.find((s) => s.sessionId === done).resumeCount, 1);
 });
+
+test('a remediation ended by a reconfiguration is carried over to the new configuration, never skipped', async (t) => {
+  const ctx = await boot(t);
+  const assigned = await ctx.call('POST', '/internal/remediations', remediationBody(), OPERATOR);
+  ctx.registry.setFingerprint(LEARNER, 'sha256:config-2');
+
+  const ended = await ctx.start('after-change-1');
+  assert.deepEqual([ended.status, ended.body.error, ended.body.reason, ended.body.sessionId],
+    [409, 'training_blocked', 'configuration_changed', assigned.body.sessionId]);
+  const carried = await ctx.start('after-change-2');
+  assert.deepEqual([carried.status, carried.body.kind, carried.body.remediation.requestId], [201, 'remediation', 'req-1']);
+  assert.notEqual(carried.body.sessionId, assigned.body.sessionId);
+  const done = await finish(ctx, carried.body.sessionId, 'carried');
+  assert.equal(done.body.status, 'completed');
+
+  const detail = (await ctx.call('GET', `/internal/sessions/${carried.body.sessionId}`)).body;
+  assert.deepEqual([detail.session.configurationFingerprint, detail.session.remediation.carriedFromSessionId],
+    ['sha256:config-2', assigned.body.sessionId]);
+  const next = await ctx.start('after-remediation');
+  assert.deepEqual([next.status, next.body.kind], [201, 'standard'], 'a completed carried remediation is not carried again');
+  const replay = await ctx.call('POST', '/internal/remediations', remediationBody(), OPERATOR);
+  assert.deepEqual([replay.body.outcome, replay.body.sessionId], ['replay', assigned.body.sessionId], 'the request still names its assigned session');
+});
