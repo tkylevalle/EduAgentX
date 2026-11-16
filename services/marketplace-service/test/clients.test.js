@@ -311,3 +311,11 @@ test('origin labels are mapped only from explicit credential fields, never infer
   // This mapper does not verify a signature. Eligibility must still verify the JWS
   // and the authoritative lifecycle before any mapped credential can be ranked.
 });
+
+test('verification: a credential INVALID only for its status keeps a valid schema; the status gate excludes it', () => {
+  for (const code of ['SUSPENDED', 'REVOKED']) {
+    assert.deepEqual(toSignatureAndSchema({ ...report({ overall: 'INVALID' }), reasonCodes: [code] }), { signature: 'valid', schema: 'valid' }, code);
+  }
+  assert.equal(toSignatureAndSchema({ ...report({ overall: 'INVALID' }), reasonCodes: ['SUSPENDED', 'EXPIRED'] }).schema, 'invalid');
+  assert.equal(toSignatureAndSchema({ ...report({ overall: 'INVALID' }), reasonCodes: [] }).schema, 'invalid');
+});
