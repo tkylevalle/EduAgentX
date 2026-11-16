@@ -261,13 +261,14 @@ test('a remediation ended by a reconfiguration is opened again for the new confi
   assert.equal(carried.response.remediation.requestId, 'req-1');
 });
 
-test('only a remediation ended by a reconfiguration, on the package it was assigned for, is carried over', () => {
+test('only a remediation ended idle or by a reconfiguration, on the package it was assigned for, is carried over', () => {
   const { previous, events, reconfigured } = remediationEndedByReconfiguration();
   const state = deriveSessionState(events);
   const carry = (overrides) => decideCarriedRemediation(overrides.pkg || pkg(), reconfigured, { session: overrides.session || previous,
     state: overrides.state || state }, input({ sessionId: 'rem-x', agentLearnerKey: LEARNER }));
   assert.equal(carry({ pkg: pkg({ version: '1.1.0' }) }), null, 'a newer Active version is a new examination scope');
-  assert.equal(carry({ state: { ...state, blockReason: 'session_timed_out' } }), null);
+  assert.equal(carry({ state: { ...state, blockReason: 'session_timed_out' } }).outcome, 'ok', 'an idle remediation is still owed');
+  assert.equal(carry({ state: { ...state, blockReason: 'package_state:Watch' } }), null);
   assert.equal(carry({ state: { ...state, status: 'completed', blockReason: null } }), null);
   assert.equal(carry({ session: { ...previous, kind: 'standard', remediation: null } }), null);
 });

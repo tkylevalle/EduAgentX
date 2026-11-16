@@ -16,7 +16,7 @@ const { Pool } = require('pg');
 const telemetry = require('../../packages/telemetry');
 const execution = require('../../packages/execution-provenance');
 const { EVIDENCE_ENVIRONMENTS } = require('../../packages/external-agent-protocol');
-const { decideCarriedRemediation, decideContinue, decideRemediation, decideStart, decideSubmit, deriveSessionState } = require('./session');
+const { decideCarriedRemediation, decideContinue, endedUnfinished, decideRemediation, decideStart, decideSubmit, deriveSessionState } = require('./session');
 const { objectiveProgress, policyFromEnv } = require('./plan');
 const { summariseTraining } = require('./metrics');
 const { parseRemediationRequest } = require('./remediation-request');
@@ -97,17 +97,25 @@ function createApp({
     const input = requestInput(req, 'start', domainId ? { domainId } : {});
     const options = { correlationId: req.correlationId };
     return decideAndAppend(store, actor, async (tx) => {
+      // A retried start replays its own session first, whatever the domain now holds.
+      const replayed = await tx.findStart?.(actor, input.idempotencyKey);
       // A start that names its domain resumes, or carries over, only that domain's
       // session: a remediation owed in one domain never takes over training in another.
-      const domainPkg = input.domainId ? await packageSource.getActive(options, { domain: input.domainId }) : null;
-      if (input.domainId && !domainPkg) return decideStart(null, await registrySource.getRegistration(actor, options), null, { ...input, agentLearnerKey: actor });
+      // A start with no domain takes the learner's newest session in any domain, as
+      // before domains; with several domains Active, learners name theirs.
+      const domainPkg = !replayed && input.domainId ? await packageSource.getActive(options, { domain: input.domainId }) : null;
+      // decideStart with no package refuses as no_active_package (or not_registered first).
+      if (!replayed && input.domainId && !domainPkg) {
+        return decideStart(null, await registrySource.getRegistration(actor, options), null, { ...input, agentLearnerKey: actor });
+      }
       const scope = domainPkg?.id ?? null;
-      const open = await tx.findStart?.(actor, input.idempotencyKey) || await tx.findOpenSession(actor, scope);
+      const open = replayed || await tx.findOpenSession(actor, scope);
       if (!open) {
-        // A remediation ended by a reconfiguration is still owed: it is carried over before any standard session.
+        // A remediation ended unfinished (idle or reconfigured) is still owed: it is carried over before any standard session.
         const previous = await tx.findLatestRemediation(actor, scope);
         const ended = previous && deriveSessionState(previous.events);
-        if (ended?.status === 'blocked' && ended.blockReason === 'configuration_changed') {
+        // Checked here too so an ordinary start never fetches the old package.
+        if (endedUnfinished(ended)) {
           const [pkg, registration] = await Promise.all([governingPackage(previous.session, options), registrySource.getRegistration(actor, options)]);
           const carried = decideCarriedRemediation(pkg, registration, { session: previous.session, state: ended },
             { ...input, sessionId: randomUUID(), agentLearnerKey: actor });

@@ -103,3 +103,8 @@ test('a verify batch of real-sized credentials is accepted, while single routes 
   assert.equal((await verified.json()).results.length, 20);
   assert.equal((await post('/verify', { jws: `h.${'p'.repeat(70000)}.s` }, null)).status, 413);
 });
+
+test('a verify batch refuses any credential larger than the single verify route takes', async () => {
+  const refused = await post('/verify/batch', { jws: ['h.p.s', `h.${'p'.repeat(70000)}.s`] }, null);
+  assert.equal(refused.status, 400);
+});

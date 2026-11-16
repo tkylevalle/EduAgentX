@@ -139,17 +139,14 @@ function decideRemediation(pkg, registration, { existingRequest = null, openSess
   if (!plan) return rejected('package_not_deliverable');
   const known = new Set((pkg.payload.objectives || []).map((objective) => objective?.id));
   if (input.objectiveIds.some((id) => !known.has(id))) return rejected('unknown_objectives');
-  const targeted = targetPlan(plan, input.objectiveIds);
-  if (!targeted.length) return rejected('no_targeted_content');
-  const quarantine = quarantineReason(pkg, targeted);
-  if (quarantine) return rejected(quarantine);
-  if (practiceShortfall(targeted, input.policy).length) return rejected('insufficient_practice');
+  const targeted = targetedPlan(pkg, plan, input.objectiveIds, input.policy);
+  if (targeted.refused) return targeted.refused;
 
   const remediation = {
     requestId: input.requestId, objectiveIds: [...input.objectiveIds], cause: input.cause,
     requestedBy: input.actor, requestDigest: input.requestDigest, requestedAt: input.now,
   };
-  const session = newSession(pkg, registration, input, { kind: 'remediation', remediation, plan: targeted });
+  const session = newSession(pkg, registration, input, { kind: 'remediation', remediation, plan: targeted.items });
   const response = { ...startResponse(session), status: 'assigned', agentLearnerKey: session.agentLearnerKey };
   return { outcome: 'ok', session, response, events: [event(session, 1, 'remediation_assigned', input, {
     objectiveIds: [...input.objectiveIds], idempotencyKey: `remediation:${input.requestId}`,
@@ -157,24 +154,39 @@ function decideRemediation(pkg, registration, { existingRequest = null, openSess
   })] };
 }
 
+// The reasons with which Training ends a session that the learner can still
+// finish in a new one: it went idle, or the learner was reconfigured.
+const CARRY_OVER_REASONS = Object.freeze(['session_timed_out', 'configuration_changed']);
+/** @param {object} state a derived session state @returns {boolean} whether Training ended the session for a reason a new session can carry over */
+const endedUnfinished = (state) => state?.status === 'blocked' && CARRY_OVER_REASONS.includes(state.blockReason);
+
+// A remediation's items for the targeted objectives, or the refusal when they
+// cannot be delivered: none, quarantined, or short of the required practice.
+function targetedPlan(pkg, plan, objectiveIds, policy) {
+  const items = targetPlan(plan, objectiveIds);
+  if (!items.length) return { refused: rejected('no_targeted_content') };
+  const quarantine = quarantineReason(pkg, items);
+  if (quarantine) return { refused: rejected(quarantine) };
+  if (practiceShortfall(items, policy).length) return { refused: rejected('insufficient_practice') };
+  return { items };
+}
+
 // The Engine's re-examination gate belongs to the agent, not to one
-// configuration of it, so a remediation ended as configuration_changed is still
+// configuration of it, so a remediation ended as idle or configuration_changed is still
 // owed. The next start opens it again, for the new configuration, on the same
 // request and package version; otherwise a reconfiguration would skip it, or
 // leave the agent unable to sit another examination. Returns null when the
 // previous session is not such a remediation, so the caller starts a standard session.
 function decideCarriedRemediation(pkg, registration, { session: previous, state }, input) {
-  if (previous?.kind !== 'remediation' || state.status !== 'blocked' || state.blockReason !== 'configuration_changed') return null;
+  if (previous?.kind !== 'remediation' || !endedUnfinished(state)) return null;
   if (!pkg || pkg.state !== 'Active' || pinMismatch(pkg, previous)) return null;
   if (!registration || registration.agentLearnerKey !== input.agentLearnerKey) return rejected('not_registered');
   const plan = deliveryPlan(pkg.payload);
-  const targeted = plan && targetPlan(plan, previous.remediation.objectiveIds);
-  if (!targeted?.length) return rejected('no_targeted_content');
-  const quarantine = quarantineReason(pkg, targeted);
-  if (quarantine) return rejected(quarantine);
-  if (practiceShortfall(targeted, input.policy).length) return rejected('insufficient_practice');
+  if (!plan) return rejected('package_not_deliverable');
+  const targeted = targetedPlan(pkg, plan, previous.remediation.objectiveIds, input.policy);
+  if (targeted.refused) return targeted.refused;
   const remediation = { ...previous.remediation, carriedFromSessionId: previous.sessionId };
-  const session = newSession(pkg, registration, input, { kind: 'remediation', remediation, plan: targeted });
+  const session = newSession(pkg, registration, input, { kind: 'remediation', remediation, plan: targeted.items });
   const response = { ...startResponse(session), resumed: false };
   return { outcome: 'ok', session, response, events: [event(session, 1, 'session_started', input, replyFields(input, response))] };
 }
@@ -427,6 +439,6 @@ const rejected = (reason) => ({ outcome: 'rejected', reason, events: [] });
 const conflict = (reason) => ({ outcome: 'conflict', reason, events: [] });
 
 module.exports = {
-  EVENT_TYPES, decideCarriedRemediation, decideContinue, decideRemediation, decideStart, decideSubmit, decideTimeout, deliveryPlan,
+  EVENT_TYPES, decideCarriedRemediation, endedUnfinished, decideContinue, decideRemediation, decideStart, decideSubmit, decideTimeout, deliveryPlan,
   deriveSessionState, nextItem, pinGoverningPackage, pinMismatch, quarantineReason,
 };
