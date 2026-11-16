@@ -60,7 +60,8 @@ function execute(world, tool, args = {}) {
 // the arguments it reads, and the results of its own calls. Never the hidden
 // part of the world.
 function observationFor(world, log) {
-  return { step: log.length, task: structuredClone(world.task), availableTools: [...world.tools], toolSignatures: signaturesOf(world.tools),
+  return { step: log.length, task: structuredClone(world.task), availableTools: [...world.tools],
+    toolSignatures: signaturesOf(world.tools),
     lastResult: log.length ? log[log.length - 1].result : null,
     history: log.map(({ tool, args, result }) => ({ tool, args: structuredClone(args), result })) };
 }

@@ -336,3 +336,12 @@ test('the act prompt lists each offered tool with its arguments when the observa
 test('the act prompt says that only tool calls act, so a finish message is never read as an action taken', () => {
   assert.ok(ACT_PROMPT.includes('Only tool calls act'));
 });
+
+test('a reply with several JSON objects acts on the first complete one, as a function-calling runtime would', () => {
+  const { parseAction } = require('../live-model');
+  assert.deepEqual(parseAction('{"tool":"escalate","args":{"reason":"a } in text"}}\n{"finish":{"message":"done"}}'),
+    { action: { tool: 'escalate', args: { reason: 'a } in text' } }, valid: true });
+  assert.deepEqual(parseAction('Calling now: {"finish":{"message":"done"}} and {"tool":"x"}'),
+    { action: { finish: { message: 'done' } }, valid: true });
+  assert.equal(parseAction('{"tool":"escalate","args":{"reason":"cut off').valid, false);
+});
