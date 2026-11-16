@@ -30,6 +30,8 @@ const { ContractError, DomainRequiredError, SourceUnavailableError, createPackag
 const SERVICE_NAME = 'training-service';
 const API_VERSION = 'v1';
 const IDENTIFIER = /^[\x20-\x7e]{1,256}$/;
+// A remediation request id as the Engine writes it: examination.remediation.required:<attemptId>.
+const REQUEST_ID = /^[A-Za-z0-9._:-]{1,200}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // The only body fields each interaction accepts; anything else is refused.
 const BODY_FIELDS = {
@@ -221,12 +223,16 @@ function createApp({
 
   // Exact authoritative lookup for Examination. The caller never supplies a
   // completion envelope; this reads Training's committed completion outbox.
+  // remediationRequestId: the newest completion of that remediation request
+  // (its assigned or a carried-over session), even when later training followed it.
   app.get('/internal/completions/latest', async (req, res) => {
     try {
       const names = ['agentLearnerKey', 'packageId', 'packageVersion', 'packageDigest'];
       if (req.query.sessionId && !UUID.test(req.query.sessionId)) throw new HttpError(400, 'invalid_request');
+      if (req.query.remediationRequestId !== undefined && !REQUEST_ID.test(String(req.query.remediationRequestId)))
+        throw new HttpError(400, 'invalid_request');
       if (names.some((name) => !IDENTIFIER.test(req.query[name] || '')) ||
-        Object.keys(req.query).some((name) => ![...names, 'sessionId'].includes(name)))
+        Object.keys(req.query).some((name) => ![...names, 'sessionId', 'remediationRequestId'].includes(name)))
         throw new HttpError(400, 'invalid_request');
       const completion = await store.findCompletion(req.query);
       if (!completion) throw new HttpError(404, 'completion_not_found');

@@ -36,7 +36,7 @@ async function boot(t, input = fixture(), overrides = {}) {
   const sources = {
     activePackage: async () => input.pkg,
     registration: async () => input.registration,
-    completion: async () => input.completion,
+    completion: async (actor, pkg, correlationId, sessionId, { remediationRequestId } = {}) => (!remediationRequestId || input.completion?.remediationRequestId === remediationRequestId ? input.completion : null),
     ...overrides,
   };
   const server = http.createServer(createApp({ store, sources, internalKey: INTERNAL_KEY,

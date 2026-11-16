@@ -57,7 +57,8 @@ async function boot(t, { grader = fakeGrader(), retryWindowMs = 15 * 60 * 1000, 
   let now = START;
   const store = createMemoryStore();
   const sources = { activePackage: async () => input.pkg, registration: async () => input.registration,
-    completion: async () => input.completion, ...overrides };
+    // As Training: a lookup by remediation request finds only a completion of that request.
+    completion: async (actor, pkg, correlationId, sessionId, { remediationRequestId } = {}) => (!remediationRequestId || input.completion?.remediationRequestId === remediationRequestId ? input.completion : null), ...overrides };
   const clock = () => now;
   const app = createApp({ store, sources, internalKey: INTERNAL_KEY, gradingKey: GRADING_KEY, clock, episodeSeedKey: EPISODE_KEY,
     durationMinutes: 60, gradeItems: grader, gradingRetryWindowMs: retryWindowMs, ...appOptions });

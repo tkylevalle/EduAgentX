@@ -231,14 +231,15 @@ function createPgStore(pool) {
         'SELECT envelope FROM training_service.completion_events ORDER BY occurred_at DESC, event_id LIMIT $1', [limit]);
       return result.rows.map((row) => row.envelope);
     },
-    async findCompletion({ agentLearnerKey, packageId, packageVersion, packageDigest, sessionId }) {
+    async findCompletion({ agentLearnerKey, packageId, packageVersion, packageDigest, sessionId, remediationRequestId }) {
       const result = await pool.query(
         `SELECT c.envelope FROM training_service.completion_events c
          JOIN training_service.sessions s ON s.session_id = c.session_id
          WHERE s.agent_learner_key = $1 AND s.package_id = $2 AND s.package_version = $3
            AND s.package_digest = $4 AND ($5::uuid IS NULL OR s.session_id = $5::uuid)
+           AND ($6::text IS NULL OR c.envelope->>'remediationRequestId' = $6)
          ORDER BY c.occurred_at DESC, c.event_id DESC LIMIT 1`,
-        [agentLearnerKey, packageId, packageVersion, packageDigest, sessionId || null]);
+        [agentLearnerKey, packageId, packageVersion, packageDigest, sessionId || null, remediationRequestId || null]);
       return result.rows[0]?.envelope || null;
     },
     // Started sessions with no terminal event and no event since `cutoff`, oldest first.
@@ -439,10 +440,11 @@ function createMemoryStore() {
     },
     async metricsInput() { return store.listSessions(); },
     async listCompletionEvents() { return structuredClone([...completions.values()].reverse()); },
-    async findCompletion({ agentLearnerKey, packageId, packageVersion, packageDigest, sessionId }) {
+    async findCompletion({ agentLearnerKey, packageId, packageVersion, packageDigest, sessionId, remediationRequestId }) {
       const match = [...completions.values()].reverse().find((event) =>
         event.agentLearnerKey === agentLearnerKey && event.package?.id === packageId &&
-        event.package?.version === packageVersion && event.package?.digest === packageDigest && (!sessionId || event.sessionId === sessionId));
+        event.package?.version === packageVersion && event.package?.digest === packageDigest && (!sessionId || event.sessionId === sessionId) &&
+        (!remediationRequestId || event.remediationRequestId === remediationRequestId));
       return match ? structuredClone(match) : null;
     },
     async listIdleOpenSessions(cutoff, limit = 100) {
