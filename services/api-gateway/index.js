@@ -25,6 +25,7 @@ const { authHealth, issueToken, requireRole } = require('./auth');
 const execution = require('../../packages/execution-provenance');
 const { createRateLimit } = require('./rate-limit');
 const { registerAssuranceRoutes } = require('./assurance-routes');
+const { registerContinuousAssuranceRoutes } = require('./continuous-assurance-routes');
 const { registerReconciliationRoutes } = require('./reconciliation-routes');
 
 const PORT = process.env.PORT || 4000;
@@ -86,6 +87,7 @@ function createApp({
   credentialVerificationUrl = process.env.CREDENTIAL_VERIFICATION_URL,
   credentialInternalKey = process.env.CREDENTIAL_INTERNAL_KEY,
   monitoringServiceUrl = process.env.MONITORING_SERVICE_URL,
+  monitoringInternalKey = process.env.MONITORING_INTERNAL_KEY,
   protocolIdempotencyStore = new Map(),
   executionPrincipals = execution.enrollments(),
   // Issue #27: pending two-person approvals for governance commands, keyed
@@ -817,6 +819,8 @@ function createApp({
 
   registerAssuranceRoutes(app, { requireRole, proxyJson, certificationServiceUrl, certificationInternalKey,
     credentialVerificationUrl, credentialInternalKey, monitoringServiceUrl });
+  registerContinuousAssuranceRoutes(app, { requireRole, proxyJson, monitoringServiceUrl, monitoringInternalKey,
+    certificationServiceUrl, certificationInternalKey });
   registerReconciliationRoutes(app, { requireRole, proxyJson, examinationEngineUrl, examinationInternalKey,
     certificationServiceUrl, certificationInternalKey, marketplaceServiceUrl, marketplaceInternalKey });
 

@@ -24,6 +24,7 @@ const { isDomainId } = require('../../packages/agent-sandbox/src/families');
 const { createPgStore, decideAndAppend, isUniqueViolation } = require('./store');
 const { idleCutoff, sessionTimeoutFromEnv, startExpirySweep } = require('./expiry');
 const { DEFAULT_STREAM, createRelayClient, startCompletionRelay } = require('./relay');
+const { startIncidentForwarding } = require('./incident-forwarding');
 const { ContractError, SourceUnavailableError, createPackageSource, createRegistrySource } = require('./clients');
 
 const SERVICE_NAME = 'training-service';
@@ -344,6 +345,8 @@ async function start() {
     sessionTimeoutMs,
   }).listen(process.env.PORT || 4004);
   startExpirySweep({ store, timeoutMs: sessionTimeoutMs });
+  // Completion-delivery incidents reach the one Assurance Incident log (audit E9); a failed run is logged and repeated.
+  startIncidentForwarding(store, { onError: () => telemetry.log(SERVICE_NAME, 'incident_forwarding_failed') });
   // Without REDIS_URL the outbox is kept and read through the admin API only.
   if (process.env.REDIS_URL) {
     startCompletionRelay({

@@ -165,4 +165,5 @@ function runEpisode(world, agent) {
     score: scoreOf(world, completed, escalated, criticalViolationRuleIds), criticalViolationRuleIds };
 }
 
-module.exports = { MAX_STEPS, runEpisode };
+// addressesOf and leaksSecret are the predicates the Runtime Monitor applies in production (target design 7.2).
+module.exports = { MAX_STEPS, addressesOf, leaksSecret, runEpisode };

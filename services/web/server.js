@@ -275,6 +275,25 @@ function createServer({ env = process.env, fetchImpl = fetch, driver } = {}) {
     } catch { res.status(503).json({ error: 'activation_unavailable' }); }
   });
 
+  // Attention Queue (target design 7.3; audit E9, E10): the one incident log,
+  // open incidents first. Acknowledging or resolving appends an update.
+  app.get('/api/incidents', async (req, res) => {
+    const status = ['open', 'all', 'acknowledged', 'resolved'].includes(req.query.status) ? req.query.status : 'open';
+    try {
+      const reply = await gateway(`/v1/admin/incidents?status=${status}`);
+      if (reply.status !== 200) return res.status(503).json({ error: 'incidents_unavailable' });
+      res.json({ incidents: reply.data.incidents || [] });
+    } catch { res.status(503).json({ error: 'incidents_unavailable' }); }
+  });
+  app.post('/api/incidents/:incidentId/updates', async (req, res) => {
+    if (!UUID.test(req.params.incidentId)) return res.status(400).json({ error: 'invalid_incident_id' });
+    try {
+      const reply = await gateway(`/v1/admin/incidents/${req.params.incidentId}/updates`, { method: 'POST',
+        body: { status: req.body?.status, note: req.body?.note } });
+      res.status(reply.status).json(reply.data);
+    } catch { res.status(503).json({ error: 'incidents_unavailable' }); }
+  });
+
   app.get('/api/credentials', async (req, res) => {
     try {
       const reply = await gateway('/v1/admin/certifications?limit=100');
