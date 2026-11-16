@@ -1,6 +1,6 @@
 'use strict';
 
-const { SUPPORTED_DOMAIN, ASSESSMENT_MODES, ENVIRONMENTS } = require('./capability-request');
+const { ATTESTATION_LEVELS, ASSESSMENT_MODES, ENVIRONMENTS, isSupportedDomain } = require('./capability-request');
 
 // Pure hard-eligibility rules for one candidate credential against one Capability Request version.
 // No clock, network or storage: the caller passes `now` and the authoritative answers it just rechecked.
@@ -63,7 +63,7 @@ const GATES = Object.freeze([
     const domain = input.authoritative.package.domain;
     if (!text(domain) || !text(input.request.domain)) return UNCHECKABLE;
     // Re-asserting the supported domain here means a bad request row can never widen eligibility.
-    return domain === input.request.domain && domain === SUPPORTED_DOMAIN ? null : 'DOMAIN_MISMATCH';
+    return domain === input.request.domain && isSupportedDomain(domain) ? null : 'DOMAIN_MISMATCH';
   } },
   { id: 'objectives', tag: 'request', check: (input) => {
     if (!packageMatches(input)) return 'PACKAGE_UNCHECKABLE';
@@ -97,6 +97,25 @@ const GATES = Object.freeze([
   } },
 ]);
 
+// Trust Registry filters (target design 7.4): checked after the gates, and
+// only when the request sets them, so a request without them is judged
+// exactly as before. A filter failure is a request reason, never a trust one.
+const FILTERS = Object.freeze([
+  { id: 'attestation', tag: 'request', check: ({ request, candidate }) => {
+    if (request.minAttestationLevel === undefined) return null;
+    // A credential that states no level (issued before levels existed) is below any requested level.
+    return ATTESTATION_LEVELS.indexOf(candidate.attestationLevel) >= ATTESTATION_LEVELS.indexOf(request.minAttestationLevel)
+      ? null : 'ATTESTATION_BELOW';
+  } },
+  { id: 'bounds', tag: 'request', check: ({ request, candidate }) => {
+    if (request.minSuccessLowerBound === undefined) return null;
+    // Every behaviour-tested objective must clear the bound; a credential with no behaviour evidence clears none.
+    const objectives = candidate.behaviour?.objectives;
+    if (!Array.isArray(objectives) || !objectives.length) return 'BOUND_BELOW';
+    return objectives.every((objective) => objective.successLowerBound >= request.minSuccessLowerBound) ? null : 'BOUND_BELOW';
+  } },
+]);
+
 const objectOrEmpty = (value) => (value && typeof value === 'object' && !Array.isArray(value) ? value : {});
 
 function checkEligibility(requestVersion, candidate, authoritative, now) {
@@ -104,7 +123,7 @@ function checkEligibility(requestVersion, candidate, authoritative, now) {
     authoritative: objectOrEmpty(authoritative), now: instant(now) };
   const reasons = [];
   // Every gate runs, so the evidence shows all failures, not just the first one.
-  for (const gate of GATES) {
+  for (const gate of [...GATES, ...FILTERS]) {
     const outcome = gate.check(input);
     if (outcome === null) continue;
     if (outcome === UNCHECKABLE) {
@@ -121,4 +140,4 @@ function checkEligibility(requestVersion, candidate, authoritative, now) {
   return { eligible: reasons.length === 0, reasons };
 }
 
-module.exports = { GATES, checkEligibility };
+module.exports = { FILTERS, GATES, checkEligibility };

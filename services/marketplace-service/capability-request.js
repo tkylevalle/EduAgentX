@@ -2,12 +2,25 @@
 
 const { createHash } = require('node:crypto');
 
-// The spec limits the Marketplace to the one validated reference domain.
+// The domains a request may name (target design 3.3, 7.4): the Marketplace
+// slug, and the package's sandbox domain id and display name that identify it.
+const DOMAINS = Object.freeze({
+  'ai-agent-safety-secure-tool-use': Object.freeze({ domainId: 'ai-safety', name: 'AI Agent Safety and Secure Tool Use' }),
+  'customer-refunds-policy-compliance': Object.freeze({ domainId: 'customer-refunds', name: 'Customer Refunds and Policy Compliance' }),
+  'personal-data-handling': Object.freeze({ domainId: 'personal-data', name: 'Personal Data Handling' }),
+});
+// The reference domain, the first the Marketplace supported.
 const SUPPORTED_DOMAIN = 'ai-agent-safety-secure-tool-use';
+const isSupportedDomain = (slug) => typeof slug === 'string' && Object.hasOwn(DOMAINS, slug);
 const ASSESSMENT_MODES = ['standard', 'fallback'];
 const ENVIRONMENTS = ['simulation', 'live'];
+// Attestation levels from least to most observed (assurance audit D1); a request may ask for at least one.
+const ATTESTATION_LEVELS = Object.freeze(['L1-declared', 'L2-observed']);
+// A requested behaviour bound may only be stricter than the pass policy's 0.70 (target design 4.4).
+const MIN_REQUESTABLE_BOUND = 0.7;
 const FIELDS = ['domain', 'requiredObjectiveIds', 'minOverallPercent', 'minAdversarialPercent',
-  'maxCredentialAgeDays', 'allowedAssessmentModes', 'requiredEnvironment', 'title', 'preferredObjectiveIds'];
+  'maxCredentialAgeDays', 'allowedAssessmentModes', 'requiredEnvironment', 'title', 'preferredObjectiveIds',
+  'minAttestationLevel', 'minSuccessLowerBound'];
 
 const inRange = (value, min, max) => typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max;
 const uniqueStrings = (value, min, max, allowed = null) => Array.isArray(value) &&
@@ -29,7 +42,7 @@ function validateRequestVersion(input) {
     return { ok: false, errors: ['invalid:body'], digest: null };
   const errors = [];
   // Exact equality: a near-miss domain is still a domain we have not validated.
-  if (input.domain !== SUPPORTED_DOMAIN) errors.push('domain_unsupported');
+  if (!isSupportedDomain(input.domain)) errors.push('domain_unsupported');
   if (!uniqueStrings(input.requiredObjectiveIds, 1, 20)) errors.push('invalid:requiredObjectiveIds');
   if (input.preferredObjectiveIds !== undefined && !uniqueStrings(input.preferredObjectiveIds, 0, 20))
     errors.push('invalid:preferredObjectiveIds');
@@ -43,6 +56,8 @@ function validateRequestVersion(input) {
   if (!ENVIRONMENTS.includes(input.requiredEnvironment)) errors.push('invalid:requiredEnvironment');
   if (typeof input.title !== 'string' || input.title.trim().length === 0 || input.title.length > 200)
     errors.push('invalid:title');
+  if (input.minAttestationLevel !== undefined && !ATTESTATION_LEVELS.includes(input.minAttestationLevel)) errors.push('invalid:minAttestationLevel');
+  if (input.minSuccessLowerBound !== undefined && !inRange(input.minSuccessLowerBound, MIN_REQUESTABLE_BOUND, 1)) errors.push('invalid:minSuccessLowerBound');
   for (const key of Object.keys(input)) if (!FIELDS.includes(key)) errors.push(`unexpected:${key}`);
   if (errors.length) return { ok: false, errors, digest: null };
   // Objective and mode lists are sets; their order must not create a different version.
@@ -60,4 +75,5 @@ function deriveRequestState(events) {
   return opened ? { status: 'open', openVersion: opened.version } : { status: 'draft', openVersion: null };
 }
 
-module.exports = { SUPPORTED_DOMAIN, ASSESSMENT_MODES, ENVIRONMENTS, validateRequestVersion, deriveRequestState, digestOf };
+module.exports = { ATTESTATION_LEVELS, DOMAINS, SUPPORTED_DOMAIN, ASSESSMENT_MODES, ENVIRONMENTS, isSupportedDomain, validateRequestVersion,
+  deriveRequestState, digestOf };

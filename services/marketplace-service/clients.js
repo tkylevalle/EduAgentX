@@ -12,7 +12,7 @@ const { isPassingBehaviourEvidence } = require('../../packages/agent-sandbox/src
 const telemetry = require('../../packages/telemetry');
 const { createHash } = require('node:crypto');
 const { isDeepStrictEqual } = require('node:util');
-const { SUPPORTED_DOMAIN, ASSESSMENT_MODES } = require('./capability-request');
+const { DOMAINS, ASSESSMENT_MODES } = require('./capability-request');
 
 const SERVICE_NAME = 'marketplace-service';
 const DEFAULT_TIMEOUT_MS = 2000;
@@ -61,17 +61,21 @@ function toCurrentFingerprint(body, agentLearnerKey) {
   return text(fingerprint) && fingerprint.startsWith('sha256:') ? fingerprint : null;
 }
 
-// The manifest's display name is the only domain text we accept; anything else is unknown.
-const DOMAIN_NAMES = Object.freeze({ 'AI Agent Safety and Secure Tool Use': SUPPORTED_DOMAIN });
+// A package names its domain by sandbox id (manifest.domainId, and the stored
+// domain since Phase 4) and by display name (manifest.domain, and the stored
+// domain before it). Each form maps to one Marketplace slug; anything else is unknown.
+const DOMAIN_NAMES = Object.freeze(Object.fromEntries(Object.entries(DOMAINS)
+  .flatMap(([slug, { domainId, name }]) => [[domainId, slug], [name, slug]])));
 
 // GET /packages/:id?version= on validation-activation (the read training-service uses).
 function toPackageAnswer(body, packageId, version) {
   if (!object(body) || body.packageId !== packageId || body.version !== version) return null;
   // A quarantined package cannot support a marketplace claim, so it is not an answer we can use.
   if (body.certificationBlocked !== false || !Array.isArray(body.quarantinedScopes) || body.quarantinedScopes.length) return null;
-  // The domain may appear on the manifest, at the top level, or both; every copy present must agree.
-  const names = [body.manifest?.domain, body.domain].filter((name) => name !== undefined);
-  const domain = names.length && names.every((name) => name === names[0]) ? DOMAIN_NAMES[names[0]] ?? null : null;
+  // The domain may appear on the manifest (id and name), at the top level, or all three; every copy present must name the same domain.
+  const slugs = [body.manifest?.domainId, body.manifest?.domain, body.domain].filter((name) => name !== undefined)
+    .map((name) => (Object.hasOwn(DOMAIN_NAMES, name) ? DOMAIN_NAMES[name] : null));
+  const domain = slugs.length && slugs.every((slug) => slug !== null && slug === slugs[0]) ? slugs[0] : null;
   const ids = Array.isArray(body.objectives) ? body.objectives.map((objective) => objective?.id) : null;
   const objectiveIds = ids && ids.length && ids.every(text) && new Set(ids).size === ids.length ? ids : null;
   return { digest: text(body.digest) ? body.digest : null, domain, objectiveIds };
@@ -180,6 +184,47 @@ async function requestJson(source, url, { method = 'GET', body, headers = {}, ac
   try { return await response.json(); } catch { throw new SourceError(source, 'contract_violation'); }
 }
 
+// --- batching (assurance audit F6)
+
+// The batch routes take at most this many keys; a longer queue is sent in chunks.
+const MAX_BATCH = 500;
+
+/**
+ * Coalesces calls made in the same turn of the event loop into batch calls:
+ * the authority dispatcher starts its workers together, so their reads share
+ * one request per source instead of one each. A failed batch rejects every
+ * call in it, which the caller turns into an uncheckable answer, as before.
+ * @param {(keys: string[], options: object) => Promise<unknown[]>} run  answers in key order
+ * @returns {(key: string, options?: object) => Promise<unknown>}
+ */
+function createBatcher(run) {
+  let pending = [];
+  const flush = () => {
+    const queued = pending;
+    pending = [];
+    for (let start = 0; start < queued.length; start += MAX_BATCH) {
+      const chunk = queued.slice(start, start + MAX_BATCH);
+      run(chunk.map((call) => call.key), chunk[0].options)
+        .then((answers) => chunk.forEach((call, index) => call.resolve(answers[index])))
+        .catch((error) => chunk.forEach((call) => call.reject(error)));
+    }
+  };
+  return (key, options = {}) => new Promise((resolve, reject) => {
+    if (!pending.length) setImmediate(flush);
+    pending.push({ key, options, resolve, reject });
+  });
+}
+
+/** Concurrent identical calls share one request until it settles. */
+function coalesce(call, keyOf) {
+  const inFlight = new Map();
+  return (...args) => {
+    const key = keyOf(...args);
+    if (!inFlight.has(key)) inFlight.set(key, Promise.resolve().then(() => call(...args)).finally(() => inFlight.delete(key)));
+    return inFlight.get(key);
+  };
+}
+
 function createRegistrySource({ baseUrl, timeoutMs } = {}) {
   return {
     async getCurrentFingerprint(agentLearnerKey, options = {}) {
@@ -191,8 +236,8 @@ function createRegistrySource({ baseUrl, timeoutMs } = {}) {
   };
 }
 
-function createPackageSource({ baseUrl, internalKey, timeoutMs } = {}) {
-  return {
+function createPackageSource({ baseUrl, internalKey, timeoutMs, batch = false } = {}) {
+  const source = {
     async getPackage(packageId, version, options = {}) {
       if (!internalKey) throw new SourceError('validation-activation', 'source_not_available');
       if (!text(packageId) || !text(version)) throw new SourceError('validation-activation', 'contract_violation');
@@ -202,6 +247,8 @@ function createPackageSource({ baseUrl, internalKey, timeoutMs } = {}) {
       return body === null ? null : toPackageAnswer(body, packageId, version);
     },
   };
+  // In batch mode candidates that share a package version share its read.
+  return batch ? { getPackage: coalesce(source.getPackage, (packageId, version) => `${packageId}@${version}`) } : source;
 }
 
 // Blocker 2 (owner Luis): POST /verify registers any credentialId it is given as
@@ -209,7 +256,8 @@ function createPackageSource({ baseUrl, internalKey, timeoutMs } = {}) {
 // (never a credentialId) and is trusted for signature and schema only; status
 // comes from the read-only GET /status/:credentialId. Today that store is empty
 // after any restart, so status is indeterminate and the candidate is excluded.
-function createVerificationSource({ baseUrl, timeoutMs } = {}) {
+function createVerificationSource({ baseUrl, timeoutMs, batch = false } = {}) {
+  if (batch) return createBatchVerificationSource({ baseUrl, timeoutMs });
   async function readStatus(credentialId, options) {
     try {
       const body = await requestJson('credential-verification', `${baseUrl}/status/${encodeURIComponent(credentialId)}`,
@@ -232,6 +280,32 @@ function createVerificationSource({ baseUrl, timeoutMs } = {}) {
       ]);
       const parts = report === null ? null : toSignatureAndSchema(report);
       return { signature: parts?.signature ?? null, schema: parts?.schema ?? null, status };
+    },
+  };
+}
+
+// Batch mode: the same answers from POST /verify/batch and POST /status/batch.
+function createBatchVerificationSource({ baseUrl, timeoutMs }) {
+  const verifyMany = createBatcher(async (jwsList, options) => {
+    const body = await requestJson('credential-verification', `${baseUrl}/verify/batch`, { ...options, timeoutMs, method: 'POST', body: { jws: jwsList } });
+    if (!Array.isArray(body?.results) || body.results.length !== jwsList.length) throw new SourceError('credential-verification', 'contract_violation');
+    return body.results;
+  });
+  const statusMany = createBatcher(async (ids, options) => {
+    const body = await requestJson('credential-verification', `${baseUrl}/status/batch`, { ...options, timeoutMs, method: 'POST', body: { credentialIds: ids } });
+    if (!Array.isArray(body?.statuses) || body.statuses.length !== ids.length) throw new SourceError('credential-verification', 'contract_violation');
+    return body.statuses;
+  });
+  return {
+    async verify(candidate, options = {}) {
+      if (!text(candidate?.compactJws) || !text(candidate?.credentialId))
+        throw new SourceError('credential-verification', 'contract_violation');
+      const [result, status] = await Promise.all([verifyMany(candidate.compactJws, options),
+        // An unreachable status service is not knowledge of the status.
+        statusMany(candidate.credentialId, options).catch(() => null)]);
+      const parts = [200, 422].includes(result?.httpStatus) ? toSignatureAndSchema(result.report) : null;
+      return { signature: parts?.signature ?? null, schema: parts?.schema ?? null,
+        status: status?.status ? toStatus({ credentialId: status.credentialId, status: status.status }, candidate.credentialId) : 'indeterminate' };
     },
   };
 }
@@ -266,13 +340,28 @@ function toLifecycleOrigin(body, candidate) {
     origin.credentialDigest === credentialDigest;
 }
 
-function createLifecycleSource({ baseUrl, internalKey, timeoutMs } = {}) {
+function createLifecycleSource({ baseUrl, internalKey, timeoutMs, batch = false } = {}) {
   const notFound = Symbol('origin_not_found');
+  const headers = { 'x-internal-service-key': internalKey, 'x-actor-subject': SERVICE_NAME, 'x-actor-role': 'marketplace' };
+  const originMany = batch && createBatcher(async (ids, options) => {
+    const body = await requestJson('certification-service', `${baseUrl}/internal/credential-origins/batch`, {
+      ...options, timeoutMs, method: 'POST', body: { credentialIds: ids }, redirect: 'error', headers });
+    if (body?.apiVersion !== 'v1' || !Array.isArray(body.origins) || body.origins.length !== ids.length ||
+      body.origins.some((entry, index) => entry?.credentialId !== ids[index])) throw new SourceError('certification-service', 'contract_violation');
+    return body.origins.map((entry) => entry.origin);
+  });
   return {
     async isLifecycleOrigin(candidate, options = {}) {
       if (!baseUrl || !internalKey) throw new SourceError('certification-service', 'source_not_available');
       if (!UUID.test(candidate?.credentialId || '') || !text(candidate?.compactJws))
         throw new SourceError('certification-service', 'contract_violation');
+      if (originMany) {
+        const origin = await originMany(candidate.credentialId, options);
+        if (origin === null) return false;
+        const answer = toLifecycleOrigin({ apiVersion: 'v1', origin }, candidate);
+        if (answer === null) throw new SourceError('certification-service', 'contract_violation');
+        return answer;
+      }
       const body = await requestJson('certification-service',
         `${baseUrl}/internal/credential-origins/${encodeURIComponent(candidate.credentialId)}`, {
           ...options, timeoutMs, notFoundValue: notFound, redirect: 'error',
@@ -286,6 +375,6 @@ function createLifecycleSource({ baseUrl, internalKey, timeoutMs } = {}) {
 }
 
 module.exports = {
-  SourceError, askSource, toCurrentFingerprint, toPackageAnswer, toSignatureAndSchema, toStatus, toCandidate, toLifecycleOrigin,
+  MAX_BATCH, coalesce, createBatcher, SourceError, askSource, toCurrentFingerprint, toPackageAnswer, toSignatureAndSchema, toStatus, toCandidate, toLifecycleOrigin,
   createRegistrySource, createPackageSource, createVerificationSource, createLifecycleSource,
 };

@@ -75,25 +75,43 @@ app.get('/health', (_req, res) => {
   res.json({ status: 'ok', service: 'credential-verification', publicKeyConfigured: Boolean(getPublicKey()) });
 });
 
-// POST /verify — verify a credential JWS. Status comes only from the store;
-// an unknown credential is reported as indeterminate, never as active.
-app.post('/verify', (req, res) => {
-  const { jws } = req.body || {};
-  if (!jws) return res.status(400).json({ error: 'missing_jws' });
+// Verifies one credential JWS: { status, body } as /verify answers it. Status
+// comes only from the store; an unknown credential is indeterminate, never active.
+function verifyOne(jws) {
+  if (!jws || typeof jws !== 'string') return { status: 400, body: { error: 'missing_jws' } };
   // A credential signed with the status-list key is invalid, whatever it says.
   let statusKid = false;
   try { statusKid = isStatusListKid(keyIdOf(jws)); } catch (error) {
     console.error(`[credential-verification] issuer keys unavailable: ${error.message}`);
   }
-  if (statusKid) return res.status(422).json({ signature: { status: 'FAIL', reason: 'key_not_for_credentials' },
-    overall: 'INVALID', reasonCodes: ['KEY_PURPOSE_MISMATCH'] });
-
+  if (statusKid) return { status: 422, body: { signature: { status: 'FAIL', reason: 'key_not_for_credentials' },
+    overall: 'INVALID', reasonCodes: ['KEY_PURPOSE_MISMATCH'] } };
   const publicKey = publicKeyFor(jws);
-  if (!publicKey) return res.status(503).json({ error: 'no_public_key_configured' });
-
+  if (!publicKey) return { status: 503, body: { error: 'no_public_key_configured' } };
   const report = verifyCredential(jws, publicKey, statusStore);
-  const httpStatus = report.overall === 'VALID' ? 200 : report.overall === 'INDETERMINATE' ? 200 : 422;
-  res.status(httpStatus).json(report);
+  return { status: report.overall === 'VALID' || report.overall === 'INDETERMINATE' ? 200 : 422, body: report };
+}
+
+// POST /verify — verify a credential JWS.
+app.post('/verify', (req, res) => {
+  const { status, body } = verifyOne((req.body || {}).jws);
+  res.status(status).json(body);
+});
+
+// Batch reads for Marketplace matching (assurance audit F6): one request for a
+// whole candidate list instead of one per credential. Same answers as the
+// single routes, in input order.
+const MAX_BATCH = 500;
+const batchOf = (value) => (Array.isArray(value) && value.length >= 1 && value.length <= MAX_BATCH && value.every((item) => typeof item === 'string' && item) ? value : null);
+app.post('/verify/batch', (req, res) => {
+  const jwsList = batchOf((req.body || {}).jws);
+  if (!jwsList) return res.status(400).json({ error: 'invalid_batch', max: MAX_BATCH });
+  res.json({ results: jwsList.map((jws) => { const { status, body } = verifyOne(jws); return { httpStatus: status, report: body }; }) });
+});
+app.post('/status/batch', (req, res) => {
+  const ids = batchOf((req.body || {}).credentialIds);
+  if (!ids) return res.status(400).json({ error: 'invalid_batch', max: MAX_BATCH });
+  res.json({ statuses: ids.map((credentialId) => ({ credentialId, status: statusStore.getStatus(credentialId) })) });
 });
 
 // POST /status/register — certification-service records a newly issued credential.

@@ -82,3 +82,16 @@ test('a saved status survives a restart, and an unreadable file stops the servic
   assert.notEqual(corrupt.status, 0);
   assert.match(corrupt.stderr, /unreadable.*refusing to start/);
 });
+
+// Assurance audit F6: Marketplace reads statuses and verifies credentials for a whole candidate list at once.
+test('batch status and verify answer each item in order, as the single routes would', async () => {
+  const known = newId();
+  assert.equal((await post('/status/register', { credentialId: known })).status, 201);
+  const statuses = await (await post('/status/batch', { credentialIds: [known, 'never-registered'] }, null)).json();
+  assert.deepEqual(statuses.statuses, [{ credentialId: known, status: 'active' }, { credentialId: 'never-registered', status: null }]);
+  const verified = await (await post('/verify/batch', { jws: ['not-a-jws'] }, null)).json();
+  assert.equal(verified.results.length, 1);
+  assert.equal(typeof verified.results[0].httpStatus, 'number');
+  assert.equal((await post('/status/batch', { credentialIds: [] }, null)).status, 400);
+  assert.equal((await post('/verify/batch', { jws: Array.from({ length: 501 }, () => 'x') }, null)).status, 400);
+});
