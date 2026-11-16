@@ -38,3 +38,17 @@ test('HTTP health and dependency errors retain correlation without serializing p
   const records = lines.map(line => JSON.parse(line));
   assert.ok(records.some(r => r.correlationId === 'dependency-error-test' && r.statusCode === 500));
 });
+// Review finding 8: a failed forwarding run says why, in bounded form.
+test('a failed incident forwarding run logs the reason it failed', t => {
+  const { logForwardingFailure } = require('../index');
+  const lines = [];
+  const previous = console.log;
+  console.log = line => lines.push(line);
+  t.after(() => { console.log = previous; });
+  logForwardingFailure(new Error('incident_log_refused_503'));
+  logForwardingFailure(new Error('x'.repeat(1000)));
+  const records = lines.map(line => JSON.parse(line));
+  assert.equal(records[0].event, 'incident_forwarding_failed');
+  assert.equal(records[0].outcome, 'incident_log_refused_503');
+  assert.equal(records[1].outcome.length, 200);
+});

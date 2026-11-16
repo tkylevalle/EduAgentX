@@ -5,14 +5,15 @@
 // Credential status changes are admin-only and are forwarded with the
 // credential-verification internal key, which never leaves the Gateway.
 
+const telemetry = require('../../packages/telemetry');
+const { UUID, unavailable } = require('./route-helpers');
+
 const ASSURANCE_READERS = Object.freeze(['admin', 'viewer', 'evaluator', 'governance_operator', 'demo_operator']);
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const STATUS_ACTIONS = Object.freeze(['suspend', 'reinstate', 'revoke']);
 const MAX_REASON_CHARS = 500;
 const MAX_JWS_CHARS = 60000;
 // Signing a 16 KB status list takes milliseconds; the same budget as other upstream reads.
 const STATUS_LIST_TIMEOUT_MS = 5000;
-const telemetry = require('../../packages/telemetry');
 
 function registerAssuranceRoutes(app, {
   requireRole, proxyJson,
@@ -20,7 +21,6 @@ function registerAssuranceRoutes(app, {
   credentialVerificationUrl, credentialInternalKey,
   monitoringServiceUrl,
 }) {
-  const unavailable = (req, res, error) => res.status(503).json({ apiVersion: 'v1', error, correlationId: req.correlationId });
   const invalid = (req, res, details) => res.status(400).json({ apiVersion: 'v1', error: 'invalid_request', details,
     correlationId: req.correlationId });
   const certificationHeaders = (req) => ({ 'x-internal-service-key': certificationInternalKey,
@@ -45,6 +45,13 @@ function registerAssuranceRoutes(app, {
   app.get('/v1/admin/certifications/kpi', requireRole(...ASSURANCE_READERS), async (req, res) => {
     if (!certificationServiceUrl || !certificationInternalKey) return unavailable(req, res, 'certification_unavailable');
     await proxyJson(req, res, `${certificationServiceUrl}/internal/kpi/issuance`, { headers: certificationHeaders(req) });
+  });
+
+  // Release Gate (target design 7): a CI step asks whether a re-examined agent may ship.
+  app.post('/v1/release-gate/checks', requireRole('admin'), async (req, res) => {
+    if (!certificationServiceUrl || !certificationInternalKey) return unavailable(req, res, 'certification_unavailable');
+    await proxyJson(req, res, `${certificationServiceUrl}/internal/release-gate/checks`, { method: 'POST', body: req.body,
+      headers: certificationHeaders(req) });
   });
 
   // Any authenticated role may verify a credential it holds; the report says

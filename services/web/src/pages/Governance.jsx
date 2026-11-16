@@ -126,23 +126,66 @@ function Resolve({ pkg, disagreement, onDone }) {
   );
 }
 
+const key = (pkg) => `${pkg.packageId}@${pkg.version}`;
+const detailPath = (pkg) => `/api/governance/packages/${encodeURIComponent(pkg.packageId)}/${encodeURIComponent(pkg.version)}`;
+
+function PackageTable({ packages, details, selected, onSelect }) {
+  return (
+    <Panel title="Packages" note="Validated versions awaiting review, and the active ones" flush>
+      <table className="table">
+        <thead><tr><th>Package</th><th>Domain</th><th>State</th><th>Approvals</th><th className="hide-sm">Digest</th></tr></thead>
+        <tbody>{packages.map((value) => {
+          const detail = details[key(value)];
+          return (
+            <tr key={key(value)} onClick={() => onSelect(key(value))} style={{ cursor: 'pointer', background: key(value) === key(selected) ? 'var(--signal-dim)' : undefined }}>
+              <td><code>{value.packageId}</code> v{value.version}</td><td>{detail?.domain || value.domainId || '—'}</td>
+              <td><Pill tone={STATE_TONE[value.state] || 'info'} dot>{value.state}</Pill></td>
+              <td className="num">{approvalsOf(detail?.reviewState || value)}</td>
+              <td className="hide-sm data">{short(value.digest, 10, 6)}</td></tr>
+          );
+        })}</tbody>
+      </table>
+    </Panel>
+  );
+}
+
+// approvals/required from a package's review state or its list summary; '—' when not counted.
+const approvalsOf = (value) => (Number.isInteger(value?.approvals) && Number.isInteger(value?.required) ? `${value.approvals}/${value.required}` : '—');
+
 export default function Governance() {
   const [packages, setPackages] = useState(undefined);
+  const [details, setDetails] = useState({});
   const [selectedKey, setSelectedKey] = useState(null);
   const [error, setError] = useState(null);
+  const [detailError, setDetailError] = useState(null);
   const [activation, setActivation] = useState(null);
-  const load = () => api('/api/governance/packages').then((data) => { setPackages(data.packages); setError(null); })
+  const loadList = () => api('/api/governance/packages').then((data) => { setPackages(data.packages); setError(null); })
     .catch((reason) => { setError(reason.message); setPackages([]); });
-  useEffect(() => { load(); }, []);
-  const key = (pkg) => `${pkg.packageId}@${pkg.version}`;
-  const pkg = useMemo(() => packages?.find((value) => key(value) === selectedKey) || packages?.find((value) => value.state === 'AwaitingReview') || packages?.[0],
+  useEffect(() => { loadList(); }, []);
+  const selected = useMemo(() => packages?.find((value) => key(value) === selectedKey) || packages?.find((value) => value.state === 'AwaitingReview') || packages?.[0],
     [packages, selectedKey]);
+  const pkg = selected ? details[key(selected)] : undefined;
   const sections = useMemo(() => new Map((pkg?.sections || []).map((section) => [section.id, section])), [pkg]);
   const review = pkg?.reviewState;
 
+  // Reads the selected package only; a later selection's reply is never overwritten by an earlier one's.
+  const readDetail = (target, isCurrent = () => true) => api(detailPath(target))
+    .then((data) => { if (isCurrent()) { setDetails((current) => ({ ...current, [key(target)]: data.package })); setDetailError(null); } })
+    .catch((reason) => { if (isCurrent()) setDetailError(reason.message); });
+  useEffect(() => {
+    if (!selected || details[key(selected)]) return undefined;
+    let cancelled = false;
+    readDetail(selected, () => !cancelled);
+    return () => { cancelled = true; };
+  }, [selected]);
+  // A review or resolution changes only this package; activation also changes the list's states.
+  const refresh = () => { if (pkg) readDetail(pkg); };
+
   async function activate() {
-    try { await api('/api/governance/activate', { method: 'POST', body: { packageId: pkg.packageId, version: pkg.version } }); setActivation({ ok: true }); load(); }
-    catch (reason) { setActivation({ error: reason.message }); }
+    try {
+      await api('/api/governance/activate', { method: 'POST', body: { packageId: pkg.packageId, version: pkg.version } });
+      setActivation({ ok: true }); loadList(); refresh();
+    } catch (reason) { setActivation({ error: reason.message }); }
   }
 
   return (
@@ -151,22 +194,13 @@ export default function Governance() {
         readouts={[['Awaiting review', packages ? packages.filter((value) => value.state === 'AwaitingReview').length : null],
           ['Approvals', review ? `${review.approvals}/${review.required}` : null], ['Open disagreements', pkg ? pkg.openDisagreements.length : null]]} />
       {error && <div className="notice bad" style={{ marginBottom: 18 }}>Packages unavailable: {error}</div>}
-      {packages === undefined ? <Skeleton height={320} /> : !pkg ? (
+      {detailError && <div className="notice bad" style={{ marginBottom: 18 }}>Package unavailable: {detailError}</div>}
+      {packages === undefined ? <Skeleton height={320} /> : !selected ? (
         <Panel><Empty title="Nothing to review">A package appears here once it passes the six validation gates.</Empty></Panel>
       ) : (
         <div className="stack">
-          <Panel title="Packages" note="Validated versions awaiting review, and the active ones" flush>
-            <table className="table">
-              <thead><tr><th>Package</th><th>Domain</th><th>State</th><th>Approvals</th><th className="hide-sm">Digest</th></tr></thead>
-              <tbody>{packages.map((value) => (
-                <tr key={key(value)} onClick={() => setSelectedKey(key(value))} style={{ cursor: 'pointer', background: key(value) === key(pkg) ? 'var(--signal-dim)' : undefined }}>
-                  <td><code>{value.packageId}</code> v{value.version}</td><td>{value.domain}</td>
-                  <td><Pill tone={STATE_TONE[value.state] || 'info'} dot>{value.state}</Pill></td>
-                  <td className="num">{value.reviewState ? `${value.reviewState.approvals}/${value.reviewState.required}` : '—'}</td>
-                  <td className="hide-sm data">{short(value.digest, 10, 6)}</td></tr>
-              ))}</tbody>
-            </table>
-          </Panel>
+          <PackageTable packages={packages} details={details} selected={selected} onSelect={setSelectedKey} />
+          {!pkg ? <Skeleton height={320} /> : <>
 
           <div className="grid cols-main">
             <Panel title="Claims against their sources" note="Each claim's quote is highlighted inside the stored section; a red mark means the quote is not there" flush>
@@ -206,20 +240,21 @@ export default function Governance() {
             </Panel>
             <Panel title="Open disagreements" note={pkg.reviewPolicy ? `More than ${pkg.reviewPolicy.disagreementSpread} point apart on a criterion` : ''}>
               {pkg.openDisagreements.length ? <div className="stack" style={{ gap: 18 }}>
-                {pkg.openDisagreements.map((item) => <Resolve key={item.criterionId} pkg={pkg} disagreement={item} onDone={load} />)}
+                {pkg.openDisagreements.map((item) => <Resolve key={item.criterionId} pkg={pkg} disagreement={item} onDone={refresh} />)}
               </div> : <div className="faint">None.</div>}
             </Panel>
           </div>
 
           {pkg.state === 'AwaitingReview' && pkg.reviewPolicy && <>
             <Panel title="Your review" note={`${pkg.packageId} v${pkg.version}, digest ${short(pkg.digest, 10, 6)}`}>
-              <ReviewForm key={key(pkg)} pkg={pkg} onDone={load} />
+              <ReviewForm key={key(pkg)} pkg={pkg} onDone={refresh} />
             </Panel>
             <Panel title="Activation" note={`Operator step; refused until ${review.required} approvals, a mean of at least ${review.floor} and no open disagreement`}
               action={<button className="btn" onClick={activate} disabled={!review.ready}>Activate this version</button>}>
               {activation?.error ? <div className="notice bad">Refused: {activation.error}</div>
                 : <div className="faint">{review.approvals}/{review.required} approvals{review.mean !== null ? `, mean ${review.mean}` : ''}.</div>}
             </Panel>
+          </>}
           </>}
         </div>
       )}

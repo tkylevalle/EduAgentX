@@ -101,6 +101,18 @@ test('Gateway delivers admitted exam only to its Agent Learner and an identifier
   assert.equal(Object.hasOwn(console.body.attempt.itemReferences[0], 'prompt'), false);
 });
 
+// Review finding 3: an exam start's domain is an identifier string, never coerced from another type.
+test('Gateway refuses an examination start whose domain is not an identifier string', async (t) => {
+  const { gateway, agentHeaders, store } = await boot(t);
+  for (const domainId of [{ id: 'ai-safety' }, ['ai-safety'], 0, false, null, '', 'x'.repeat(257)]) {
+    const refused = await request(gateway, 'POST', '/v1/examinations', { idempotencyKey: 'domain-check', domainId }, agentHeaders);
+    assert.equal(refused.status, 400, JSON.stringify(domainId));
+    assert.equal(refused.body.error, 'invalid_request');
+  }
+  const started = await request(gateway, 'POST', '/v1/examinations', { idempotencyKey: 'domain-check' }, agentHeaders);
+  assert.equal(started.status, 201, 'the refused starts left no attempt behind');
+});
+
 test('Gateway validates examination responses and keeps finalization unavailable publicly', async (t) => {
   const { gateway, agentHeaders, adminHeaders } = await boot(t);
   const started = await request(gateway, 'POST', '/v1/examinations', { idempotencyKey: 'response-boundary' }, agentHeaders);

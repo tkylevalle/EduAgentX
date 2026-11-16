@@ -1,7 +1,6 @@
 'use strict';
 // Read-only, exact-command reconciliation. Never proxies arbitrary URLs/queries.
-const ID = /^[\x20-\x7e]{1,256}$/;
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const { TRAINING_IDENTIFIER: ID, UUID } = require('./route-helpers');
 function registerReconciliationRoutes(app, { requireRole, proxyJson, examinationEngineUrl, examinationInternalKey,
   certificationServiceUrl, certificationInternalKey, marketplaceServiceUrl, marketplaceInternalKey }) {
   const definitions = [

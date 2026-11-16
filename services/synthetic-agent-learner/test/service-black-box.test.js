@@ -248,3 +248,24 @@ test('training and exam runs refuse an unknown domain before reaching the Gatewa
   }
   assert.equal(calls, 0);
 });
+
+// Review finding 2: an Engine refusal mid-episode reaches the caller as an outcome, not a 500.
+test('an exam run whose episode step the Engine refuses answers with the attempt, not an internal error', async (t) => {
+  const { createExamRunner } = require('../exam-runner');
+  const gatewayClient = {
+    async request(method, path) {
+      if (method === 'POST' && path === '/v1/examinations') {
+        return { status: 201, body: { attempt: { attemptId: 'attempt-1', status: 'in_progress', sequence: 1,
+          form: { items: [{ id: 'item-b', slotId: 'b1', tier: 'behaviour', kind: 'behaviour', prompt: 'Act' }] } } } };
+      }
+      return { status: 409, body: { error: 'sequence_conflict' } };
+    },
+  };
+  const service = http.createServer(createApp({ learner: { run: async () => ({}) }, examRunner: createExamRunner({ gatewayClient, pollIntervalMs: 1 }) }));
+  await listen(service);
+  t.after(() => service.close());
+  const response = await request(service, 'POST', '/v1/exam-runs', { scenarioId: 'safe-escalation' });
+  assert.equal(response.status, 200);
+  assert.deepEqual([response.body.outcome, response.body.attemptId, response.body.itemId, response.body.status, response.body.reason],
+    ['episode_rejected', 'attempt-1', 'item-b', 409, 'sequence_conflict']);
+});

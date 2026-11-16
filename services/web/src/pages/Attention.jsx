@@ -34,9 +34,16 @@ export default function Attention() {
   const [incidents, setIncidents] = useState(undefined);
   const [error, setError] = useState(null);
   const [expanded, setExpanded] = useState(null);
-  const load = () => api(`/api/incidents?status=${view}`).then((data) => { setIncidents(data.incidents); setError(null); })
-    .catch((reason) => { setError(reason.message); setIncidents([]); });
-  useEffect(() => { setIncidents(undefined); load(); }, [view]);
+  // isCurrent lets a switched view drop a slower reply for the view it replaced.
+  const load = (isCurrent = () => true) => api(`/api/incidents?status=${view}`)
+    .then((data) => { if (isCurrent()) { setIncidents(data.incidents); setError(null); } })
+    .catch((reason) => { if (isCurrent()) { setError(reason.message); setIncidents([]); } });
+  useEffect(() => {
+    let cancelled = false;
+    setIncidents(undefined);
+    load(() => !cancelled);
+    return () => { cancelled = true; };
+  }, [view]);
   const count = (severity) => (incidents || []).filter((incident) => incident.severity === severity && incident.status !== 'resolved').length;
 
   return (
