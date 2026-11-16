@@ -199,9 +199,14 @@ route('get', '/packages/:id', requireInternalActor, async (req, res) => {
 });
 
 // GET /packages — list all packages
+// Packages people review or that are Active carry their approval count, so a
+// console can list them without reading each package in full.
+const COUNTED_STATES = ['AwaitingReview', 'Active'];
 route('get', '/packages', requireInternalActor, async (req, res) => {
   const packages = await packageDb.listPackages();
-  res.json(packages.map(p => ({ packageId: p.id, digest: p.digest || null, state: p.state, version: p.version })));
+  res.json(await Promise.all(packages.map(async (p) => ({ packageId: p.id, digest: p.digest || null, state: p.state, version: p.version,
+    domainId: p.manifest?.domainId ?? null,
+    ...(COUNTED_STATES.includes(p.state) ? (({ approvals, required }) => ({ approvals, required }))((await loadReviewState(p)).state) : {}) }))));
 });
 
 route('get', '/packages/:id/freshness', requireInternalActor, async (req, res) => {

@@ -54,6 +54,9 @@ test('activation waits for two approvals and for every disagreement to be resolv
   assert.equal((await post('/review', { package_id: id, version, score: 5, approved: true }, 'reviewer-a', 'reviewer')).status, 422,
     'a bare score is not a review');
   assert.equal((await review('reviewer-a', scores(4.5))).body.score, 4.5);
+  const listed = await (await fetch(`http://127.0.0.1:${server.address().port}/packages`, { headers: { 'x-internal-service-key': KEY, 'x-actor-subject': 'author' } })).json();
+  assert.deepEqual((({ domainId, approvals, required }) => ({ domainId, approvals, required }))(listed.find((value) => value.packageId === id)),
+    { domainId: 'customer-refunds', approvals: 1, required: 2 }, 'the list carries the domain and approval count');
   const second = await review('reviewer-b', scores(4.5, { safety: 3 }));
   assert.deepEqual([second.body.ready, second.body.disagreements.map((item) => item.criterionId)], [false, ['safety']]);
   const blocked = await post('/activate', { package_id: id, version }, 'author', 'admin');

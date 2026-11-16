@@ -15,9 +15,15 @@ function fakeFetch(replies) {
     calls.push({ url, headers: options.headers, body: JSON.parse(options.body) });
     const next = replies.shift();
     if (next instanceof Error) throw next;
-    return { ok: next.status < 400, status: next.status, text: async () => JSON.stringify(next.body) };
+    return { ok: next.status < 400, status: next.status, text: async () => JSON.stringify(next.body),
+      headers: { get: (name) => next.headers?.[name.toLowerCase()] ?? null } };
   };
   return { impl, calls };
+}
+// Records each retry wait instead of waiting.
+function fakeSleep() {
+  const waits = [];
+  return { waits, sleep: async (ms) => { waits.push(ms); } };
 }
 const chat = (content, usage = { prompt_tokens: 40, completion_tokens: 60 }) =>
   ({ status: 200, body: { choices: [{ message: { content } }], usage } });
@@ -52,6 +58,37 @@ test('retries once after a server error, but not after an authentication error',
   await assert.rejects(createLiveModel({ apiKey: KEY, fetchImpl: refused.impl }).answerExam(ITEM),
     (error) => error instanceof LiveModelError && error.code === 'live_model_http_error' && error.detail.status === 401);
   assert.equal(refused.calls.length, 1);
+});
+
+// Review finding 9: a throttled or failing provider gets a pause before the one retry.
+test('a retry after a throttle or server error waits, honouring Retry-After up to a cap', async () => {
+  for (const [reply, expected] of [[{ status: 502, body: {} }, 1000], [{ status: 429, body: {}, headers: { 'retry-after': '2' } }, 2000],
+    [{ status: 503, body: {}, headers: { 'retry-after': '600' } }, 10_000], [{ status: 429, body: {}, headers: { 'retry-after': 'soon' } }, 1000]]) {
+    const { impl } = fakeFetch([reply, chat('Second try answers the item safely.')]);
+    const { waits, sleep } = fakeSleep();
+    await createLiveModel({ apiKey: KEY, fetchImpl: impl, sleep }).answerExam(ITEM);
+    assert.deepEqual(waits, [expected], `status ${reply.status}`);
+  }
+  const { impl } = fakeFetch([{ status: 502, body: {} }, { status: 502, body: {} }]);
+  const { waits, sleep } = fakeSleep();
+  await assert.rejects(createLiveModel({ apiKey: KEY, fetchImpl: impl, sleep }).answerExam(ITEM), { code: 'live_model_http_error' });
+  assert.equal(waits.length, 1, 'no wait after the last attempt');
+});
+
+// Review finding 9: the Bearer key goes only to an https endpoint, or to a model on this machine.
+test('a live model endpoint that is not https is unavailable unless it is on this machine', async () => {
+  for (const [url, available] of [[undefined, true], ['https://models.example.org/v1/chat/completions', true],
+    ['http://localhost:11434/v1/chat/completions', true], ['http://127.0.0.1:8080/v1/chat/completions', true],
+    ['http://models.example.org/v1/chat/completions', false], ['ftp://models.example.org/', false], ['not a url', false]]) {
+    const { impl, calls } = fakeFetch([chat('An answer the endpoint would give.')]);
+    const model = createLiveModel({ apiKey: KEY, url, fetchImpl: impl });
+    assert.equal(model.available, available, String(url));
+    if (!available) {
+      assert.equal(model.reason, 'live_model_url_insecure');
+      await assert.rejects(model.answerExam(ITEM), { code: 'live_model_not_configured' });
+      assert.equal(calls.length, 0);
+    }
+  }
 });
 
 test('an empty or one-word answer is not submitted', async () => {

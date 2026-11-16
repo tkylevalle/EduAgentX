@@ -57,7 +57,7 @@ function createApp({ learner = createDefaultLearner(), examRunner = null, liveMo
   app.get('/v1/live-model', (req, res) => {
     res.status(200).json({ apiVersion: 'v1', available: liveReady, provider: liveModel.provider,
       model: liveModel.model, scenarioId: LIVE_SCENARIO, evidence: canonicalEvidence('live'),
-      ...(liveReady ? {} : { reason: liveModel.available ? 'live_agent_not_configured' : 'live_model_not_configured' }) });
+      ...(liveReady ? {} : { reason: liveModel.available ? 'live_agent_not_configured' : (liveModel.reason || 'live_model_not_configured') }) });
   });
 
   const invalidDomain = (res) => res.status(400).json({ apiVersion: 'v1', outcome: 'rejected', reason: 'invalid_domain' });

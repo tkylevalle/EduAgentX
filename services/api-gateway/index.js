@@ -27,22 +27,14 @@ const { createRateLimit } = require('./rate-limit');
 const { registerAssuranceRoutes } = require('./assurance-routes');
 const { registerContinuousAssuranceRoutes } = require('./continuous-assurance-routes');
 const { registerReconciliationRoutes } = require('./reconciliation-routes');
+const { registerExaminationRoutes } = require('./examination-routes');
+const { createMarketplaceGateway } = require('./marketplace-routes');
+const { registerTrainingAdminRoutes } = require('./training-admin-routes');
+const { TRAINING_IDENTIFIER, isIdentifier } = require('./route-helpers');
 
 const PORT = process.env.PORT || 4000;
 const SERVICE_NAME = process.env.SERVICE_NAME || 'api-gateway';
 const MAX_PROTOCOL_IDEMPOTENCY_ENTRIES = 1000;
-const TRAINING_IDENTIFIER = /^[\x20-\x7e]{1,256}$/;
-// One recorded sandbox action: the Engine's own limit (behaviour.js MAX_ACTION_CHARS).
-const EPISODE_MAX_ACTION_CHARS = 4000;
-// knowledge.lookup: a query of a few words to a short paragraph, and at most
-// five lessons back, which is every module of the current package.
-const KNOWLEDGE_MIN_QUERY_CHARS = 3;
-const KNOWLEDGE_MAX_QUERY_CHARS = 500;
-const KNOWLEDGE_DEFAULT_RESULTS = 3;
-const KNOWLEDGE_MAX_RESULTS = 5;
-const REMEDIATION_FIELDS = Object.freeze([
-  'requestId', 'agentLearnerKey', 'packageId', 'packageVersion', 'objectiveIds', 'cause', 'evidence',
-]);
 
 // Training Session interactions owned by training-service. The plain
 // `training.submit` stays on the Sprint 1 boundary below, because the
@@ -59,12 +51,6 @@ const MARKETPLACE_INTERACTIONS = Object.freeze({
   'marketplace.listing.publish': 'publish',
   'marketplace.listing.withdraw': 'withdraw',
 });
-// Who may change Capability Requests and run checks, and who may only read them.
-const MARKETPLACE_WRITERS = Object.freeze(['admin', 'demo_operator']);
-const MARKETPLACE_READERS = Object.freeze([...MARKETPLACE_WRITERS, 'viewer', 'evaluator', 'governance_operator']);
-// Heavy evaluation rechecks the complete candidate inventory. MATCH-POLICY's
-// approved p95 floor is 30s (10s target); unrelated forwarding stays at 5s.
-const MARKETPLACE_EVALUATION_TIMEOUT_MS = 30000;
 
 function createApp({
   agentRegistryUrl = process.env.AGENT_REGISTRY_URL || 'http://agent-registry:4001',
@@ -272,7 +258,7 @@ function createApp({
     const training = TRAINING_INTERACTIONS[message.payload.interactionType];
     if (training) return forwardTrainingInteraction(req, res, message, training);
     const listing = MARKETPLACE_INTERACTIONS[message.payload.interactionType];
-    if (listing) return forwardListingInteraction(req, res, message, listing);
+    if (listing) return marketplace.forwardListingInteraction(req, res, message, listing);
 
     // Sprint 1 has no curriculum/training owner yet. The gateway still proves
     // the real public interaction seam and returns a deliberately bounded
@@ -491,6 +477,9 @@ function createApp({
         });
     });
 
+  // Marketplace forwarding: the listing interaction below and the HTTP routes registered later.
+  const marketplace = createMarketplaceGateway({ requireRole, proxyJson, forwardJson, proxyFailure, decorateProtocolResponse,
+    marketplaceServiceUrl, marketplaceInternalKey });
   // Training-service trusts these two headers, so the actor is always the
   // authenticated subject, never an agentLearnerKey from the request body.
   const trainingHeaders = (req) => ({
@@ -517,6 +506,10 @@ function createApp({
     }
     if (training.needsItem && !TRAINING_IDENTIFIER.test(typeof data.deliveryItemId === 'string' ? data.deliveryItemId : '')) {
       details.push({ field: 'payload.data.deliveryItemId', code: 'required', message: 'deliveryItemId is required' });
+    }
+    // A start's domain is an identifier string; any other type is refused, never coerced or dropped.
+    if (training.action === 'start' && data.domainId !== undefined && !isIdentifier(data.domainId)) {
+      details.push({ field: 'payload.data.domainId', code: 'invalid', message: 'domainId must be an identifier string' });
     }
     if (details.length) {
       return res.status(400).json(decorateProtocolResponse(message, {
@@ -558,54 +551,8 @@ function createApp({
     }
   }
 
-  // Read-only Training Session views for the Assurance Console. Training's own
-  // read routes do not check roles, so the admin role is enforced here.
-  app.get('/v1/admin/training-sessions', requireRole('admin'), async (req, res) => {
-    if (!trainingInternalKey) return trainingUnavailable(req, res);
-    const query = new URLSearchParams();
-    for (const name of ['agentLearnerKey', 'status']) {
-      if (typeof req.query[name] === 'string' && req.query[name]) query.set(name, req.query[name]);
-    }
-    await proxyJson(req, res, `${trainingServiceUrl}/internal/sessions${query.size ? `?${query}` : ''}`,
-      { headers: trainingHeaders(req) });
-  });
-  app.get('/v1/admin/training-sessions/:sessionId', requireRole('admin'), async (req, res) => {
-    if (!trainingInternalKey) return trainingUnavailable(req, res);
-    await proxyJson(req, res, `${trainingServiceUrl}/internal/sessions/${encodeURIComponent(req.params.sessionId)}`,
-      { headers: trainingHeaders(req) });
-  });
-  app.get('/v1/admin/training-metrics', requireRole('admin'), async (req, res) => {
-    if (!trainingInternalKey) return trainingUnavailable(req, res);
-    await proxyJson(req, res, `${trainingServiceUrl}/internal/metrics`, { headers: trainingHeaders(req) });
-  });
-  app.get('/v1/admin/training-completion-events', requireRole('admin'), async (req, res) => {
-    if (!trainingInternalKey) return trainingUnavailable(req, res);
-    await proxyJson(req, res, `${trainingServiceUrl}/internal/completion-events`, { headers: trainingHeaders(req) });
-  });
-  app.get('/v1/admin/training-completion-incidents', requireRole('admin'), async (req, res) => {
-    if (!trainingInternalKey) return trainingUnavailable(req, res);
-    await proxyJson(req, res, `${trainingServiceUrl}/internal/completion-incidents`, { headers: trainingHeaders(req) });
-  });
-
-  // The one human write route into Training: an operator assigns targeted
-  // remediation. An unknown field is refused here, as Training would refuse
-  // it; Training validates the rest and records the admin as requestedBy.
-  app.post('/v1/admin/training-remediations', requireRole('admin'), async (req, res) => {
-    const body = req.body;
-    if (!body || typeof body !== 'object' || Array.isArray(body)) {
-      return res.status(400).json({ apiVersion: 'v1', error: 'invalid_request', details: ['body'], correlationId: req.correlationId });
-    }
-    const unexpected = Object.keys(body).filter((name) => !REMEDIATION_FIELDS.includes(name));
-    if (unexpected.length) {
-      return res.status(400).json({ apiVersion: 'v1', error: 'invalid_request',
-        details: unexpected.map((name) => `unexpected:${name}`), correlationId: req.correlationId });
-    }
-    if (!trainingInternalKey) return trainingUnavailable(req, res);
-    const plannedAuthority = execution.authority(enrolledExecutors, { subject: body.agentLearnerKey, role: 'agent' });
-    await proxyJson(req, res, `${trainingServiceUrl}/internal/remediations`,
-      { method: 'POST', body: { ...body, ...(plannedAuthority ? { trustedExecution: plannedAuthority } : {}) },
-      headers: trainingHeaders(req) });
-  });
+  registerTrainingAdminRoutes(app, { requireRole, proxyJson, trainingServiceUrl, trainingInternalKey, trainingHeaders,
+    trainingUnavailable, enrolledExecutors });
 
   // Issue #32: recommendations and explicit Training handoff share existing admin authority.
   for (const [method, suffix] of [['post', ''], ['get', '/:id'], ['post', '/:id/training-handoff']]) {
@@ -620,208 +567,14 @@ function createApp({
     });
   }
 
-  // Issue #30: Marketplace. Like Training, marketplace-service trusts the two
-  // headers, so the actor is always the token subject, never a body field.
-  const marketplaceHeaders = (req) => ({
-    'x-internal-service-key': marketplaceInternalKey,
-    'x-actor-subject': req.auth.subject,
-  });
-  const marketplaceUnavailable = (req, res, message) => {
-    const body = { apiVersion: 'v1', error: 'marketplace_unavailable', correlationId: req.correlationId };
-    return res.status(503).json(message ? decorateProtocolResponse(message, body) : body);
-  };
+  marketplace.registerRoutes(app);
 
-  async function forwardListingInteraction(req, res, message, action) {
-    // Only the identity and the protocol's acknowledgement are allowed; the learner listed is the token subject.
-    const unexpected = Object.keys(message.payload.data).filter((name) => !['agentLearnerKey', 'response'].includes(name));
-    if (unexpected.length) {
-      return res.status(400).json(decorateProtocolResponse(message, { apiVersion: 'v1', error: 'invalid_lifecycle_payload',
-        details: unexpected.map((name) => ({ field: `payload.data.${name}`, code: 'unexpected', message: `${name} is not accepted` })),
-        correlationId: req.correlationId }));
-    }
-    if (!marketplaceServiceUrl || !marketplaceInternalKey) return marketplaceUnavailable(req, res, message);
-    try {
-      const upstream = await forwardJson(req, `${marketplaceServiceUrl}/internal/listings/${action}`, {
-        method: 'POST', body: { idempotencyKey: message.idempotencyKey }, correlationId: message.correlationId,
-        timeoutMs: message.timeoutMs, headers: marketplaceHeaders(req),
-      });
-      // Not cached here: marketplace-service keeps the durable idempotency record.
-      return res.status(upstream.status).json(decorateProtocolResponse(message, upstream.body));
-    } catch (error) {
-      return proxyFailure(req, res, error, message);
-    }
-  }
-
-  // One forwarding route. Unknown body fields are refused before anything is
-  // sent; marketplace-service validates the rest and stores the actor.
-  const marketplaceRoute = (method, buildPath, allowedFields, timeoutMs) => async (req, res) => {
-    let body;
-    if (method === 'POST') {
-      body = req.body;
-      if (!body || typeof body !== 'object' || Array.isArray(body)) {
-        return res.status(400).json({ apiVersion: 'v1', error: 'invalid_request', details: ['body'], correlationId: req.correlationId });
-      }
-      const unexpected = Object.keys(body).filter((name) => !allowedFields.includes(name));
-      if (unexpected.length) {
-        return res.status(400).json({ apiVersion: 'v1', error: 'invalid_request',
-          details: unexpected.map((name) => `unexpected:${name}`), correlationId: req.correlationId });
-      }
-    }
-    if (!marketplaceServiceUrl || !marketplaceInternalKey) return marketplaceUnavailable(req, res);
-    await proxyJson(req, res, `${marketplaceServiceUrl}${buildPath(req)}`,
-      { method, ...(body === undefined ? {} : { body }), headers: marketplaceHeaders(req),
-        ...(timeoutMs === undefined ? {} : { timeoutMs }) });
-  };
-  const requestPath = (req, suffix = '') =>
-    `/internal/capability-requests/${encodeURIComponent(req.params.id)}${suffix}`;
-
-  app.post('/v1/marketplace/capability-requests', requireRole(...MARKETPLACE_WRITERS),
-    marketplaceRoute('POST', () => '/internal/capability-requests', ['idempotencyKey', 'request']));
-  app.post('/v1/marketplace/capability-requests/:id/versions', requireRole(...MARKETPLACE_WRITERS),
-    marketplaceRoute('POST', (req) => requestPath(req, '/versions'), ['idempotencyKey', 'request']));
-  app.post('/v1/marketplace/capability-requests/:id/open', requireRole(...MARKETPLACE_WRITERS),
-    marketplaceRoute('POST', (req) => requestPath(req, '/open'), ['version']));
-  app.post('/v1/marketplace/capability-requests/:id/close', requireRole(...MARKETPLACE_WRITERS),
-    marketplaceRoute('POST', (req) => requestPath(req, '/close'), []));
-  app.post('/v1/marketplace/capability-requests/:id/eligibility-checks', requireRole(...MARKETPLACE_WRITERS),
-    marketplaceRoute('POST', (req) => requestPath(req, '/eligibility-checks'), ['idempotencyKey'], MARKETPLACE_EVALUATION_TIMEOUT_MS));
-  app.post('/v1/marketplace/capability-requests/:id/matches', requireRole(...MARKETPLACE_WRITERS),
-    marketplaceRoute('POST', (req) => requestPath(req, '/matches'), ['idempotencyKey'], MARKETPLACE_EVALUATION_TIMEOUT_MS));
-  app.get('/v1/marketplace/match-results/:resultId', requireRole(...MARKETPLACE_READERS),
-    marketplaceRoute('GET', (req) => `/internal/match-results/${encodeURIComponent(req.params.resultId)}`));
-  app.get('/v1/marketplace/capability-requests', requireRole(...MARKETPLACE_READERS),
-    marketplaceRoute('GET', () => '/internal/capability-requests'));
-  app.get('/v1/marketplace/capability-requests/:id', requireRole(...MARKETPLACE_READERS),
-    marketplaceRoute('GET', (req) => requestPath(req)));
-  app.get('/v1/marketplace/eligibility-checks/:checkId', requireRole(...MARKETPLACE_READERS),
-    marketplaceRoute('GET', (req) => `/internal/eligibility-checks/${encodeURIComponent(req.params.checkId)}`));
-  app.get('/v1/marketplace/listings/:agentLearnerKey', requireRole(...MARKETPLACE_READERS),
-    marketplaceRoute('GET', (req) => `/internal/listings/${encodeURIComponent(req.params.agentLearnerKey)}`));
-
-  // Issue #16: public Exam delivery is possible only after the Examination
-  // Engine has committed an immutable attempt. No caller-supplied package,
-  // completion event, learner key, or generated questions cross this boundary.
-  const examinationHeaders = (req) => ({ 'x-internal-service-key': examinationInternalKey,
-    'x-actor-subject': req.auth.subject, 'x-actor-role': req.auth.role });
-  const examinationUnavailable = (req, res) => res.status(503).json({ apiVersion: 'v1',
-    error: 'examination_unavailable', correlationId: req.correlationId });
-  app.post('/v1/examinations', requireRole('agent'), async (req, res) => {
-    if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body) ||
-      Object.keys(req.body).some((name) => !['idempotencyKey','trainingSessionId','executionProfile','domainId'].includes(name)) ||
-      !TRAINING_IDENTIFIER.test(req.body.idempotencyKey || '') ||
-      (req.body.domainId !== undefined && !TRAINING_IDENTIFIER.test(String(req.body.domainId))))
-      return res.status(400).json({ apiVersion: 'v1', error: 'invalid_request', correlationId: req.correlationId });
-    if (!examinationInternalKey) return examinationUnavailable(req, res);
-    let trustedExecution;
-    try { trustedExecution = execution.authority(enrolledExecutors, req.auth, req.body.executionProfile); }
-    catch (e) { return res.status(e.status || 403).json({ error: e.code }); }
-    if (trustedExecution && !execution.UUID.test(req.body.trainingSessionId || ''))
-      return res.status(400).json({ error: 'training_run_required' });
-    const body = { idempotencyKey: req.body.idempotencyKey,
-      ...(req.body.trainingSessionId ? { trainingSessionId: req.body.trainingSessionId } : {}),
-      // The domain to be examined in, when more than one is Active; never a package version.
-      ...(req.body.domainId ? { domainId: req.body.domainId } : {}),
-      ...(trustedExecution ? { trustedExecution } : {}) };
-    await proxyJson(req, res, `${examinationEngineUrl}/internal/attempts`, { method: 'POST', body,
-      headers: examinationHeaders(req) });
-  });
-  // The Engine owns durable replay and state checks; the Gateway never caches
-  // an answer receipt or accepts a grading/finalization command publicly.
-  app.post('/v1/examinations/:attemptId/responses', requireRole('agent'), async (req, res) => {
-    const body = req.body;
-    if (!body || typeof body !== 'object' || Array.isArray(body) ||
-      Object.keys(body).some((name) => !['idempotencyKey', 'expectedSequence', 'itemId', 'response', 'executionEvidence', 'executionProfile'].includes(name)) ||
-      typeof body.idempotencyKey !== 'string' || !TRAINING_IDENTIFIER.test(body.idempotencyKey) ||
-      !Number.isSafeInteger(body.expectedSequence) || body.expectedSequence < 1 ||
-      typeof body.itemId !== 'string' || !TRAINING_IDENTIFIER.test(body.itemId) ||
-      typeof body.response !== 'string' || !body.response.trim() || body.response.length > 16000)
-      return res.status(400).json({ apiVersion: 'v1', error: 'invalid_request', correlationId: req.correlationId });
-    if (!examinationInternalKey) return examinationUnavailable(req, res);
-    let forwarded;
-    try { forwarded = responseBody(); } catch (e) { return res.status(e.status || 403).json({ error: e.code }); }
-    await proxyJson(req, res,
-      `${examinationEngineUrl}/internal/attempts/${encodeURIComponent(req.params.attemptId)}/responses`,
-      { method: 'POST', body: forwarded, headers: examinationHeaders(req) });
-    function responseBody() {
-      const trustedExecution = execution.authority(enrolledExecutors, req.auth, body.executionProfile);
-      if (body.executionEvidence && !trustedExecution) throw execution.fail('executor_not_authorized', 403);
-      return { idempotencyKey: body.idempotencyKey, expectedSequence: body.expectedSequence, itemId: body.itemId, response: body.response,
-        ...(body.executionEvidence ? { executionEvidence: body.executionEvidence } : {}),
-        ...(trustedExecution ? { trustedExecution } : {}) };
-    }
-  });
-  // knowledge.lookup (assurance audit B3, B4): read-only retrieval over the
-  // Active package's lessons, ranked by the curriculum index. It is the tool
-  // the agent's manifest declares; the exam is open book. packageId and
-  // version, when given, pin the lookup to one package version (the exam's).
-  app.get('/v1/knowledge', requireRole('agent'), async (req, res) => {
-    const query = typeof req.query.query === 'string' ? req.query.query.trim() : '';
-    const limit = req.query.limit === undefined ? KNOWLEDGE_DEFAULT_RESULTS : Number(req.query.limit);
-    const pin = ['packageId', 'version'].filter((name) => req.query[name] !== undefined);
-    if (query.length < KNOWLEDGE_MIN_QUERY_CHARS || query.length > KNOWLEDGE_MAX_QUERY_CHARS ||
-      !Number.isSafeInteger(limit) || limit < 1 || limit > KNOWLEDGE_MAX_RESULTS ||
-      pin.some((name) => typeof req.query[name] !== 'string' || !TRAINING_IDENTIFIER.test(req.query[name])))
-      return res.status(400).json({ apiVersion: 'v1', error: 'invalid_request', correlationId: req.correlationId });
-    const unavailable = (reason) => {
-      if (reason) telemetry.log(SERVICE_NAME, 'upstream_failed', { correlationId: req.correlationId, dependency: 'curriculum-index', outcome: reason });
-      return res.status(503).json({ apiVersion: 'v1', error: 'knowledge_unavailable', correlationId: req.correlationId });
-    };
-    if (!curriculumIndexUrl || !curriculumInternalKey) return unavailable();
-    const pinned = pin.map((name) => `&${name}=${encodeURIComponent(req.query[name])}`).join('');
-    try {
-      const upstream = await forwardJson(req, `${curriculumIndexUrl}/internal/index/query?text=${encodeURIComponent(query)}&limit=${limit}${pinned}`,
-        { headers: { 'x-internal-service-key': curriculumInternalKey } });
-      if (upstream.status !== 200 || !Array.isArray(upstream.body?.results)) return unavailable(`status_${upstream.status}`);
-      return res.status(200).json({ apiVersion: 'v1', mode: upstream.body.mode === 'live' ? 'live' : 'cached-stale',
-        results: upstream.body.results.slice(0, limit).map((chunk) => ({ moduleId: chunk.moduleId, objectiveIds: chunk.objectiveIds,
-          packageId: chunk.packageId, version: chunk.version, text: chunk.text, digest: chunk.digest })),
-        correlationId: req.correlationId });
-    } catch (error) { return unavailable(error?.name || 'request_failed'); }
-  });
-  // A behaviour item's sandbox episode: the agent reads where it is, then
-  // records one action at a time; the Engine runs and records each one.
-  const episodeUrl = (req) =>
-    `${examinationEngineUrl}/internal/attempts/${encodeURIComponent(req.params.attemptId)}/episodes/${encodeURIComponent(req.params.itemId)}`;
-  app.get('/v1/examinations/:attemptId/episodes/:itemId', requireRole('agent'), async (req, res) => {
-    if (!TRAINING_IDENTIFIER.test(req.params.itemId)) return res.status(400).json({ apiVersion: 'v1', error: 'invalid_request', correlationId: req.correlationId });
-    if (!examinationInternalKey) return examinationUnavailable(req, res);
-    await proxyJson(req, res, episodeUrl(req), { headers: examinationHeaders(req) });
-  });
-  app.post('/v1/examinations/:attemptId/episodes/:itemId/steps', requireRole('agent'), async (req, res) => {
-    const body = req.body;
-    if (!body || typeof body !== 'object' || Array.isArray(body) ||
-      Object.keys(body).some((name) => !['idempotencyKey', 'expectedSequence', 'action'].includes(name)) ||
-      typeof body.idempotencyKey !== 'string' || !TRAINING_IDENTIFIER.test(body.idempotencyKey) ||
-      !Number.isSafeInteger(body.expectedSequence) || body.expectedSequence < 1 ||
-      !body.action || typeof body.action !== 'object' || Array.isArray(body.action) ||
-      JSON.stringify(body.action).length > EPISODE_MAX_ACTION_CHARS || !TRAINING_IDENTIFIER.test(req.params.itemId))
-      return res.status(400).json({ apiVersion: 'v1', error: 'invalid_request', correlationId: req.correlationId });
-    if (!examinationInternalKey) return examinationUnavailable(req, res);
-    await proxyJson(req, res, `${episodeUrl(req)}/steps`, { method: 'POST',
-      body: { idempotencyKey: body.idempotencyKey, expectedSequence: body.expectedSequence, action: body.action }, headers: examinationHeaders(req) });
-  });
-  app.get('/v1/examinations/:attemptId', requireRole('agent'), async (req, res) => {
-    if (!examinationInternalKey) return examinationUnavailable(req, res);
-    await proxyJson(req, res, `${examinationEngineUrl}/internal/attempts/${encodeURIComponent(req.params.attemptId)}`,
-      { headers: examinationHeaders(req) });
-  });
-  app.get('/v1/admin/examinations/:attemptId', requireRole('admin'), async (req, res) => {
-    if (!examinationInternalKey) return examinationUnavailable(req, res);
-    await proxyJson(req, res, `${examinationEngineUrl}/internal/admin/attempts/${encodeURIComponent(req.params.attemptId)}`,
-      { headers: examinationHeaders(req) });
-  });
-  // Issue #21: failure, gap, remediation delivery and re-examinations of one attempt.
-  app.get('/v1/admin/examinations/:attemptId/remediation', requireRole('admin'), async (req, res) => {
-    if (!examinationInternalKey) return examinationUnavailable(req, res);
-    await proxyJson(req, res,
-      `${examinationEngineUrl}/internal/admin/attempts/${encodeURIComponent(req.params.attemptId)}/remediation`,
-      { headers: examinationHeaders(req) });
-  });
+  registerExaminationRoutes(app, { requireRole, proxyJson, forwardJson, serviceName: SERVICE_NAME, enrolledExecutors,
+    examinationEngineUrl, examinationInternalKey, curriculumIndexUrl, curriculumInternalKey });
 
   registerAssuranceRoutes(app, { requireRole, proxyJson, certificationServiceUrl, certificationInternalKey,
     credentialVerificationUrl, credentialInternalKey, monitoringServiceUrl });
-  registerContinuousAssuranceRoutes(app, { requireRole, proxyJson, monitoringServiceUrl, monitoringGatewayKey,
-    certificationServiceUrl, certificationInternalKey });
+  registerContinuousAssuranceRoutes(app, { requireRole, proxyJson, monitoringServiceUrl, monitoringGatewayKey });
   registerReconciliationRoutes(app, { requireRole, proxyJson, examinationEngineUrl, examinationInternalKey,
     certificationServiceUrl, certificationInternalKey, marketplaceServiceUrl, marketplaceInternalKey });
 

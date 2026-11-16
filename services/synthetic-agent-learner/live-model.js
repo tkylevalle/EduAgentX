@@ -21,6 +21,14 @@ const REQUEST_TIMEOUT_MS = 60_000;
 // budget near 1500 left some training items with no visible answer.
 const MAX_TOKENS = 4000;
 const ATTEMPTS = 2;
+// A throttled or failing provider is given a moment before the one retry; an
+// immediate retry usually meets the same 429 or 5xx. Retry-After is honoured
+// up to the cap, so a provider asking for minutes cannot stall an item for longer.
+const RETRY_DELAY_MS = 1000;
+const RETRY_AFTER_MAX_MS = 10_000;
+// The API key travels as a Bearer header, so it is sent only over https, or in
+// plain http to a model running on this machine (no network hop to intercept).
+const LOCAL_MODEL_HOSTS = new Set(['localhost', '127.0.0.1']);
 // Training stores at most 4,000 characters; the Examination Engine 16,000.
 const TRAINING_MAX_CHARS = 3900;
 const EXAM_MAX_CHARS = 6000;
@@ -174,10 +182,29 @@ function parseAction(text) {
   return { action: noAction(), valid: false };
 }
 
-// One chat completion, retried once after a server error. minWords: an
-// answer needs prose; an action is one JSON object and may have no spaces.
+/** @param {string} url @returns {boolean} whether the key may be sent to this endpoint */
+function secureEndpoint(url) {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'https:' || (parsed.protocol === 'http:' && LOCAL_MODEL_HOSTS.has(parsed.hostname));
+  } catch { return false; }
+}
+
+// Retry-After in seconds or as an HTTP date; the default delay when absent or unreadable.
+function retryDelay(response) {
+  const header = response.headers?.get?.('retry-after');
+  if (!header) return RETRY_DELAY_MS;
+  const seconds = Number(header);
+  const ms = Number.isFinite(seconds) ? seconds * 1000 : Date.parse(header) - Date.now();
+  return Number.isFinite(ms) && ms >= 0 ? Math.min(ms, RETRY_AFTER_MAX_MS) : RETRY_DELAY_MS;
+}
+
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// One chat completion, retried once after a throttle or server error. minWords:
+// an answer needs prose; an action is one JSON object and may have no spaces.
 async function chatComplete(config, userText, maxChars, { systemPrompt = SYSTEM_PROMPT, minWords = MIN_WORDS } = {}) {
-  const { apiKey, model, url, fetchImpl, timeoutMs, sessionId } = config;
+  const { apiKey, model, url, fetchImpl, timeoutMs, sessionId, sleep } = config;
   let lastError = null;
   for (let attempt = 1; attempt <= ATTEMPTS; attempt += 1) {
     try {
@@ -193,6 +220,7 @@ async function chatComplete(config, userText, maxChars, { systemPrompt = SYSTEM_
       if (!response.ok) {
         lastError = new LiveModelError('live_model_http_error', { status: response.status });
         if (response.status < 500 && response.status !== 429) break;
+        if (attempt < ATTEMPTS) await sleep(retryDelay(response));
         continue;
       }
       let body;
@@ -207,7 +235,6 @@ async function chatComplete(config, userText, maxChars, { systemPrompt = SYSTEM_
         reasoningChars: String(body.choices?.[0]?.message?.reasoning_content || '').length,
         completionTokens: body.usage?.completion_tokens ?? null });
     } catch (error) {
-      if (error instanceof LiveModelError) { lastError = error; continue; }
       // A timed-out call already used the whole budget, so it is not retried:
       // one item then costs at most timeoutMs, not ATTEMPTS times that.
       if (error?.name === 'TimeoutError') throw new LiveModelError('live_model_timeout');
@@ -218,15 +245,19 @@ async function chatComplete(config, userText, maxChars, { systemPrompt = SYSTEM_
 }
 
 function createLiveModel({ apiKey, model = DEFAULT_MODEL, url = DEFAULT_URL, fetchImpl = fetch,
-  timeoutMs = REQUEST_TIMEOUT_MS, sessionId = `eduagentx-live-${Date.now()}` } = {}) {
-  const available = typeof apiKey === 'string' && apiKey.trim().length > 0;
-  const config = { apiKey, model, url, fetchImpl, timeoutMs, sessionId };
+  timeoutMs = REQUEST_TIMEOUT_MS, sessionId = `eduagentx-live-${Date.now()}`, sleep = wait } = {}) {
+  const keyed = typeof apiKey === 'string' && apiKey.trim().length > 0;
+  const secure = secureEndpoint(url);
+  const available = keyed && secure;
+  const config = { apiKey, model, url, fetchImpl, timeoutMs, sessionId, sleep };
   const complete = (userText, maxChars, options) => {
     if (!available) return Promise.reject(new LiveModelError('live_model_not_configured'));
     return chatComplete(config, userText, maxChars, options);
   };
   return {
     available,
+    // Why an unavailable model is unavailable; never the key or the URL.
+    reason: available ? null : (keyed ? 'live_model_url_insecure' : 'live_model_not_configured'),
     model,
     provider: PROVIDER,
     // The model and its prompts define this learner's configuration, so they

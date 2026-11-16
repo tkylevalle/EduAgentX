@@ -10,6 +10,7 @@ const path = require('node:path');
 const fs = require('node:fs');
 const express = require('express');
 const { createLifecycleDriver, STEPS } = require('../../packages/demo-lifecycle');
+const { UUID } = require('../../packages/execution-provenance');
 
 const PORT = Number(process.env.PORT || 4300);
 const GATEWAY_URL = process.env.API_GATEWAY_URL || 'http://api-gateway:4000';
@@ -25,8 +26,15 @@ const HEARTBEAT_MS = 10_000;
 // The measured examination took about 6 s on the demo stack; grading may wait longer.
 const CANDIDATE_STEP_TIMEOUT_MS = 120_000;
 const STATUS_ACTIONS = ['suspend', 'reinstate', 'revoke'];
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_AGENT_KEY_LENGTH = 256;
+// Package ids and versions are slugs and semver strings ('ai-safety-fundamentals',
+// '1.0.0'); anything else is refused before it reaches the Gateway path.
+const PACKAGE_KEY = /^[A-Za-z0-9._-]{1,128}$/;
+// Governance lists only the versions a reviewer can act on or check.
+const REVIEWABLE_STATES = ['AwaitingReview', 'Active'];
+// Only a refused sign-in is the reviewer's mistake; a throttled or failing
+// Gateway must read as an outage so they do not retype a correct secret.
+const SIGN_IN_REFUSED = [401, 403];
 // The app is served to this machine only (Compose binds 127.0.0.1).
 const LOCAL_HOST = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i;
 
@@ -69,6 +77,14 @@ function sameOriginJson(req, res, next) {
 
 function sameHost(origin, host) {
   try { return new URL(origin).host.toLowerCase() === host.toLowerCase(); } catch { return false; }
+}
+
+// A source section's link is rendered as an anchor in the reviewer's browser,
+// and PDF or embedded sections can carry any URL, so only https survives:
+// javascript:, data: and plain http links become null.
+function safeLink(value) {
+  if (typeof value !== 'string') return null;
+  try { return new URL(value).protocol === 'https:' ? value : null; } catch { return null; }
 }
 
 function createServer({ env = process.env, fetchImpl = fetch, driver } = {}) {
@@ -220,7 +236,7 @@ function createServer({ env = process.env, fetchImpl = fetch, driver } = {}) {
     sources: (pkg.sources || []).map((source) => ({ id: source.id, title: source.title, issuer: source.issuer, edition: source.edition,
       licence: source.licenseBasis, licenceStatus: source.licenceStatus, kind: source.snapshotKind, status: source.verificationStatus,
       url: source.canonicalUrl, cited: (pkg.citedSources || []).includes(source.id) })),
-    sections: (pkg.sourceSections || []).map((section) => ({ id: section.id, sourceId: section.sourceId, locator: section.locator, text: section.text, url: section.url || null })),
+    sections: (pkg.sourceSections || []).map((section) => ({ id: section.id, sourceId: section.sourceId, locator: section.locator, text: section.text, url: safeLink(section.url) })),
     modules: (pkg.modules || []).map((module) => ({ id: module.id, title: module.title, objectiveIds: module.objectiveIds,
       items: (module.deliveryItems || []).map((item) => ({ kind: item.kind || 'lesson', text: item.text })),
       claims: (module.claims || []).map((claim) => ({ text: claim.text, quote: claim.quote, sectionId: claim.sectionId })) })),
@@ -233,26 +249,42 @@ function createServer({ env = process.env, fetchImpl = fetch, driver } = {}) {
     reviewState: pkg.reviewState || null, reviewPolicy: pkg.reviewPolicy || null, citedSources: pkg.citedSources || [],
     gates: (pkg.evidence || []).filter((entry) => entry.event === 'validation_run').slice(-1)[0]?.result?.gates || [],
   });
+  // Resolves to { token } or { status, error } so a refused sign-in and an outage stay distinct.
   const reviewerToken = async (body) => {
-    if (typeof body?.clientId !== 'string' || typeof body?.clientSecret !== 'string' || !body.clientId || !body.clientSecret) return null;
+    if (typeof body?.clientId !== 'string' || typeof body?.clientSecret !== 'string' || !body.clientId || !body.clientSecret) {
+      return { status: 401, error: 'reviewer_sign_in_failed' };
+    }
     const reply = await call(`${GATEWAY_URL}/v1/auth/tokens`, { method: 'POST', body: { clientId: body.clientId, clientSecret: body.clientSecret } });
-    return reply.status === 200 ? reply.data.accessToken : null;
+    if (reply.status === 200) return { token: reply.data.accessToken };
+    return SIGN_IN_REFUSED.includes(reply.status) ? { status: 401, error: 'reviewer_sign_in_failed' } : { status: 503, error: 'reviewer_sign_in_unavailable' };
   };
   const asReviewer = async (req, res, route, body) => {
     const reviewer = await reviewerToken(req.body);
-    if (!reviewer) return res.status(401).json({ error: 'reviewer_sign_in_failed' });
-    const reply = await call(`${GATEWAY_URL}${route}`, { method: 'POST', body, headers: { authorization: `Bearer ${reviewer}` } });
+    if (!reviewer.token) return res.status(reviewer.status).json({ error: reviewer.error });
+    const reply = await call(`${GATEWAY_URL}${route}`, { method: 'POST', body, headers: { authorization: `Bearer ${reviewer.token}` } });
     return res.status(reply.status).json(reply.data);
   };
 
+  // The list is one read of summaries; the page fetches the detail of the package it shows.
   app.get('/api/governance/packages', async (req, res) => {
     try {
       const list = await gateway('/v1/admin/curriculum/packages');
       if (list.status !== 200) return res.status(503).json({ error: 'packages_unavailable' });
-      const details = await Promise.all((list.data || []).filter((pkg) => ['AwaitingReview', 'Active'].includes(pkg.state)).map((pkg) =>
-        gateway(`/v1/admin/curriculum/packages/${encodeURIComponent(pkg.packageId)}/${encodeURIComponent(pkg.version)}`)));
-      res.json({ packages: details.filter((reply) => reply.status === 200).map((reply) => reviewView(reply.data)) });
+      res.json({ packages: (Array.isArray(list.data) ? list.data : []).filter((pkg) => REVIEWABLE_STATES.includes(pkg.state))
+        .map(({ packageId, version, digest, state, domainId = null, approvals = null, required = null }) =>
+          ({ packageId, version, digest, state, domainId, approvals, required })) });
     } catch { res.status(503).json({ error: 'packages_unavailable' }); }
+  });
+
+  app.get('/api/governance/packages/:packageId/:version', async (req, res) => {
+    const { packageId, version } = req.params;
+    if (!PACKAGE_KEY.test(packageId) || !PACKAGE_KEY.test(version)) return res.status(400).json({ error: 'invalid_request' });
+    try {
+      const reply = await gateway(`/v1/admin/curriculum/packages/${encodeURIComponent(packageId)}/${encodeURIComponent(version)}`);
+      if (reply.status === 404) return res.status(404).json({ error: 'package_not_found' });
+      if (reply.status !== 200) return res.status(503).json({ error: 'package_unavailable' });
+      res.json({ package: reviewView(reply.data) });
+    } catch { res.status(503).json({ error: 'package_unavailable' }); }
   });
 
   app.post('/api/governance/reviews', async (req, res) => {

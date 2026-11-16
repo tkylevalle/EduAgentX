@@ -15,6 +15,16 @@ const { startIncidentForwarding } = require('./incident-forwarding');
 const PORT = Number(process.env.PORT || 4001);
 const SERVICE_NAME = process.env.SERVICE_NAME || 'agent-registry';
 const EVENT_STREAM = process.env.AGENT_REGISTRY_EVENT_STREAM || 'agent-registry.assurance';
+// Incident-log failures are short codes ('incident_log_refused_503'); the cap
+// stops a long driver message from flooding the log line.
+const MAX_LOGGED_ERROR_CHARS = 200;
+
+// The reason a forwarding run failed. The reporter never puts its key in a
+// message, so the message is safe to log.
+function logForwardingFailure(error) {
+  telemetry.log(SERVICE_NAME, 'incident_forwarding_failed', { dependency: 'monitoring-service',
+    outcome: String(error?.message || error).slice(0, MAX_LOGGED_ERROR_CHARS) });
+}
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, connectionTimeoutMillis: 2000, query_timeout: 2000, statement_timeout: 2000 });
 pool.on('error', () => telemetry.log(SERVICE_NAME, 'postgres_connection_error'));
@@ -38,7 +48,7 @@ async function start() {
   const worker = createStreamWorker({ pool, redis: redisClient, stream: EVENT_STREAM });
   worker.start();
   // Delivery incidents reach the one Assurance Incident log (audit E9); a failed run is logged and repeated.
-  const forwarder = startIncidentForwarding(pool, { onError: () => telemetry.log(SERVICE_NAME, 'incident_forwarding_failed') });
+  const forwarder = startIncidentForwarding(pool, { onError: logForwardingFailure });
   const eventPublisher = { publish: (event) => worker.publish(event.eventId) };
   const service = createRegistryService({ repository, eventPublisher });
   const app = createApp({ service });
@@ -65,4 +75,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { start };
+module.exports = { start, logForwardingFailure };
