@@ -87,7 +87,8 @@ function createApp({
   credentialVerificationUrl = process.env.CREDENTIAL_VERIFICATION_URL,
   credentialInternalKey = process.env.CREDENTIAL_INTERNAL_KEY,
   monitoringServiceUrl = process.env.MONITORING_SERVICE_URL,
-  monitoringInternalKey = process.env.MONITORING_INTERNAL_KEY,
+  // The monitoring key only the Gateway holds: the one monitoring trusts with a caller's role.
+  monitoringGatewayKey = process.env.MONITORING_GATEWAY_KEY,
   protocolIdempotencyStore = new Map(),
   executionPrincipals = execution.enrollments(),
   // Issue #27: pending two-person approvals for governance commands, keyed
@@ -819,7 +820,7 @@ function createApp({
 
   registerAssuranceRoutes(app, { requireRole, proxyJson, certificationServiceUrl, certificationInternalKey,
     credentialVerificationUrl, credentialInternalKey, monitoringServiceUrl });
-  registerContinuousAssuranceRoutes(app, { requireRole, proxyJson, monitoringServiceUrl, monitoringInternalKey,
+  registerContinuousAssuranceRoutes(app, { requireRole, proxyJson, monitoringServiceUrl, monitoringGatewayKey,
     certificationServiceUrl, certificationInternalKey });
   registerReconciliationRoutes(app, { requireRole, proxyJson, examinationEngineUrl, examinationInternalKey,
     certificationServiceUrl, certificationInternalKey, marketplaceServiceUrl, marketplaceInternalKey });

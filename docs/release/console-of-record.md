@@ -27,7 +27,9 @@ asks for six primary areas.
 The spec's Attention Record has severity, scope, detection time, evidence
 freshness, reason, Safe State, owner, required action and an evidence link.
 An Assurance Incident carries severity, scope (its subject), detection time,
-reason (its summary and detail) and its handling history. It carries no
-explicit Safe State, owner, required action or evidence link, and the queue
-does not deduplicate across sources beyond one incident per source and
-source id.
+reason (its summary and detail), its handling history, and, where the
+writer states them, Safe State, required action and owner. It has no
+evidence link or evidence freshness, and the queue does not deduplicate
+across sources beyond one incident per source and source id. When the
+incident log cannot be read, every page says the critical state is UNKNOWN
+instead of showing nothing.

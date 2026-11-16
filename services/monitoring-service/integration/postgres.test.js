@@ -29,9 +29,15 @@ test('PostgreSQL keeps one immutable incident per source id, with appended updat
     assert.equal((await store.list({ status: 'open' })).some((item) => item.incidentId === read.incidentId), false);
     await assert.rejects(pool.query(`UPDATE monitoring_service.incidents SET summary='edited' WHERE incident_id=$1`, [read.incidentId]), /immutable assurance incident/);
     await assert.rejects(pool.query(`DELETE FROM monitoring_service.incident_updates WHERE incident_id=$1`, [read.incidentId]), /immutable assurance incident/);
+    await assert.rejects(pool.query('TRUNCATE monitoring_service.incident_updates'), /immutable assurance incident/);
+    await assert.rejects(pool.query('TRUNCATE monitoring_service.incidents CASCADE'), /immutable assurance incident/);
     const credentialId = `cred-${Date.now()}`;
     await store.addManifest({ credentialId, agentId: 'agent-1', manifest: { permittedTools: ['a'] }, registeredBy: 'admin-1' });
     await store.addManifest({ credentialId, agentId: 'agent-1', manifest: { permittedTools: ['b'] }, registeredBy: 'admin-1' });
     assert.deepEqual((await store.manifestFor(credentialId)).manifest, { permittedTools: ['b'] }, 'the newest manifest governs');
+    await store.recordReport(credentialId, '2026-11-16T12:00:00.000Z');
+    await store.recordReport(credentialId, '2026-11-16T11:00:00.000Z');
+    const entry = (await store.monitored()).find((value) => value.credentialId === credentialId);
+    assert.equal(entry.lastReportAt, '2026-11-16T12:00:00.000Z', 'an older report never moves the time back');
   } finally { await pool.end(); }
 });

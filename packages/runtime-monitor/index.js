@@ -31,6 +31,8 @@ const PREDICATES = Object.freeze({
 const MAX_TOOLS = 200;
 const MAX_RECIPIENTS = 500;
 const NAME = /^[A-Za-z][A-Za-z0-9_.-]{0,99}$/;
+// An email or URL longer than this is not an address a tool call needs.
+const MAX_ADDRESS_CHARS = 500;
 // An allowed recipient: an exact email or URL, every address at a domain ("@example.com"), or a URL prefix ending in "/".
 const RECIPIENT = /^(@[\w-]+(\.[\w-]+)+|[\w.+-]+@[\w-]+(\.[\w-]+)+|https:\/\/\S+)$/;
 
@@ -108,7 +110,7 @@ function parseTelemetry(input) {
     ...(/^[0-9a-f-]{36}$/.test(String(value.callId)) ? [] : ['callId']),
     ...(NAME.test(String(value.credentialId ?? '')) || /^[0-9a-f-]{36}$/.test(String(value.credentialId)) ? [] : ['credentialId']),
     ...(NAME.test(String(value.tool ?? '')) ? [] : ['tool']),
-    ...(Array.isArray(value.addresses) && value.addresses.length <= MAX_RECIPIENTS && value.addresses.every((item) => typeof item === 'string' && item.length <= 500) ? [] : ['addresses']),
+    ...(Array.isArray(value.addresses) && value.addresses.length <= MAX_RECIPIENTS && value.addresses.every((item) => typeof item === 'string' && item.length <= MAX_ADDRESS_CHARS) ? [] : ['addresses']),
     ...(/^sha256:[0-9a-f]{64}$/.test(String(value.argsDigest)) ? [] : ['argsDigest']),
     ...(Array.isArray(value.findings) && value.findings.every((item) => Object.hasOwn(PREDICATES, item?.predicate)) ? [] : ['findings']),
     ...(Number.isFinite(Date.parse(value.observedAt)) ? [] : ['observedAt']),

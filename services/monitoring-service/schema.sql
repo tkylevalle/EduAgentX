@@ -16,6 +16,10 @@ CREATE TABLE IF NOT EXISTS monitoring_service.incidents (
   UNIQUE (source, source_id)
 );
 CREATE INDEX IF NOT EXISTS incidents_recorded_at ON monitoring_service.incidents (recorded_at DESC);
+-- The spec's Attention Record fields: the state the system put itself in, what a person must do, and who.
+ALTER TABLE monitoring_service.incidents ADD COLUMN IF NOT EXISTS safe_state text CHECK (length(safe_state) BETWEEN 1 AND 200);
+ALTER TABLE monitoring_service.incidents ADD COLUMN IF NOT EXISTS required_action text CHECK (length(required_action) BETWEEN 1 AND 500);
+ALTER TABLE monitoring_service.incidents ADD COLUMN IF NOT EXISTS owner text;
 
 CREATE TABLE IF NOT EXISTS monitoring_service.incident_updates (
   update_id bigserial PRIMARY KEY,
@@ -34,6 +38,13 @@ FOR EACH ROW EXECUTE FUNCTION monitoring_service.forbid_change();
 DROP TRIGGER IF EXISTS incident_updates_immutable ON monitoring_service.incident_updates;
 CREATE TRIGGER incident_updates_immutable BEFORE UPDATE OR DELETE ON monitoring_service.incident_updates
 FOR EACH ROW EXECUTE FUNCTION monitoring_service.forbid_change();
+-- TRUNCATE removes rows without firing row triggers, so it is refused separately.
+DROP TRIGGER IF EXISTS incidents_no_truncate ON monitoring_service.incidents;
+CREATE TRIGGER incidents_no_truncate BEFORE TRUNCATE ON monitoring_service.incidents
+FOR EACH STATEMENT EXECUTE FUNCTION monitoring_service.forbid_change();
+DROP TRIGGER IF EXISTS incident_updates_no_truncate ON monitoring_service.incident_updates;
+CREATE TRIGGER incident_updates_no_truncate BEFORE TRUNCATE ON monitoring_service.incident_updates
+FOR EACH STATEMENT EXECUTE FUNCTION monitoring_service.forbid_change();
 
 -- Runtime Monitor manifests: what one certified deployment may do. A new
 -- manifest for a credential supersedes the older one; none is ever edited.
@@ -49,3 +60,11 @@ CREATE INDEX IF NOT EXISTS runtime_manifests_credential ON monitoring_service.ru
 DROP TRIGGER IF EXISTS runtime_manifests_immutable ON monitoring_service.runtime_manifests;
 CREATE TRIGGER runtime_manifests_immutable BEFORE UPDATE OR DELETE ON monitoring_service.runtime_manifests
 FOR EACH ROW EXECUTE FUNCTION monitoring_service.forbid_change();
+
+-- When each monitored credential last reported a tool call: operational state,
+-- not evidence, so it is updated in place. A deployment that stops reporting
+-- is found by comparing this with the silence window.
+CREATE TABLE IF NOT EXISTS monitoring_service.runtime_reports (
+  credential_id text PRIMARY KEY,
+  last_report_at timestamptz NOT NULL
+);
