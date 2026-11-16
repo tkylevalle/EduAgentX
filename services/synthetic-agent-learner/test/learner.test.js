@@ -315,12 +315,14 @@ test('a start that ends an outdated session is followed by one more start, which
   assert.deepEqual([result.outcome, result.sessionId, starts.length], ['completed', 'new', 2]);
 });
 
-test('a second blocked start is reported, not retried again', async () => {
-  let starts = 0;
-  const learner = createSyntheticAgentLearner({ gatewayClient: {
-    register: async () => ({ status: 200, body: {} }),
-    interact: async () => { starts += 1; return { status: 409, body: { error: 'training_blocked', reason: 'package_state:Watch' } }; },
-  } });
-  const result = await learner.train({ agentLearnerKey: 'synthetic-agent-learner-dev' });
-  assert.deepEqual([result.outcome, result.reason, starts], ['system_aborted', 'training_blocked', 2]);
+test('only a start that ended an earlier session is retried, and only once', async () => {
+  for (const [reason, expectedStarts] of [['package_state:Watch', 1], ['configuration_changed', 2]]) {
+    let starts = 0;
+    const learner = createSyntheticAgentLearner({ gatewayClient: {
+      register: async () => ({ status: 200, body: {} }),
+      interact: async () => { starts += 1; return { status: 409, body: { error: 'training_blocked', reason } }; },
+    } });
+    const result = await learner.train({ agentLearnerKey: 'synthetic-agent-learner-dev' });
+    assert.deepEqual([result.outcome, result.reason, starts], ['system_aborted', 'training_blocked', expectedStarts], reason);
+  }
 });

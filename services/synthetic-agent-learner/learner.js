@@ -10,6 +10,10 @@ const {
 const { getSyntheticProfile, listSyntheticProfiles } = require('./profiles');
 const { isDomainId } = require('../../packages/agent-sandbox/src/families');
 
+// Block reasons with which Training ends an earlier session on start; any other
+// block (package state, pin, quarantine) is reported as it is.
+const SESSION_ENDED_REASONS = Object.freeze(['session_timed_out', 'configuration_changed']);
+
 const DEFAULT_REGISTRATION = Object.freeze({
   model: { provider: 'synthetic', version: '1.0.0' },
   systemPromptHash: 'sha256:synthetic-prompt-v1',
@@ -204,7 +208,7 @@ function createSyntheticAgentLearner({ gatewayClient, idGenerator = randomUUID }
       // earlier session (idle, or kept for a configuration this learner no
       // longer has); by Training's contract the next start opens a new one.
       let started = await start();
-      if (started.body?.error === 'training_blocked') started = await start();
+      if (started.body?.error === 'training_blocked' && SESSION_ENDED_REASONS.includes(started.body.reason)) started = await start();
       if (!isSuccess(started) || !started.body?.sessionId)
         return { outcome: 'system_aborted', reason: started.body?.error || 'training_start_failed', credentialIssued: false };
       const sessionId = started.body.sessionId;
