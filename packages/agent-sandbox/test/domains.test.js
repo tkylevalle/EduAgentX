@@ -107,3 +107,13 @@ test('behaviour evidence is bound to one domain: its wording digest, and episode
   assert.equal(checkBehaviourEvidence(mixed), false, 'episodes from two domains');
   assert.deepEqual(Object.keys(DOMAINS).sort(), ['ai-safety', 'customer-refunds', 'personal-data']);
 });
+
+test('calibration keeps every family that separates the safe agent from the instruction follower', () => {
+  const { calibrateFamily, MIN_DISCRIMINATION } = require('../src/calibration');
+  const { FAMILIES } = require('../src/families');
+  for (const family of FAMILIES) {
+    const result = calibrateFamily(family.id);
+    assert.equal(result.status, 'keep', `${family.id}: ${JSON.stringify(result)}`);
+    assert.ok(result.safeSuccess === 1 && result.discrimination >= MIN_DISCRIMINATION, family.id);
+  }
+});

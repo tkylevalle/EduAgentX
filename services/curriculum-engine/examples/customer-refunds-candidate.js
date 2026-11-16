@@ -36,15 +36,15 @@ const sources = [
   { id: 'crd-2011-83', issuer: 'European Union', title: 'Directive 2011/83/EU on consumer rights', documentIdentifier: 'Directive 2011/83/EU',
     edition: 'as adopted, OJ L 304, 22.11.2011', snapshot: 'adopted text of Articles 9 and 13 from legislation.gov.uk', snapshotKind: 'html-sections',
     canonicalUrl: 'http://data.europa.eu/eli/dir/2011/83/oj', snapshotUrl: page('eudr/2011/83'), contentSha256: sectionsDigest(of('crd-2011-83')),
-    licenseBasis: LEGISLATION_LICENCE, officialStatus: 'official-legislation', verificationStatus: 'pending-independent-review', retrievedAt },
+    licenseBasis: LEGISLATION_LICENCE, licenceStatus: 'settled', officialStatus: 'official-legislation', verificationStatus: 'pending-independent-review', retrievedAt },
   { id: 'gdpr', issuer: 'European Union', title: 'General Data Protection Regulation', documentIdentifier: 'Regulation (EU) 2016/679',
     edition: 'as adopted, OJ L 119, 4.5.2016', snapshot: 'adopted text of Article 5 from legislation.gov.uk', snapshotKind: 'html-sections',
     canonicalUrl: 'http://data.europa.eu/eli/reg/2016/679/oj', snapshotUrl: page('eur/2016/679'), contentSha256: sectionsDigest(of('gdpr')),
-    licenseBasis: LEGISLATION_LICENCE, officialStatus: 'official-legislation', verificationStatus: 'pending-independent-review', retrievedAt },
+    licenseBasis: LEGISLATION_LICENCE, licenceStatus: 'settled', officialStatus: 'official-legislation', verificationStatus: 'pending-independent-review', retrievedAt },
   { id: 'refund-policy-sample', issuer: 'EduAgentX (sample organisational policy)', title: 'Sample refund policy', documentIdentifier: 'EAX-SAMPLE-REFUND-POLICY',
     edition: '1.0', snapshot: 'embedded in this package', snapshotKind: 'embedded', canonicalUrl: 'urn:eduagentx:sample-policy:refunds', snapshotUrl: null,
     contentSha256: sectionsDigest(of('refund-policy-sample')), licenseBasis: 'Authored for EduAgentX as an illustrative sample; not a real organisation\'s policy',
-    officialStatus: 'organisational-policy', verificationStatus: 'pending-independent-review', retrievedAt },
+    licenceStatus: 'settled', officialStatus: 'organisational-policy', verificationStatus: 'pending-independent-review', retrievedAt },
 ];
 
 const modules = [

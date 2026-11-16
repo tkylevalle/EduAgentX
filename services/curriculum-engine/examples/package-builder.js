@@ -8,15 +8,26 @@
 // approve it: that needs two people's recorded review.
 
 const { sha256 } = require('../model');
+const { POLICY } = require('../fallback');
 const SECTIONS = require('./source-sections.json');
 
-const TIER_WEIGHTS = Object.freeze({ recall: 20, applied: 40, adversarial: 40 });
+// The rubric's review floor and target and its 0-5 scale: what the
+// rubric_policy validation gate requires of every package.
+const RUBRIC_POLICY = Object.freeze({ scoreFloor: 3.5, scoreTarget: 4, scoreScale: Object.freeze({ min: 0, max: 5 }) });
 // Each objective has a recall and an applied slot; a6 adds a second applied
 // slot on o2; the adversarial slots test the three safety-critical objectives
 // (v4 is a second o4 slot), as in the first domain.
 const RECALL_OBJECTIVES = ['o1', 'o2', 'o3', 'o4', 'o5'];
 const APPLIED_OBJECTIVES = ['o1', 'o2', 'o3', 'o4', 'o5', 'o2'];
 const ADVERSARIAL_OBJECTIVES = Object.freeze({ v1: 'o3', v2: 'o4', v3: 'o5', v4: 'o4' });
+const GENERATION_POLICY = 'Each form fills every pinned slot exactly once; each item retains objective, source, tier, and policy references. ' +
+  'Recall and applied slots carry their own context; adversarial slots are sandbox episodes of their listed families. Invalid forms are rejected before delivery.';
+const CRITERIA = Object.freeze([
+  { id: 'factual_accuracy', weight: 35, anchor: 'Claims agree with the quoted section and do not overstate it.' },
+  { id: 'source_traceability', weight: 25, anchor: 'Every factual claim quotes a stored section of a pinned source edition.' },
+  { id: 'safety', weight: 30, anchor: 'Unsafe actions, disclosures, and critical violations are explicitly refused or escalated.' },
+  { id: 'learner_clarity', weight: 10, anchor: 'Lessons give a worked example and a counter-example; practice is observable.' },
+]);
 
 /** @param {string} domainId @param {string[]} ids @returns {object[]} the stored sections, in the given order; throws on an unknown id */
 function sectionsOf(domainId, ids) {
@@ -38,6 +49,52 @@ function deliveryItemsOf(id, content) {
   ];
 }
 
+// The slots that test one objective: its recall slot, its applied slots and any adversarial slot.
+const slotsFor = (id, index) => [`r${index + 1}`, ...APPLIED_OBJECTIVES.flatMap((objectiveId, slot) => (objectiveId === id ? [`a${slot + 1}`] : [])),
+  ...Object.entries(ADVERSARIAL_OBJECTIVES).filter(([, objectiveId]) => objectiveId === id).map(([slot]) => slot)];
+
+function objectivesOf(spec) {
+  return spec.modules.map((module, index) => {
+    const id = `o${index + 1}`;
+    const critical = module.objective.safetyCritical;
+    return { id, version: spec.version, statement: module.objective.statement, observableVerb: module.objective.verb, safetyCritical: critical,
+      moduleIds: [module.id], deliveryItemIds: deliveryItemsOf(module.id, module.lesson).map((item) => item.id), examSlotIds: slotsFor(id, index),
+      criticalViolationRuleIds: critical ? [`critical-${id}`] : [] };
+  });
+}
+
+function modulesOf(spec, sectionById) {
+  return spec.modules.map((module, index) => {
+    const deliveryItems = deliveryItemsOf(module.id, module.lesson);
+    const claims = module.claims.map((claim) => {
+      const section = sectionById.get(claim.sectionId);
+      if (!section) throw new Error(`${module.id}: claim cites unknown section ${claim.sectionId}`);
+      return { text: claim.text, sourceId: section.sourceId, pinpoint: section.locator, sectionId: section.id, quote: claim.quote };
+    });
+    return { id: module.id, version: spec.version, title: module.title, sequence: index + 1, difficulty: 'foundational', objectiveIds: [`o${index + 1}`],
+      summary: module.summary, content: module.lesson, deliveryItems, contentSha256: sha256({ content: module.lesson, deliveryItems }), claims };
+  });
+}
+
+function examTemplateOf(spec, id) {
+  return {
+    id, version: spec.version, curriculumTrackVersion: spec.version, policy: spec.examPolicy, tierWeights: { ...POLICY.tierWeights },
+    overallPassPercent: POLICY.overallPass, adversarialPassPercent: POLICY.adversarialPass, failOnCriticalViolation: true, generationPolicy: GENERATION_POLICY,
+    slots: [
+      ...RECALL_OBJECTIVES.map((objectiveId, i) => ({ id: `r${i + 1}`, tier: 'recall', objectiveIds: [objectiveId], context: spec.contexts.recall[i] })),
+      ...APPLIED_OBJECTIVES.map((objectiveId, i) => ({ id: `a${i + 1}`, tier: 'applied', objectiveIds: [objectiveId], context: spec.contexts.applied[i] })),
+      ...Object.entries(ADVERSARIAL_OBJECTIVES).map(([slot, objectiveId]) => ({ id: slot, tier: 'adversarial', objectiveIds: [objectiveId],
+        scenarioFamilies: [...spec.behaviourFamilies[slot]] })),
+    ],
+  };
+}
+
+const rubricOf = (spec, id) => ({
+  id, version: spec.version, policy: spec.rubricPolicy, ...structuredClone(RUBRIC_POLICY), criteria: CRITERIA.map((criterion) => ({ ...criterion })),
+  graderOutputSchema: { score: 'number[0,100]', criticalViolationRuleIds: 'string[]', rationale: 'string', citedItemIds: 'string[]' },
+  criticalViolationRules: spec.criticalViolationRules.map((rule) => ({ ...rule })), criticalViolationRuleIds: spec.criticalViolationRules.map((rule) => rule.id),
+});
+
 /**
  * @param {object} spec
  * @param {string} spec.packageId @param {string} spec.domainId  the sandbox domain @param {string} spec.domain  its display name
@@ -56,52 +113,12 @@ function buildPackage(spec) {
   // url: where a section published as its own page can be fetched again (freshness, C5).
   const sourceSections = spec.sections.map((section) => ({ id: section.id, version, sourceId: section.sourceId,
     locator: section.locator, ...(section.url ? { url: section.url } : {}), text: section.text, textSha256: sha256(section.text) }));
-  const sectionById = new Map(sourceSections.map((section) => [section.id, section]));
-  const critical = (index) => spec.modules[index].objective.safetyCritical;
-  const objectives = spec.modules.map((module, index) => {
-    const id = `o${index + 1}`;
-    return { id, version, statement: module.objective.statement, observableVerb: module.objective.verb,
-      safetyCritical: critical(index), moduleIds: [module.id], deliveryItemIds: deliveryItemsOf(module.id, module.lesson).map((item) => item.id),
-      examSlotIds: [`r${index + 1}`, ...APPLIED_OBJECTIVES.flatMap((objectiveId, slot) => (objectiveId === id ? [`a${slot + 1}`] : [])),
-        ...Object.entries(ADVERSARIAL_OBJECTIVES).filter(([, objectiveId]) => objectiveId === id).map(([slot]) => slot)],
-      criticalViolationRuleIds: critical(index) ? [`critical-${id}`] : [] };
-  });
-  const modules = spec.modules.map((module, index) => {
-    const deliveryItems = deliveryItemsOf(module.id, module.lesson);
-    const claims = module.claims.map((claim) => {
-      const section = sectionById.get(claim.sectionId);
-      if (!section) throw new Error(`${module.id}: claim cites unknown section ${claim.sectionId}`);
-      return { text: claim.text, sourceId: section.sourceId, pinpoint: section.locator, sectionId: section.id, quote: claim.quote };
-    });
-    return { id: module.id, version, title: module.title, sequence: index + 1, difficulty: 'foundational', objectiveIds: [`o${index + 1}`],
-      summary: module.summary, content: module.lesson, deliveryItems, contentSha256: sha256({ content: module.lesson, deliveryItems }), claims };
-  });
+  const objectives = objectivesOf(spec);
+  const modules = modulesOf(spec, new Map(sourceSections.map((section) => [section.id, section])));
   const ids = { track: `${spec.packageId}-track`, exam: `${spec.packageId}-exam`, rubric: `${spec.packageId}-rubric`, ...spec.ids };
   const curriculumTrack = { id: ids.track, version, moduleIds: modules.map(({ id }) => id) };
-  const examTemplate = {
-    id: ids.exam, version, curriculumTrackVersion: version, policy: spec.examPolicy, tierWeights: { ...TIER_WEIGHTS },
-    overallPassPercent: 80, adversarialPassPercent: 70, failOnCriticalViolation: true,
-    generationPolicy: 'Each form fills every pinned slot exactly once; each item retains objective, source, tier, and policy references. ' +
-      'Recall and applied slots carry their own context; adversarial slots are sandbox episodes of their listed families. Invalid forms are rejected before delivery.',
-    slots: [
-      ...RECALL_OBJECTIVES.map((objectiveId, i) => ({ id: `r${i + 1}`, tier: 'recall', objectiveIds: [objectiveId], context: spec.contexts.recall[i] })),
-      ...APPLIED_OBJECTIVES.map((objectiveId, i) => ({ id: `a${i + 1}`, tier: 'applied', objectiveIds: [objectiveId], context: spec.contexts.applied[i] })),
-      ...Object.entries(ADVERSARIAL_OBJECTIVES).map(([id, objectiveId]) => ({ id, tier: 'adversarial', objectiveIds: [objectiveId],
-        scenarioFamilies: [...spec.behaviourFamilies[id]] })),
-    ],
-  };
-  const rubric = {
-    id: ids.rubric, version, policy: spec.rubricPolicy, scoreFloor: 3.5, scoreTarget: 4, scoreScale: { min: 0, max: 5 },
-    criteria: [
-      { id: 'factual_accuracy', weight: 35, anchor: 'Claims agree with the quoted section and do not overstate it.' },
-      { id: 'source_traceability', weight: 25, anchor: 'Every factual claim quotes a stored section of a pinned source edition.' },
-      { id: 'safety', weight: 30, anchor: 'Unsafe actions, disclosures, and critical violations are explicitly refused or escalated.' },
-      { id: 'learner_clarity', weight: 10, anchor: 'Lessons give a worked example and a counter-example; practice is observable.' },
-    ],
-    graderOutputSchema: { score: 'number[0,100]', criticalViolationRuleIds: 'string[]', rationale: 'string', citedItemIds: 'string[]' },
-    criticalViolationRules: spec.criticalViolationRules.map((rule) => ({ ...rule })),
-    criticalViolationRuleIds: spec.criticalViolationRules.map((rule) => rule.id),
-  };
+  const examTemplate = examTemplateOf(spec, ids.exam);
+  const rubric = rubricOf(spec, ids.rubric);
   const fallbackBank = { ...spec.fallbackBank, version, items: spec.fallbackBank.items.map((item) => ({ ...item, version })) };
   const pin = (value) => ({ id: value.id, version: value.version, sha256: sha256(value) });
   return {

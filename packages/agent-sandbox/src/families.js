@@ -14,7 +14,7 @@
 
 const { createHash } = require('node:crypto');
 const { between, chance, hex, pick, seededRandom } = require('./random');
-const { BENIGN_SHARE, MIN_REPLY_WORDS, attacker, person, renderWording, sameAddress, wordCount } = require('./kit');
+const { BENIGN_SHARE, MIN_REPLY_WORDS, MONTHS, attacker, person, renderWording, sameAddress, wordCount, wordingFrom } = require('./kit');
 const refunds = require('./domain-refunds');
 const personalData = require('./domain-personal-data');
 
@@ -91,7 +91,7 @@ const AI_SAFETY_WORDING = Object.freeze({
 
 const WORDING = Object.freeze({ ...AI_SAFETY_WORDING, ...refunds.WORDING, ...personalData.WORDING });
 /** @returns {string} one rendered wording from the family's pool */
-const wordingFor = (random, familyId, pool, evil) => renderWording(pick(random, WORDING[familyId][pool]), evil);
+const wordingFor = wordingFrom(WORDING);
 /** @param {string} pool @returns {string} the pool; throws on an unknown one */
 function checkPool(pool) {
   if (!POOLS.includes(pool)) throw new Error(`unknown scenario pool ${pool}`);
@@ -101,7 +101,6 @@ function checkPool(pool) {
 // to report nothing and escalate.
 const NO_TRUSTED_COPY_SHARE = 0.3;
 
-const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August'];
 
 /**
  * @typedef {object} World
@@ -259,6 +258,9 @@ const DOMAINS = Object.freeze({
 });
 const FAMILIES = Object.freeze(Object.values(DOMAINS).flatMap((domain) => domain.families));
 
+/** @param {unknown} value @returns {boolean} whether it names a sandbox domain: what callers validate a requested domainId with */
+const isDomainId = (value) => typeof value === 'string' && Object.hasOwn(DOMAINS, value);
+
 /** @param {string} domainId @returns {object} the domain; throws on an unknown id */
 function domainOf(domainId) {
   if (!Object.hasOwn(DOMAINS, domainId)) throw new Error(`unknown sandbox domain ${domainId}`);
@@ -306,4 +308,5 @@ function parseScenarioId(scenarioId) {
   return { family, pool, seed };
 }
 
-module.exports = { AI_SAFETY, DOMAINS, EXAM_POOL, FAMILIES, POOLS, WORDING, buildWorld, domainOf, familyOf, parseScenarioId, poolDigest, renderWording, sameAddress };
+module.exports = { AI_SAFETY, DOMAINS, EXAM_POOL, FAMILIES, POOLS, WORDING, buildWorld, domainOf, familyOf, isDomainId, parseScenarioId, poolDigest,
+  renderWording, sameAddress };

@@ -85,9 +85,6 @@ const db = {
     return r.rows.map((row) => ({ ...row.payload, id: row.id, version: row.version, digest: row.digest, state: 'Active' }));
   },
 
-  async getActivePackage() {
-    return (await this.getActivePackages())[0] || null;
-  },
 
   async setActivePointer(id, version) {
     if (!pool) { _activePointer = keyOf(id, version || (await this.getPackage(id))?.version); return; }
@@ -177,7 +174,8 @@ const db = {
     const id = pkg.id || pkg.manifest?.packageId;
     if (!id) throw new Error('seedPackage: no id or manifest.packageId');
     const version = pkg.version || pkg.manifest?.version || '0.0.0';
-    const domain = pkg.domain || pkg.manifest?.domain || 'unknown';
+    // Activation keeps one Active package per domain, keyed by the sandbox domain id when the package names one.
+    const domain = pkg.manifest?.domainId || pkg.domain || pkg.manifest?.domain || 'unknown';
     const payload = { ...pkg };
     delete payload.digest;
     delete payload.state;
@@ -211,9 +209,9 @@ const db = {
       reviews.push({ ...review, digest }); _reviews.set(key, reviews); return true;
     }
     const inserted = await pool.query(
-      `INSERT INTO curriculum_engine.package_reviews (package_id,version,digest,reviewer_id,score,approved,criterion_scores,review_comment)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING RETURNING reviewer_id`,
-      [id, version, digest, review.reviewer_id, review.score, review.approved, review.criterionScores || {}, review.comment || '']);
+      `INSERT INTO curriculum_engine.package_reviews (package_id,version,digest,reviewer_id,score,approved,criterion_scores,source_checks,review_comment)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT DO NOTHING RETURNING reviewer_id`,
+      [id, version, digest, review.reviewer_id, review.score, review.approved, review.criterionScores || {}, review.sourceChecks || {}, review.comment || '']);
     return inserted.rowCount === 1;
   },
 
@@ -243,7 +241,7 @@ const db = {
   async getReviews(id, version) {
     if (!pool) return [...(_reviews.get(keyOf(id, version)) || [])];
     const rows = await pool.query(
-      `SELECT reviewer_id, score::float, approved, digest, criterion_scores AS "criterionScores", review_comment AS comment, recorded_at AS ts
+      `SELECT reviewer_id, score::float, approved, digest, criterion_scores AS "criterionScores", source_checks AS "sourceChecks", review_comment AS comment, recorded_at AS ts
        FROM curriculum_engine.package_reviews WHERE package_id=$1 AND version=$2 ORDER BY recorded_at`, [id, version]);
     return rows.rows;
   },

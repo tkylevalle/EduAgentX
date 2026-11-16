@@ -26,8 +26,10 @@ function createSources(config = {}) {
       `/internal/admin/attempts/${encodeURIComponent(id)}/remediation`, correlationId)).trace,
     marketplace: async (id, correlationId) => (await call(marketplaceUrl, marketplaceKey,
       `/internal/match-results/${encodeURIComponent(id)}`, correlationId)).matchResult,
-    package: (ref, correlationId) => call(packageUrl, packageKey, ref
-      ? `/packages/${encodeURIComponent(ref.id)}?version=${encodeURIComponent(ref.version)}` : '/packages/active', correlationId),
+    // An exact package version, or (active: true) the Active package with the same id, so a
+    // near-match trains on its own domain's current package when several domains are Active.
+    package: (ref, correlationId, { active = false } = {}) => call(packageUrl, packageKey, active
+      ? `/packages/active?packageId=${encodeURIComponent(ref.id)}` : `/packages/${encodeURIComponent(ref.id)}?version=${encodeURIComponent(ref.version)}`, correlationId),
     training: (request, correlationId) => call(trainingUrl, trainingKey, '/internal/remediations', correlationId, request),
   };
 }

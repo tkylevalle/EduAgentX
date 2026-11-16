@@ -218,7 +218,8 @@ function createServer({ env = process.env, fetchImpl = fetch, driver } = {}) {
     packageId: pkg.packageId, version: pkg.version, digest: pkg.digest, state: pkg.state, domain: pkg.manifest?.domain || pkg.domain || null,
     domainId: pkg.manifest?.domainId || null, createdBy: pkg.createdBy || null,
     sources: (pkg.sources || []).map((source) => ({ id: source.id, title: source.title, issuer: source.issuer, edition: source.edition,
-      licence: source.licenseBasis, kind: source.snapshotKind, status: source.verificationStatus, url: source.canonicalUrl })),
+      licence: source.licenseBasis, licenceStatus: source.licenceStatus, kind: source.snapshotKind, status: source.verificationStatus,
+      url: source.canonicalUrl, cited: (pkg.citedSources || []).includes(source.id) })),
     sections: (pkg.sourceSections || []).map((section) => ({ id: section.id, sourceId: section.sourceId, locator: section.locator, text: section.text, url: section.url || null })),
     modules: (pkg.modules || []).map((module) => ({ id: module.id, title: module.title, objectiveIds: module.objectiveIds,
       items: (module.deliveryItems || []).map((item) => ({ kind: item.kind || 'lesson', text: item.text })),
@@ -227,8 +228,9 @@ function createServer({ env = process.env, fetchImpl = fetch, driver } = {}) {
     criticalRules: pkg.rubric?.criticalViolationRules || [],
     criteria: (pkg.rubric?.criteria || []).map((criterion) => ({ id: criterion.id, weight: criterion.weight, anchor: criterion.anchor })),
     reviews: (pkg.reviews || []).map((review) => ({ reviewer: review.reviewer_id, score: review.score, approved: review.approved,
-      criterionScores: review.criterionScores || {}, comment: review.comment || '', at: review.ts })),
+      criterionScores: review.criterionScores || {}, sourceChecks: review.sourceChecks || {}, comment: review.comment || '', at: review.ts })),
     openDisagreements: pkg.openDisagreements || [], resolutions: pkg.resolutions || [],
+    reviewState: pkg.reviewState || null, reviewPolicy: pkg.reviewPolicy || null, citedSources: pkg.citedSources || [],
     gates: (pkg.evidence || []).filter((entry) => entry.event === 'validation_run').slice(-1)[0]?.result?.gates || [],
   });
   const reviewerToken = async (body) => {
@@ -254,8 +256,8 @@ function createServer({ env = process.env, fetchImpl = fetch, driver } = {}) {
   });
 
   app.post('/api/governance/reviews', async (req, res) => {
-    const { packageId, version, criterionScores, approved, comment } = req.body || {};
-    try { await asReviewer(req, res, '/v1/curriculum/review', { package_id: packageId, version, criterionScores, approved, comment }); }
+    const { packageId, version, criterionScores, sourceChecks, approved, comment } = req.body || {};
+    try { await asReviewer(req, res, '/v1/curriculum/review', { package_id: packageId, version, criterionScores, sourceChecks, approved, comment }); }
     catch { res.status(503).json({ error: 'review_unavailable' }); }
   });
 

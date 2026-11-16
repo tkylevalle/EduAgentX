@@ -45,7 +45,7 @@ test('a short quote, a claim pointing at another source\'s section, and a cited 
   crossed.modules[0].claims[0].sourceId = 'gdpr';
   assert.match(claimErrors(crossed).join(), /source or pinpoint differs/);
   const pending = refunds();
-  pending.sources.find((source) => source.id === 'crd-2011-83').licenseBasis = 'licence review pending';
+  pending.sources.find((source) => source.id === 'crd-2011-83').licenceStatus = 'pending';
   assert.match(claimErrors(pending).join(), /crd-2011-83: cited source has no settled licence/);
 });
 

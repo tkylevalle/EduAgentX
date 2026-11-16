@@ -33,6 +33,8 @@ const SOURCE_BASELINES = Object.freeze({
   ]),
 });
 const SNAPSHOT_KINDS = Object.freeze(['pdf', 'html-sections', 'embedded']);
+// Whether the source's licence permits the use the package makes of it; a cited source must be settled.
+const LICENCE_STATUSES = Object.freeze(['settled', 'pending']);
 const OFFICIAL_STATUSES = Object.freeze(['official-publication', 'official-legislation', 'organisational-policy']);
 
 function canonical(value) {
@@ -119,6 +121,7 @@ function validatePackage(pkg) {
       fail(`sources[${index}]`, `source identity or official URL does not match the ${manifest.domainId} baseline`);
     if (!str(source.issuer) || !str(source.title) || !str(source.documentIdentifier) || !str(source.edition) ||
       !str(source.snapshot) || !OFFICIAL_STATUSES.includes(source.officialStatus) || !str(source.licenseBasis) ||
+      !LICENCE_STATUSES.includes(source.licenceStatus) ||
       source.verificationStatus !== 'pending-independent-review' || !SNAPSHOT_KINDS.includes(source.snapshotKind) ||
       !HEX.test(source.contentSha256 || '') || !/^\d{4}-\d\d-\d\dT/.test(source.retrievedAt || ''))
       fail(`sources[${index}]`, 'requires edition, snapshot kind, SHA-256, retrieval time, and pending independent review');
@@ -193,4 +196,4 @@ function validatePackage(pkg) {
   return errors;
 }
 
-module.exports = { SOURCE_BASELINES, STATES, canonical, sha256, validatePackage };
+module.exports = { LICENCE_STATUSES, SOURCE_BASELINES, STATES, canonical, sha256, validatePackage };

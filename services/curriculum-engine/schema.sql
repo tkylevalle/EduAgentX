@@ -89,6 +89,8 @@ CREATE TABLE IF NOT EXISTS curriculum_engine.package_reviews (
 -- Each review scores every rubric criterion; the score column is their weighted mean.
 ALTER TABLE curriculum_engine.package_reviews ADD COLUMN IF NOT EXISTS criterion_scores jsonb NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE curriculum_engine.package_reviews ADD COLUMN IF NOT EXISTS review_comment text NOT NULL DEFAULT '';
+-- Each reviewer's check of every cited source: edition, licence, quotes (assurance audit C2).
+ALTER TABLE curriculum_engine.package_reviews ADD COLUMN IF NOT EXISTS source_checks jsonb NOT NULL DEFAULT '{}'::jsonb;
 
 -- How two reviewers' disagreement on a criterion was resolved, recorded once by a person.
 CREATE TABLE IF NOT EXISTS curriculum_engine.package_review_resolutions (

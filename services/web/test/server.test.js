@@ -304,12 +304,13 @@ test('a review is submitted under the reviewer\'s own token, and a failed sign-i
     return reply(404, { error: 'not_found' });
   };
   const base = await listen(t, { fetchImpl });
-  const review = { packageId: 'pkg-x', version: '1.0.0', approved: true, comment: 'Checked.', criterionScores: { safety: 4 } };
+  const sourceChecks = { gdpr: { edition: true, licence: true, quotes: true } };
+  const review = { packageId: 'pkg-x', version: '1.0.0', approved: true, comment: 'Checked.', criterionScores: { safety: 4 }, sourceChecks };
   assert.equal((await post(base, '/api/governance/reviews', { ...review, clientId: 'person-a', clientSecret: 'wrong' })).status, 401);
   assert.equal(calls.some((call) => call.url.endsWith('/v1/curriculum/review')), false);
   const signed = await post(base, '/api/governance/reviews', { ...review, clientId: 'person-a', clientSecret: 'right' });
   assert.equal(signed.status, 200);
   const sent = calls.find((call) => call.url.endsWith('/v1/curriculum/review'));
   assert.equal(sent.authorization, 'Bearer person-a-token');
-  assert.deepEqual(sent.body, { package_id: 'pkg-x', version: '1.0.0', criterionScores: { safety: 4 }, approved: true, comment: 'Checked.' });
+  assert.deepEqual(sent.body, { package_id: 'pkg-x', version: '1.0.0', criterionScores: { safety: 4 }, sourceChecks, approved: true, comment: 'Checked.' });
 });

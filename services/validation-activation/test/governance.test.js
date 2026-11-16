@@ -2,6 +2,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createApp } = require('../src');
+const { citedSources } = require('../src/reviews');
 const candidate = require('../../curriculum-engine/examples/ai-safety-candidate');
 
 const version = candidate.manifest.version;
@@ -12,6 +13,8 @@ const headers = (subject, role = 'admin') => ({
 });
 // Every rubric criterion scored the same: the review's weighted score is that value.
 const scores = (value) => Object.fromEntries(candidate.rubric.criteria.map((criterion) => [criterion.id, value]));
+// Every cited source confirmed: edition, licence and quotes.
+const sourceChecks = Object.fromEntries(citedSources(candidate).map((id) => [id, { edition: true, licence: true, quotes: true }]));
 const packageOf = (id) => {
   const pkg = structuredClone(candidate);
   pkg.manifest.packageId = id;
@@ -36,12 +39,12 @@ test('governance requires authenticated independent reviewers and rejects a raci
     const validated = await post('/validate', { package_id: id, version });
     assert.equal(validated.status, 200, JSON.stringify(validated.body));
     assert.equal(validated.body.gates.length, 6);
-    assert.equal((await post('/review', { package_id: id, version, criterionScores: scores(5), approved: true }, 'author', 'reviewer')).status, 403);
-    assert.equal((await post('/review', { package_id: id, version, reviewer_id: 'forged', criterionScores: scores(3.5), approved: true }, 'human-a', 'reviewer')).status, 200);
-    assert.equal((await post('/review', { package_id: id, version, criterionScores: scores(3.5), approved: true }, 'human-a', 'reviewer')).status, 409);
-    const reviewed = await post('/review', { package_id: id, version, criterionScores: scores(3.5), approved: true }, 'human-b', 'reviewer');
-    assert.equal(reviewed.body.ready_to_activate, true);
-    assert.equal(reviewed.body.target_met, false);
+    assert.equal((await post('/review', { package_id: id, version, sourceChecks, criterionScores: scores(5), approved: true }, 'author', 'reviewer')).status, 403);
+    assert.equal((await post('/review', { package_id: id, version, reviewer_id: 'forged', sourceChecks, criterionScores: scores(3.5), approved: true }, 'human-a', 'reviewer')).status, 200);
+    assert.equal((await post('/review', { package_id: id, version, sourceChecks, criterionScores: scores(3.5), approved: true }, 'human-a', 'reviewer')).status, 409);
+    const reviewed = await post('/review', { package_id: id, version, sourceChecks, criterionScores: scores(3.5), approved: true }, 'human-b', 'reviewer');
+    assert.equal(reviewed.body.ready, true);
+    assert.equal(reviewed.body.targetMet, false);
     const view = await fetch(`${base}/packages/${id}?version=${encodeURIComponent(version)}`, { headers: headers('operator') }).then(r => r.json());
     assert.deepEqual(view.reviews.map(review => review.reviewer_id).sort(), ['human-a', 'human-b']);
     assert.equal(JSON.stringify(view).includes('expectedAnswer'), false);

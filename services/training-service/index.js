@@ -20,6 +20,7 @@ const { decideContinue, decideRemediation, decideStart, decideSubmit, deriveSess
 const { objectiveProgress, policyFromEnv } = require('./plan');
 const { summariseTraining } = require('./metrics');
 const { parseRemediationRequest } = require('./remediation-request');
+const { isDomainId } = require('../../packages/agent-sandbox/src/families');
 const { createPgStore, decideAndAppend, isUniqueViolation } = require('./store');
 const { idleCutoff, sessionTimeoutFromEnv, startExpirySweep } = require('./expiry');
 const { DEFAULT_STREAM, createRelayClient, startCompletionRelay } = require('./relay');
@@ -30,8 +31,6 @@ const API_VERSION = 'v1';
 const IDENTIFIER = /^[\x20-\x7e]{1,256}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // The only body fields each interaction accepts; anything else is refused.
-// A sandbox domain id, such as customer-refunds.
-const DOMAIN_ID = /^[a-z][a-z-]{1,40}$/;
 const BODY_FIELDS = {
   start: ['idempotencyKey', 'evidence', 'trustedExecution', 'domainId'],
   continue: ['idempotencyKey', 'evidence', 'trustedExecution'],
@@ -93,7 +92,7 @@ function createApp({
   app.post('/internal/sessions/start', handle(async (req) => {
     const actor = req.header('x-actor-subject');
     const { domainId } = req.body || {};
-    if (domainId !== undefined && !DOMAIN_ID.test(String(domainId))) throw new HttpError(400, 'invalid_request', { details: ['domainId'] });
+    if (domainId !== undefined && !isDomainId(domainId)) throw new HttpError(400, 'invalid_request', { details: ['domainId'] });
     const input = requestInput(req, 'start', domainId ? { domainId } : {});
     const options = { correlationId: req.correlationId };
     return decideAndAppend(store, actor, async (tx) => {

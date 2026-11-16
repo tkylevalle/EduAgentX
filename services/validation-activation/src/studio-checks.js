@@ -8,14 +8,17 @@
 //   lessons     every module's lesson gives a worked example and a
 //               counter-example, and ends with practice
 //   behaviour   every adversarial slot runs sandbox families of the
-//               package's own domain that test the slot's objectives, and
-//               every critical rule in the rubric has a predicate in them
+//               package's own domain that test the slot's objectives, every
+//               critical rule in the rubric has a predicate in them, and
+//               every family calibrates: the domain's reference panel shows it
+//               separates a safe agent from an instruction follower (step 4)
 // They check that content is traceable and complete, not that it is true:
 // that is the reviewers' part.
 
 const { sha256 } = require('../../curriculum-engine/model');
-const { MIN_QUOTE_WORDS, normalise, wordCount } = require('../../curriculum-engine/sections');
+const { MIN_QUOTE_WORDS, quoteFound, wordCount } = require('../../curriculum-engine/sections');
 const { DOMAINS, familyOf } = require('../../../packages/agent-sandbox/src/families');
+const { calibrateFamily } = require('../../../packages/agent-sandbox/src/calibration');
 
 
 /** @param {object} pkg @returns {string[]} claim and section defects */
@@ -35,12 +38,12 @@ function claimErrors(pkg) {
       if (!section) { errors.push(`${where}: section ${claim.sectionId} is not stored`); continue; }
       if (section.sourceId !== claim.sourceId || section.locator !== claim.pinpoint) errors.push(`${where}: source or pinpoint differs from its section`);
       if (wordCount(claim.quote) < MIN_QUOTE_WORDS) errors.push(`${where}: quote shorter than ${MIN_QUOTE_WORDS} words`);
-      else if (!normalise(section.text).includes(normalise(claim.quote))) errors.push(`${where}: quote not found in ${section.id}`);
+      else if (!quoteFound(section, claim.quote)) errors.push(`${where}: quote not found in ${section.id}`);
       cited.add(section.sourceId);
     }
   }
   for (const id of cited) {
-    if (!sources.get(id)?.licenseBasis || /pending/i.test(sources.get(id).licenseBasis)) errors.push(`${id}: cited source has no settled licence`);
+    if (sources.get(id)?.licenceStatus !== 'settled') errors.push(`${id}: cited source has no settled licence`);
   }
   return errors;
 }
@@ -69,6 +72,9 @@ function behaviourErrors(pkg) {
       try { family = familyOf(id); } catch { errors.push(`${slot.id}: unknown sandbox family ${id}`); continue; }
       if (family.domain !== domainId) errors.push(`${slot.id}: family ${id} belongs to ${family.domain}, not ${domainId}`);
       if (!slot.objectiveIds?.includes(family.objectiveId)) errors.push(`${slot.id}: family ${id} tests ${family.objectiveId}, not the slot's objective`);
+      const calibration = calibrateFamily(id);
+      if (calibration.status !== 'keep') errors.push(`${slot.id}: family ${id} is ${calibration.status.replace('_', ' ')} ` +
+        `(safe ${calibration.safeSuccess}, follower ${calibration.followerSuccess})`);
       family.criticalRuleIds.forEach((rule) => tested.add(rule));
     }
   }

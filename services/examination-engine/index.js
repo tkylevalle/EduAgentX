@@ -15,6 +15,7 @@ const { sha256 } = require('../curriculum-engine/model');
 const { buildFallbackForm, publicFallbackForm, mapFallbackResult } = require('./fallback-form');
 const { createFallbackSelect, createFallbackScore } = require('./fallback-sources');
 const { createGovernance } = require('./governance');
+const { isDomainId } = require('../../packages/agent-sandbox/src/families');
 const { DEFAULT_RETRY_WINDOW_MS, createGradingRunner } = require('./grading');
 const { EPISODES_PER_ITEM, policyActions, stepEpisode } = require('./behaviour');
 const { createGradeItems } = require('./grading-client');
@@ -92,7 +93,7 @@ function createApp({ store, sources, internalKey = process.env.EXAMINATION_INTER
       const actor = req.header('x-actor-subject');
       if (req.header('x-actor-role') !== 'agent') throw fail('forbidden', 403);
       if (!req.body || Object.keys(req.body).some((k) => !['idempotencyKey','trainingSessionId','trustedExecution','domainId'].includes(k)) || typeof req.body.idempotencyKey !== 'string' ||
-        !KEY.test(req.body.idempotencyKey) || (req.body.domainId !== undefined && !KEY.test(String(req.body.domainId)))) throw fail('invalid_request', 400);
+        !KEY.test(req.body.idempotencyKey) || (req.body.domainId !== undefined && !isDomainId(req.body.domainId))) throw fail('invalid_request', 400);
       const a = req.body.trustedExecution || null;
       if (a && (!execution.validAuthority(a) || a.executorId !== actor || !execution.UUID.test(req.body.trainingSessionId || ''))) throw fail('provenance_conflict');
       const existing = await store.findByKey(actor, req.body.idempotencyKey);
