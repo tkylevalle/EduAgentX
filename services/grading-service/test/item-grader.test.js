@@ -95,3 +95,8 @@ test('every critical rule an example domain package pins is one the grader can m
     assert.deepEqual(validateItemGradingRequest({ rubric: rules, items: [item()] }), [], domain);
   }
 });
+
+test('an item may carry its prompt, which must be text when present', () => {
+  assert.deepEqual(validateItemGradingRequest(request([item({ prompt: 'What do you do?' })])), []);
+  assert.deepEqual(validateItemGradingRequest(request([item({ prompt: ' ' })])), ['items[0].prompt']);
+});

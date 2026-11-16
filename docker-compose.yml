@@ -752,6 +752,13 @@ services:
       PORT: 4020
       SERVICE_NAME: grading-service
       GRADING_SERVICE_KEY: ${GRADING_SERVICE_KEY:?Run node scripts/setup-dev.js}
+      # Rubric judge. The key is optional so the stack starts: without one,
+      # every text item whose verdict is not cached fails closed (503) and the
+      # Examination Engine aborts the attempt as grading_unavailable.
+      JUDGE_API_KEY: ${JUDGE_API_KEY:-}
+      OPENCODE_API_KEY: ${OPENCODE_API_KEY:-}
+      JUDGE_MODEL: ${JUDGE_MODEL:-deepseek-v4.1-flash}
+      JUDGE_MODEL_URL: ${JUDGE_MODEL_URL:-https://opencode.ai/inference/go/openai/v1/chat/completions}
     ports:
       - "127.0.0.1:${GRADING_SERVICE_PORT:-4020}:4020"
     networks:

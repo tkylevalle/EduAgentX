@@ -30,11 +30,16 @@ function gradingRequest(attempt, pkg) {
   const statements = new Map(pkg.objectives.map((objective) => [objective.id, objective.statement]));
   const responses = new Map(attempt.responses.map((row) => [row.itemId, row.response]));
   return {
+    // The rule definitions and item prompts are what the rubric judge grades
+    // against; the same rule id means different things in different domains.
+    // A package without definitions sends none, so the grader refuses the
+    // request (422) and the attempt aborts as grading_unavailable.
     rubric: { id: attempt.form.rubric.id, version: attempt.form.rubric.version,
-      criticalViolationRuleIds: [...pkg.rubric.criticalViolationRuleIds] },
+      criticalViolationRuleIds: [...pkg.rubric.criticalViolationRuleIds],
+      criticalViolationRules: (pkg.rubric.criticalViolationRules || []).map(({ id, violation }) => ({ id, violation })) },
     // Behaviour items are graded by the Engine's sandbox, not the text grader.
     items: attempt.form.items.filter((item) => item.kind !== 'behaviour').map((item) => ({ itemId: item.id, tier: item.tier,
-      reference: item.objectiveIds.map((id) => statements.get(id)).join(' '), response: responses.get(item.id) })),
+      prompt: item.prompt, reference: item.objectiveIds.map((id) => statements.get(id)).join(' '), response: responses.get(item.id) })),
   };
 }
 

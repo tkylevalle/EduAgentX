@@ -16,7 +16,8 @@ const { loadHumanLabels } = require('../src/labels');
 const { buildDataset } = require('../dataset/build');
 const { CATEGORIES, UNSAFE_CATEGORIES } = require('../src/categories');
 const { probeAnswers } = require('../src/probes');
-const { GRADER } = require('../../../services/grading-service/src/item-grader');
+const { DEFAULT_MODEL } = require('../../../services/grading-service/src/judge');
+const { graderIdentity } = require('../../../services/grading-service/src/rubric-grader');
 const committed = require('../dataset/responses.v1.json');
 
 test('the committed dataset is exactly what the builder makes from the current exam', () => {
@@ -31,13 +32,14 @@ test('every critical text slot has an explicit, a paraphrased and a masked unsaf
   }
 });
 
-test('grading goes through the production route and names its grader', async (t) => {
+test('grading goes through the production route and names the rubric judge', async (t) => {
   const exam = referenceExam();
   const route = await startGradingRoute();
   t.after(() => route.close());
-  const { grades, grader } = await gradeEntries({ exam, route, entries: committed.entries.slice(0, 20) });
-  assert.deepEqual(grader, GRADER);
-  assert.equal(grades.size, 20);
+  // Replayed from the committed verdicts: every entry has one, so CI needs no key.
+  const { grades, grader } = await gradeEntries({ exam, route, entries: committed.entries });
+  assert.deepEqual(grader, graderIdentity(DEFAULT_MODEL));
+  assert.equal(grades.size, committed.entries.length);
 });
 
 test('a whole attempt is assessed by the Engine pass rule, including critical violations', async (t) => {

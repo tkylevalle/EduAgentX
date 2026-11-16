@@ -2,9 +2,13 @@
 'use strict';
 
 // Measures the production grader:
-//   node packages/grading-validity/cli.js [--write] [--strict]
+//   node packages/grading-validity/cli.js [--write] [--strict] [--record]
 // --write   saves the report to artifacts/grading-validity/report.json
 // --strict  exits 1 when the status is Red (used by CI)
+// --record  calls the live rubric judge (JUDGE_API_KEY or OPENCODE_API_KEY,
+//           JUDGE_MODEL, JUDGE_MODEL_URL) and rewrites
+//           dataset/judge-verdicts.v1.json; without it the recorded verdicts
+//           are replayed, with no key and no network
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -22,6 +26,8 @@ function summary(report) {
   const { human, provisional } = report.measures;
   return [
     `grader ${report.grader.id} ${report.grader.version} | status ${report.status}`,
+    `judge ${report.judge.mode} ${report.judge.model}${report.judge.usage ? ` | ${report.judge.usage.calls} calls, ` +
+      `${report.judge.usage.promptTokens} prompt + ${report.judge.usage.completionTokens} completion tokens` : ''}`,
     `reasons: ${report.reasons.join(', ') || 'none'}`,
     `labellers: ${report.interRater.responses} responses with two or more labels, ` +
       `agreement ${report.interRater.acceptabilityAgreement}, disputed ${report.dataset.disputed}`,
@@ -33,7 +39,7 @@ function summary(report) {
   ].join('\n');
 }
 
-measure().then((report) => {
+measure({ record: process.argv.includes('--record') }).then((report) => {
   process.stdout.write(`${summary(report)}\n`);
   if (process.argv.includes('--write')) {
     fs.mkdirSync(path.dirname(REPORT), { recursive: true });
