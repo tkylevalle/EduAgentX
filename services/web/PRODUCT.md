@@ -17,6 +17,28 @@ the API Gateway and drives one real Agent Learner through the lifecycle.
 | Marketplace | Operate | Open a Capability Request, generate Eligible/Near Match candidates against real credentials |
 | Evidence | Operate | Regenerate the sanitized, digested Evidence Bundle from what the platform can currently back live |
 
+## Two modes
+
+The app has two views of the same platform. Both read the same BFF routes and
+the same lifecycle run (`src/run/store.js`), so they cannot disagree.
+
+- **School** (`#/school/<room>`) is the view for visitors. Quill, a robot
+  student, goes through five rooms: Enrol, Class, Exam, Report card,
+  Graduation. Each scene comes from an event of the real run stream
+  (`src/school/director.mjs`). The panel under the stage shows the records
+  behind the room. A failed exam gives a report card and a catch-up class,
+  and no diploma.
+- **Operator** (`#/<page>`) is the technical console in the table above.
+
+The switch is in the top bar of both views, and the key M does the same. It
+keeps the run and maps the room to its page (Exam opens the Lifecycle Lab,
+Graduation opens Credentials). The browser stores the last mode in
+`localStorage`.
+
+The School shows no value of its own. A record that did not load shows as
+missing. The one development aid, `?pose=`, exists only in the dev server and
+labels itself "Art check".
+
 ## Audience
 
 Capstone PoC reviewers watching a shared screen (Remo, 19 October), then
@@ -29,6 +51,8 @@ state, amber for suspended or remediation, red for failure. Archivo (expanded,
 heavy, uppercase titles) for people and Geist Mono for machine answers. Dense
 panels, live readouts instead of hero copy, keyboard-driven runs (1–6, Enter)
 and pointer-lit surfaces. No serif accent titles, no airy hero space.
+The School adds a lamp-lit cross-section of the building and cream paper for
+the report card and the diploma; it uses the same type and signal colours.
 Evidence is shown as it was answered: ids, digests and
 durations are real values, never decoration.
 
