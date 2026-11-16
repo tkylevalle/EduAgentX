@@ -95,3 +95,11 @@ test('batch status and verify answer each item in order, as the single routes wo
   assert.equal((await post('/status/batch', { credentialIds: [] }, null)).status, 400);
   assert.equal((await post('/verify/batch', { jws: Array.from({ length: 501 }, () => 'x') }, null)).status, 400);
 });
+
+test('a verify batch of real-sized credentials is accepted, while single routes keep the small body limit', async () => {
+  const big = `h.${'p'.repeat(34000)}.s`;
+  const verified = await post('/verify/batch', { jws: Array.from({ length: 20 }, () => big) }, null);
+  assert.equal(verified.status, 200);
+  assert.equal((await verified.json()).results.length, 20);
+  assert.equal((await post('/verify', { jws: `h.${'p'.repeat(70000)}.s` }, null)).status, 413);
+});
