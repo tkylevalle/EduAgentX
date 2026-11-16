@@ -122,6 +122,7 @@ test('real authoritative synthetic and replay lifecycles become Eligible; legacy
       assert.ok(excluded.reasons.some((r) => r.code === 'EVIDENCE_MODE_UNCHECKABLE'));
       saved.legacyCredentialId = record.credentialId;
     });
+    fs.mkdirSync(require('node:path').dirname(statePath), { recursive: true });
     fs.writeFileSync(statePath, JSON.stringify(saved, null, 2));
   });
 
