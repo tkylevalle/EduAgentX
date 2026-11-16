@@ -8,7 +8,8 @@ const { db } = require('./db');
 const { classifyFreshness, DEFAULT_FRESHNESS_DAYS, isDue } = require('./freshness');
 const { validateScope, createRefreshCandidate, selectFallback } = require('./package-lifecycle');
 const { runFreshnessJob } = require('./freshness-job');
-const { MAX_COMMENT_CHARS, MAX_RESOLUTION_CHARS, reviewScore, unresolvedDisagreements } = require('./reviews');
+const { MAX_COMMENT_CHARS, MAX_RESOLUTION_CHARS, REVIEW_POLICY, citedSources, reviewScore, reviewState, sourceChecksError } = require('./reviews');
+const telemetry = require('../../../packages/telemetry');
 
 function createApp({ packageDb = db, now = () => new Date(), internalKey = process.env.CURRICULUM_INTERNAL_KEY, fetchImpl = fetch } = {}) {
 const app = express();
@@ -65,11 +66,12 @@ route('post', '/validate', requireInternalActor, async (req, res) => {
   res.json({ passed: true, gates: result.gates, state: 'AwaitingReview' });
 });
 
-// POST /review — a reviewer's scores for every rubric criterion, a comment and
-// an approval decision. The reviewer is the authenticated subject; the score
-// is the rubric-weighted mean of the criterion scores (reviews.js).
+// POST /review — a reviewer's scores for every rubric criterion, their checks
+// of every cited source, a comment and an approval decision. The reviewer is
+// the authenticated subject; the score is the rubric-weighted mean of the
+// criterion scores (reviews.js).
 route('post', '/review', requireInternalActor, async (req, res) => {
-  const { package_id, version, criterionScores, approved, comment = '' } = req.body;
+  const { package_id, version, criterionScores, sourceChecks, approved, comment = '' } = req.body;
   const reviewer_id = req.header('x-actor-subject');
   if (!['reviewer', 'admin'].includes(req.header('x-actor-role')))
     return res.status(403).json({ error: 'reviewer_role_required' });
@@ -81,20 +83,18 @@ route('post', '/review', requireInternalActor, async (req, res) => {
   if (pkg.createdBy === reviewer_id) return res.status(403).json({ error: 'author_cannot_review' });
   const scored = reviewScore(pkg.rubric, criterionScores);
   if (scored.error) return res.status(422).json({ error: scored.error, criteria: (pkg.rubric?.criteria || []).map((criterion) => criterion.id) });
-  const review = { reviewer_id, score: scored.score, approved, criterionScores, comment: comment.trim(), ts: now().toISOString() };
+  const sourceError = sourceChecksError(pkg, sourceChecks, approved);
+  if (sourceError) return res.status(422).json({ error: sourceError, sources: citedSources(pkg) });
+  const review = { reviewer_id, score: scored.score, approved, criterionScores, sourceChecks, comment: comment.trim(), ts: now().toISOString() };
   if (!await packageDb.submitReview(package_id, version, pkg.digest, review))
     return res.status(409).json({ error: 'duplicate_reviewer' });
   await packageDb.appendEvidence(package_id, { event: 'review_submitted', ...review }, version);
-  const packageReviews = await packageDb.getReviews(package_id, version);
-  const approvals = packageReviews.filter(r => r.approved && r.score >= 3.5);
-  const mean = approvals.length ? approvals.reduce((sum, item) => sum + item.score, 0) / approvals.length : null;
-  const disagreements = unresolvedDisagreements(approvals, pkg.rubric, await packageDb.getResolutions(package_id, version));
-  res.json({ score: scored.score, reviews: packageReviews.length, approvals: approvals.length, mean, target_met: mean >= 4, disagreements,
-    ready_to_activate: approvals.length >= 2 && mean >= 3.5 && disagreements.length === 0 });
+  const state = reviewState(pkg, await packageDb.getReviews(package_id, version), await packageDb.getResolutions(package_id, version));
+  res.json({ score: scored.score, ...state });
 });
 
-// POST /review/resolutions — how a disagreement on one criterion was resolved.
-// Only a reviewer of this version, or an admin, may record it, once.
+// POST /review/resolutions — how a disagreement on one criterion was resolved,
+// recorded once, by one of the reviewers who disagree.
 route('post', '/review/resolutions', requireInternalActor, async (req, res) => {
   const { package_id, version, criterionId, resolution } = req.body;
   const actor = req.header('x-actor-subject');
@@ -103,11 +103,10 @@ route('post', '/review/resolutions', requireInternalActor, async (req, res) => {
     resolution.length > MAX_RESOLUTION_CHARS) return res.status(400).json({ error: 'missing_fields' });
   const pkg = await packageDb.getPackage(package_id, version);
   if (!pkg) return res.status(404).json({ error: 'package_not_found' });
-  const reviews = await packageDb.getReviews(package_id, version);
-  if (req.header('x-actor-role') !== 'admin' && !reviews.some((review) => review.reviewer_id === actor))
-    return res.status(403).json({ error: 'only_a_reviewer_of_this_version_may_resolve' });
-  const open = unresolvedDisagreements(reviews.filter((review) => review.approved), pkg.rubric, await packageDb.getResolutions(package_id, version));
-  if (!open.some((item) => item.criterionId === criterionId)) return res.status(409).json({ error: 'no_open_disagreement', criterionId });
+  const state = reviewState(pkg, await packageDb.getReviews(package_id, version), await packageDb.getResolutions(package_id, version));
+  const open = state.disagreements.find((item) => item.criterionId === criterionId);
+  if (!open) return res.status(409).json({ error: 'no_open_disagreement', criterionId });
+  if (!Object.hasOwn(open.scores, actor)) return res.status(403).json({ error: 'only_a_disagreeing_reviewer_may_resolve' });
   if (!await packageDb.addResolution(package_id, version, { criterionId, resolvedBy: actor, resolution: resolution.trim() }))
     return res.status(409).json({ error: 'already_resolved' });
   await packageDb.appendEvidence(package_id, { event: 'review_disagreement_resolved', criterionId, resolvedBy: actor,
@@ -115,7 +114,7 @@ route('post', '/review/resolutions', requireInternalActor, async (req, res) => {
   res.json({ criterionId, resolvedBy: actor });
 });
 
-// POST /activate — atomically activate after 2 approvals
+// POST /activate — atomically activate once the review state is ready
 route('post', '/activate', requireInternalActor, async (req, res) => {
   const { package_id, version } = req.body;
   if (!package_id || !version) return res.status(400).json({ error: 'package_id_and_version_required' });
@@ -125,18 +124,14 @@ route('post', '/activate', requireInternalActor, async (req, res) => {
   const validation = (await packageDb.getEvidence(package_id, version)).find(entry =>
     entry.event === 'validation_run' && entry.digest === pkg.digest && entry.result?.passed === true);
   if (!validation) return res.status(409).json({ error: 'validation_evidence_required' });
-  const packageReviews = await packageDb.getReviews(package_id, version);
-  const approvals = packageReviews.filter(r => r.approved && r.score >= 3.5 && r.digest === pkg.digest);
-  const distinctReviewers = new Set(approvals.map(r => r.reviewer_id));
-  if (distinctReviewers.size < 2)
-    return res.status(403).json({ error: 'insufficient_approvals', required: 2, distinct_approvers: distinctReviewers.size });
-  const avgScore = approvals.reduce((sum, r) => sum + r.score, 0) / approvals.length;
-  if (avgScore < 3.5) return res.status(422).json({ error: 'score_below_floor', floor: 3.5, average: avgScore });
-  const disagreements = unresolvedDisagreements(approvals, pkg.rubric, await packageDb.getResolutions(package_id, version));
-  if (disagreements.length) return res.status(409).json({ error: 'unresolved_review_disagreement', disagreements });
+  const state = reviewState(pkg, await packageDb.getReviews(package_id, version), await packageDb.getResolutions(package_id, version));
+  if (state.approvals < state.required)
+    return res.status(403).json({ error: 'insufficient_approvals', required: state.required, distinct_approvers: state.approvals });
+  if (state.mean < state.floor) return res.status(422).json({ error: 'score_below_floor', floor: state.floor, average: state.mean });
+  if (state.disagreements.length) return res.status(409).json({ error: 'unresolved_review_disagreement', disagreements: state.disagreements });
   let result;
   try { result = await packageDb.activatePackage(package_id, version, pkg.digest); }
-  catch { return res.status(409).json({ error: 'activation_precondition_failed' }); }
+  catch (error) { return res.status(409).json({ error: 'activation_precondition_failed', reason: error.message }); }
   await packageDb.appendEvidence(package_id, { event: 'activated', previous_active: result.superseded_id, ts: now().toISOString() }, version);
   res.json({ activated: true, packageId: package_id, superseded_id: result.superseded_id });
 });
@@ -183,8 +178,9 @@ route('get', '/packages/:id', requireInternalActor, async (req, res) => {
   const quarantinedScopes = await packageDb.getScopedQuarantines(pkg.id, pkg.version);
   const resolutions = await packageDb.getResolutions(pkg.id, pkg.version);
   const { fallbackBank, fallback_bank, ...safePackage } = pkg;
+  const state = reviewState(pkg, packageReviews, resolutions);
   res.json({ ...safePackage, packageId: pkg.id, digest: pkg.digest || null, evidence, reviews: packageReviews, resolutions,
-    openDisagreements: unresolvedDisagreements(packageReviews.filter((review) => review.approved), pkg.rubric, resolutions),
+    openDisagreements: state.disagreements, reviewState: state, reviewPolicy: REVIEW_POLICY, citedSources: citedSources(pkg),
     quarantinedScopes, certificationBlocked: quarantinedScopes.length > 0 });
 });
 
@@ -331,9 +327,12 @@ return app;
 // Off unless FRESHNESS_JOB_INTERVAL_MS is set, so tests and local runs fetch nothing.
 function startFreshnessSchedule(app, intervalMs = Number(process.env.FRESHNESS_JOB_INTERVAL_MS)) {
   if (!Number.isFinite(intervalMs) || intervalMs <= 0) return null;
+  // One allowlisted log record per run: how many sources ended in each result.
   const run = () => app.locals.runFreshness()
-    .then((report) => console.log(`[validation-activation] freshness: ${report.map((line) => `${line.packageId}/${line.sourceId}=${line.result}`).join(', ') || 'no active package'}`))
-    .catch((error) => console.error(`[validation-activation] freshness run failed: ${error.message}`));
+    .then((report) => telemetry.log('validation-activation', 'freshness_run', { operation: 'freshness',
+      outcome: Object.entries(report.reduce((counts, line) => ({ ...counts, [line.result]: (counts[line.result] || 0) + 1 }), {}))
+        .map(([result, count]) => `${result}=${count}`).join(' ') || 'no_active_package' }))
+    .catch((error) => telemetry.log('validation-activation', 'freshness_run', { operation: 'freshness', outcome: `failed:${error.code || error.name}` }));
   const timer = setInterval(run, intervalMs);
   timer.unref();
   return timer;

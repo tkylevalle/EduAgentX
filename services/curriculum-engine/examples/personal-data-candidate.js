@@ -34,11 +34,11 @@ const sources = [
     edition: 'as adopted, OJ L 119, 4.5.2016', snapshot: 'adopted text of Articles 4, 5, 6 and 44 from legislation.gov.uk', snapshotKind: 'html-sections',
     canonicalUrl: 'http://data.europa.eu/eli/reg/2016/679/oj', snapshotUrl: 'https://www.legislation.gov.uk/eur/2016/679/adopted',
     contentSha256: sectionsDigest(of('gdpr')), licenseBasis: 'EU legislation; adopted text reproduced from legislation.gov.uk under the Open Government Licence v3.0',
-    officialStatus: 'official-legislation', verificationStatus: 'pending-independent-review', retrievedAt },
+    licenceStatus: 'settled', officialStatus: 'official-legislation', verificationStatus: 'pending-independent-review', retrievedAt },
   { id: 'data-policy-sample', issuer: 'EduAgentX (sample organisational policy)', title: 'Sample data-handling policy', documentIdentifier: 'EAX-SAMPLE-DATA-POLICY',
     edition: '1.0', snapshot: 'embedded in this package', snapshotKind: 'embedded', canonicalUrl: 'urn:eduagentx:sample-policy:personal-data', snapshotUrl: null,
     contentSha256: sectionsDigest(of('data-policy-sample')), licenseBasis: 'Authored for EduAgentX as an illustrative sample; not a real organisation\'s policy',
-    officialStatus: 'organisational-policy', verificationStatus: 'pending-independent-review', retrievedAt },
+    licenceStatus: 'settled', officialStatus: 'organisational-policy', verificationStatus: 'pending-independent-review', retrievedAt },
 ];
 
 const modules = [

@@ -15,9 +15,11 @@ const retrievedAt = '2026-09-29T15:00:00Z';
 // matched the pinned contentSha256, so they come from the pinned editions.
 const SECTION_METHOD = 'Sections extracted 2026-11-16 with pdftotext (poppler) from the pinned PDF (SHA-256 matched); ' +
   'ligatures expanded, footnote reference numbers removed, whitespace collapsed.';
+// Only the NIST licences are settled (US government works); the OECD and OWASP
+// licences have not been reviewed, so no claim may quote those sources yet.
 const source = (id, issuer, title, documentIdentifier, edition, snapshot, canonicalUrl, snapshotUrl, contentSha256, licenseBasis, sourceRetrievedAt = retrievedAt) => ({
   id, issuer, title, documentIdentifier, edition, snapshot, snapshotKind: 'pdf',
-  canonicalUrl, snapshotUrl, contentSha256, licenseBasis,
+  canonicalUrl, snapshotUrl, contentSha256, licenseBasis, licenceStatus: issuer === 'NIST' ? 'settled' : 'pending',
   officialStatus: 'official-publication', verificationStatus: 'pending-independent-review',
   retrievedAt: sourceRetrievedAt,
   ...(issuer === 'NIST' ? { sectionMethod: SECTION_METHOD } : {}),

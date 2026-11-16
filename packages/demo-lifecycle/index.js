@@ -95,8 +95,12 @@ function createLifecycleDriver({ gatewayUrl, syntheticUrl, validationUrl, curric
   async function ensurePackage() {
     const existing = await activePackage();
     if (existing) {
+      // Who approved the package the run will use, so a reused package is never taken on trust.
+      const detail = await http(`${gatewayUrl}/v1/admin/curriculum/packages/${encodeURIComponent(existing.packageId)}/${encodeURIComponent(existing.version)}`,
+        { token: await adminToken() });
       return { reused: true, packageId: existing.packageId, version: existing.version, digest: existing.digest,
-        domain: existing.manifest?.domain || existing.domain || null, moduleCount: existing.modules?.length ?? null };
+        domain: existing.manifest?.domain || existing.domain || null, moduleCount: existing.modules?.length ?? null,
+        reviews: detail.status === 200 ? (detail.data.reviews || []).map((review) => ({ reviewer: review.reviewer_id, score: review.score, approved: review.approved })) : null };
     }
     if (!candidate) throw new LifecycleError('no_candidate_package');
     const auth = await adminToken();

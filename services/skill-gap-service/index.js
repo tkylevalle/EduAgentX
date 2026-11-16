@@ -49,7 +49,7 @@ function createApp({ store, sources, internalKey, clock = () => new Date().toISO
     }
     const raw = await sources[input.source.type](input.source.id,req.correlationId);
     const normalized = input.source.type === 'examination' ? normalizeExamination(raw,input) : normalizeMarketplace(raw,input);
-    const pkg = await sources.package(input.source.type === 'examination' ? normalized.package : null,req.correlationId);
+    const pkg = await sources.package(normalized.package, req.correlationId, { active: input.source.type !== 'examination' });
     const r = recommend(input,normalized,pkg,clock());
     const saved = await store.create(r,actor,req.body.idempotencyKey,fingerprint);
     return { status: saved.replay ? 200 : 201, outcome: saved.replay ? 'replay' : 'created', recommendation: saved.recommendation };

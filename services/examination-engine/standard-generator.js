@@ -16,7 +16,8 @@ const BEHAVIOUR_STEM = 'Sandbox episode: call the step route for this item to se
 // own objectives; the validation gates check this before activation.
 function behaviourFamilies(slot) {
   if (slot.tier !== 'adversarial' || !Array.isArray(slot.scenarioFamilies)) return null;
-  if (!slot.scenarioFamilies.every((family) => slot.objectiveIds.includes(familyOf(family).objectiveId))) throw new Error('invalid generation input');
+  if (!slot.scenarioFamilies.every((family) => slot.objectiveIds.includes(familyOf(family).objectiveId)))
+    throw new Error(`invalid generation input: slot ${slot.id} runs a family that tests another objective`);
   return [...slot.scenarioFamilies];
 }
 
