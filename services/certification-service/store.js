@@ -62,6 +62,17 @@ function createMemoryStore() {
       });
     },
     async counts() { return { decisions: byAttempt.size, credentials: byAttempt.size }; },
+    async findOriginsByCredentials(ids) {
+      const found = new Map();
+      for (const id of ids) { const origin = await this.findOriginByCredential(id); if (origin) found.set(id, origin); }
+      return found;
+    },
+    async latestCredentialFor(subjectId, packageId) {
+      const row = [...byAttempt.values()].filter((value) => value.evidence.subjectId === subjectId && value.evidence.packageId === packageId)
+        .sort((a, b) => b.credential.issuedAt.localeCompare(a.credential.issuedAt))[0];
+      return row ? clone({ examinationId: row.examinationId, credentialId: row.credential.credentialId, credential: row.credential.credential,
+        issuedAt: row.credential.issuedAt }) : null;
+    },
     async reconcileCredentials(id) {
       const row = byAttempt.get(id);
       return { count: row ? 1 : 0, credentialIds: row ? [row.credential.credentialId] : [] };
@@ -110,6 +121,16 @@ function createPgStore(pool) {
         decisionId: row.decision_id, examinationId: row.examination_id, subjectId: row.subject_id,
         configurationFingerprint: row.subject_fingerprint }) : null;
     },
+    // Every origin for a list of credentials in one query (Marketplace matching, audit F6).
+    async findOriginsByCredentials(ids) {
+      const { rows } = await pool.query(`SELECT c.credential_id, c.compact_jws, d.decision_id,
+        d.examination_id, d.subject_id, d.subject_fingerprint
+        FROM certification_engine.credentials c JOIN certification_engine.decisions d USING (decision_id)
+        WHERE c.credential_id = ANY($1::uuid[])`, [ids]);
+      return new Map(rows.map((row) => [row.credential_id, originSummary({ credentialId: row.credential_id, compactJws: row.compact_jws,
+        decisionId: row.decision_id, examinationId: row.examination_id, subjectId: row.subject_id,
+        configurationFingerprint: row.subject_fingerprint })]));
+    },
     async issue({ evidence, commandKey, commandDigest, createCredential, latencyStartedAt = process.hrtime.bigint() }) {
       const client = await pool.connect();
       try {
@@ -145,6 +166,14 @@ function createPgStore(pool) {
           credential: issued, issuanceLatencyMs: issuanceLatency, processingLatencyMs: processingLatency, replay: false };
       } catch (error) { await client.query('ROLLBACK'); throw error; }
       finally { client.release(); }
+    },
+    // The subject's newest credential for one package: the Release Gate's baseline.
+    async latestCredentialFor(subjectId, packageId) {
+      const { rows } = await pool.query(`SELECT d.examination_id, c.credential_id, c.credential, c.issued_at
+        FROM certification_engine.decisions d JOIN certification_engine.credentials c USING (decision_id)
+        WHERE d.subject_id=$1 AND d.package_id=$2 ORDER BY c.issued_at DESC LIMIT 1`, [subjectId, packageId]);
+      return rows[0] ? { examinationId: rows[0].examination_id, credentialId: rows[0].credential_id, credential: rows[0].credential,
+        issuedAt: new Date(rows[0].issued_at).toISOString() } : null;
     },
     async counts() {
       const { rows } = await pool.query(`SELECT (SELECT count(*) FROM certification_engine.decisions)::int AS decisions,

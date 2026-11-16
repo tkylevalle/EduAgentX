@@ -439,13 +439,14 @@ function start(env = process.env) {
   // Idle clients emit 'error' when Postgres restarts; an unhandled event would stop the process.
   pool?.on('error', () => telemetry.log(SERVICE_NAME, 'postgres_connection_error'));
   const store = pool ? createPgStore(pool) : unavailableStore();
+  // batch: reads made together share one request per source (assurance audit F6).
   const sources = {
     registry: createRegistrySource({ baseUrl: env.AGENT_REGISTRY_URL || 'http://agent-registry:4001' }),
     package: createPackageSource({ baseUrl: env.VALIDATION_ACTIVATION_URL || 'http://validation-activation:4010',
-      internalKey: env.CURRICULUM_INTERNAL_KEY }),
-    verification: createVerificationSource({ baseUrl: env.CREDENTIAL_VERIFICATION_URL || 'http://credential-verification:4030' }),
+      internalKey: env.CURRICULUM_INTERNAL_KEY, batch: true }),
+    verification: createVerificationSource({ baseUrl: env.CREDENTIAL_VERIFICATION_URL || 'http://credential-verification:4030', batch: true }),
     lifecycle: createLifecycleSource({ baseUrl: env.CERTIFICATION_SERVICE_URL || 'http://certification-service:4011',
-      internalKey: env.MARKETPLACE_INTERNAL_KEY }),
+      internalKey: env.MARKETPLACE_INTERNAL_KEY, batch: true }),
   };
   const server = createApp({ store, sources, internalKey: env.MARKETPLACE_INTERNAL_KEY,
     // Invalid configuration leaves readiness closed; the fallback is never used

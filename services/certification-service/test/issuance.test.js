@@ -317,6 +317,20 @@ test('origin read is exact-selector only: unknown ID is absent and broad/malform
     assert.equal((await ctx.get(`/internal/credential-origins/${selector}`, ORIGIN_HEADERS)).status, 400);
 });
 
+// Assurance audit F6: the same exact-selector read for a candidate list, under the same key.
+test('the origin batch answers each listed credential in order, and still needs the Marketplace key and exact ids', async (t) => {
+  const ctx = await boot(t);
+  const issued = await ctx.call('/internal/decisions', { examinationId: evidence().attemptId, idempotencyKey: 'origin-batch' });
+  const { credentialId } = issued.body.credential;
+  const unknown = randomUUID();
+  const batch = await ctx.call('/internal/credential-origins/batch', { credentialIds: [unknown, credentialId] }, ORIGIN_HEADERS);
+  assert.equal(batch.status, 200);
+  assert.deepEqual(batch.body.origins.map((entry) => [entry.credentialId, entry.origin?.credentialId ?? null]), [[unknown, null], [credentialId, credentialId]]);
+  assert.equal((await ctx.call('/internal/credential-origins/batch', { credentialIds: [credentialId] }, { ...ORIGIN_HEADERS, 'x-internal-service-key': KEY })).status, 403);
+  for (const credentialIds of [[], ['all'], Array.from({ length: 501 }, () => randomUUID())])
+    assert.equal((await ctx.call('/internal/credential-origins/batch', { credentialIds }, ORIGIN_HEADERS)).status, 400);
+});
+
 for (const status of ['agent_failed', 'system_aborted']) {
   test(`${status} examination cannot establish issued origin`, async (t) => {
     const ctx = await boot(t, async () => evidence({ status }));
