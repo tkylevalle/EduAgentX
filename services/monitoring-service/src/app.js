@@ -13,11 +13,14 @@
 const express = require('express');
 const { timingSafeEqual } = require('node:crypto');
 const telemetry = require('../../../packages/telemetry');
-const { IDENTIFIER, parseIncident } = require('../../../packages/incident-log');
+const { IDENTIFIER, clipSummary, parseIncident } = require('../../../packages/incident-log');
 const { evaluateTelemetry, parseManifest, parseTelemetry } = require('../../../packages/runtime-monitor');
 const projections = require('./projections');
+const { MAX_LIST, parseCursor } = require('./incidents');
 
 const SERVICE = 'monitoring-service';
+// The source every Runtime Monitor incident is appended under.
+const RUNTIME_SOURCE = 'runtime-monitor';
 const UPDATE_STATUSES = Object.freeze(['acknowledged', 'resolved']);
 const MAX_NOTE_CHARS = 2000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -101,12 +104,21 @@ function registerIncidentRoutes(route, { store }) {
     const { incident, created } = await store.append(parsed.incident);
     res.status(created ? 201 : 200).json({ incidentId: incident.incidentId, created });
   });
-  // The Attention Queue: open incidents by default, newest first.
+  // The Attention Queue: open incidents by default, newest first, one page at a time.
+  //   status  open (default) | acknowledged | resolved | all
+  //   limit   1 to 500 incidents a page (default 500)
+  //   before  the `next` value of the previous page, "<recordedAt>,<incidentId>";
+  //           the response's `next` is null on the last page.
   route('get', '/internal/incidents', 'gateway', async (req, res, who) => {
     if (who.role !== 'admin') return res.status(403).json({ error: 'admin_role_required' });
     const status = req.query.status || 'open';
     if (!['open', 'all', ...UPDATE_STATUSES].includes(status)) return res.status(400).json({ error: 'invalid_status' });
-    res.json({ incidents: await store.list({ status: status === 'all' ? undefined : status }) });
+    const limit = req.query.limit === undefined ? MAX_LIST : Number(req.query.limit);
+    if (!Number.isInteger(limit) || limit < 1 || limit > MAX_LIST) return res.status(400).json({ error: 'invalid_limit', max: MAX_LIST });
+    const before = req.query.before === undefined ? undefined : parseCursor(req.query.before);
+    if (before === null) return res.status(400).json({ error: 'invalid_cursor' });
+    const { incidents, next } = await store.list({ status: status === 'all' ? undefined : status, limit, before });
+    res.json({ incidents, next });
   });
   // A person acknowledges or resolves an incident; the update is appended, the incident is never edited.
   route('post', '/internal/incidents/:incidentId/updates', 'gateway', async (req, res, who) => {
@@ -114,11 +126,11 @@ function registerIncidentRoutes(route, { store }) {
     const { status, note } = req.body || {};
     if (!UUID.test(req.params.incidentId) || !UPDATE_STATUSES.includes(status) || typeof note !== 'string' || !note.trim() || note.length > MAX_NOTE_CHARS)
       return res.status(400).json({ error: 'invalid_update' });
-    const incident = await store.get(req.params.incidentId);
-    if (!incident) return res.status(404).json({ error: 'incident_not_found' });
-    if (incident.status === 'resolved') return res.status(409).json({ error: 'already_resolved' });
-    await store.addUpdate(incident.incidentId, { status, note: note.trim(), actor: who.subject });
-    res.json({ incident: await store.get(incident.incidentId) });
+    // The store checks for a resolution and appends in one step, so a concurrent update cannot reopen a resolved incident.
+    const outcome = await store.addUpdate(req.params.incidentId, { status, note: note.trim(), actor: who.subject });
+    if (outcome === 'incident_not_found') return res.status(404).json({ error: outcome });
+    if (outcome === 'already_resolved') return res.status(409).json({ error: outcome });
+    res.json({ incident: await store.get(req.params.incidentId) });
   });
 }
 
@@ -151,11 +163,14 @@ function registerRuntimeRoutes(route, context) {
     await store.recordReport(report.credentialId, now().toISOString());
     const findings = evaluateTelemetry(registered.manifest, report);
     if (!findings.length) return res.json({ verdict: 'allowed', findings });
-    const { incident } = await store.append({ source: 'runtime-monitor', sourceId: `${report.credentialId}:${report.callId}`, severity: 'critical',
-      kind: 'runtime_violation', summary: `Production tool call ${report.tool} broke ${findings.map((item) => item.ruleId).join(', ')}`,
+    const ruleIds = findings.map((item) => item.ruleId);
+    const { incident } = await store.append(runtimeIncident('runtime_violation', { sourceId: `${report.credentialId}:${report.callId}`, severity: 'critical',
+      summary: `Production tool call ${report.tool} broke ${ruleIds.join(', ')}`,
       subject: { agentId: registered.agentId, credentialId: report.credentialId }, safeState: 'credential suspended',
       requiredAction: 'Investigate the call; reinstate the credential only after the deployment is fixed and re-examined.',
-      detail: { tool: report.tool, addresses: report.addresses, argsDigest: report.argsDigest, findings }, occurredAt: new Date(report.observedAt).toISOString() });
+      detail: { tool: report.tool, addresses: report.addresses, argsDigest: report.argsDigest, findings },
+      compactDetail: { tool: report.tool, addressCount: report.addresses.length, argsDigest: report.argsDigest, ruleIds },
+      occurredAt: new Date(report.observedAt).toISOString() }));
     const suspension = await suspend(context, report.credentialId, registered.agentId, incident.incidentId);
     res.status(409).json({ verdict: 'violation', findings, incidentId: incident.incidentId, suspension });
   });
@@ -174,24 +189,56 @@ async function suspend({ store, credentialStatus, now }, credentialId, agentId, 
       reason = `status_after_suspension_${status}`;
     } catch (error) { reason = String(error.code || error.message); }
   }
-  await store.append({ source: 'runtime-monitor', sourceId: `${incidentId}:suspension`, severity: 'critical', kind: 'suspension_failed',
+  await store.append(runtimeIncident('suspension_failed', { sourceId: `${incidentId}:suspension`, severity: 'critical',
     summary: `The credential could not be suspended after incident ${incidentId}; suspend it by hand.`, subject: { agentId, credentialId },
-    safeState: 'credential still active', requiredAction: 'Suspend the credential by hand in Credentials.', detail: { reason }, occurredAt: now().toISOString() });
+    safeState: 'credential still active', requiredAction: 'Suspend the credential by hand in Credentials.', detail: { reason }, occurredAt: now().toISOString() }));
   return 'failed';
 }
 
-// Records one incident per silence window for each monitored deployment that has not reported within it.
-async function sweepSilence({ store, now, silenceMs }) {
+// Records one incident per silence of each monitored deployment whose
+// credential is still active. The incident is keyed on the deployment's last
+// report (or its registration), so later sweeps of the same silence add
+// nothing, and a silence after the deployment reported again is a new incident.
+async function sweepSilence(context) {
+  const { store, now, silenceMs } = context;
   const current = now().getTime();
   const silent = (await store.monitored()).filter((entry) => current - Date.parse(entry.lastReportAt || entry.registeredAt) > silenceMs);
+  let recorded = 0;
   for (const entry of silent) {
-    await store.append({ source: 'runtime-monitor', sourceId: `${entry.credentialId}:silent:${Math.floor(current / silenceMs)}`, severity: 'high',
-      kind: 'runtime_monitor_silent', summary: `No tool call reported for credential ${entry.credentialId} in ${Math.round(silenceMs / 60000)} minutes.`,
+    if (!(await stillActive(context, entry.credentialId))) continue;
+    const since = entry.lastReportAt || entry.registeredAt;
+    await store.append(runtimeIncident('runtime_monitor_silent', { sourceId: `${entry.credentialId}:silent:${Date.parse(since)}`, severity: 'high',
+      summary: `No tool call reported for credential ${entry.credentialId} since ${since}.`,
       subject: { agentId: entry.agentId, credentialId: entry.credentialId }, safeState: 'unmonitored',
       requiredAction: 'Check that the deployment still runs the Runtime Monitor SDK and reports its calls.',
-      detail: { lastReportAt: entry.lastReportAt, registeredAt: entry.registeredAt }, occurredAt: new Date(current).toISOString() });
+      detail: { lastReportAt: entry.lastReportAt, registeredAt: entry.registeredAt }, occurredAt: new Date(current).toISOString() }));
+    recorded += 1;
   }
-  return silent.length;
+  return recorded;
+}
+
+// A suspended or revoked credential is not expected to report, so its silence
+// is no incident. A failed status read is logged and the silence still
+// recorded: an unmonitored deployment must not hide behind an outage.
+async function stillActive({ credentialStatus }, credentialId) {
+  if (!credentialStatus) return true;
+  try { return (await credentialStatus.statusOf(credentialId)) === 'active'; }
+  catch (error) {
+    telemetry.log(SERVICE, 'silence_status_unavailable', { outcome: String(error.code || error.name) });
+    return true;
+  }
+}
+
+// Every incident the Runtime Monitor raises passes the same shape check as an
+// appending service's. A detail over the log's 8 KB limit (one call may name
+// hundreds of addresses) is replaced by its compact form, so the incident is
+// still recorded.
+function runtimeIncident(kind, { compactDetail, ...fields }) {
+  const incident = { ...fields, source: RUNTIME_SOURCE, kind, summary: clipSummary(fields.summary) };
+  let parsed = parseIncident(incident);
+  if (parsed.errors?.includes('detail') && compactDetail) parsed = parseIncident({ ...incident, detail: { ...compactDetail, truncated: true } });
+  if (parsed.errors) throw Object.assign(new Error(`invalid_runtime_incident: ${parsed.errors.join(', ')}`), { code: 'invalid_runtime_incident' });
+  return parsed.incident;
 }
 
 /**

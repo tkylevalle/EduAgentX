@@ -72,6 +72,34 @@ test('verification checks a signature with the published key its kid names, reti
   assert.notEqual(await verify('2026-11-05T00:00:00.000Z'), 'PASS');
 });
 
+// A verify batch carries up to 500 credentials: the keys are resolved once for
+// the request, not once per credential.
+test('a verify batch reads each key file once and reports a broken key setup once', async (t) => {
+  const { env, retired } = withKeys(t);
+  const saved = { ...process.env };
+  Object.assign(process.env, env);
+  t.after(() => { for (const key of Object.keys(env)) { if (saved[key] === undefined) delete process.env[key]; else process.env[key] = saved[key]; } });
+  const { app } = require('../src/index');
+  const { signCredential } = require('../src/signer');
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise((resolve) => server.once('listening', resolve));
+  t.after(() => server.close());
+  const pem = retired.privateKey.export({ type: 'pkcs8', format: 'pem' });
+  const jws = signCredential({ '@context': ['https://www.w3.org/ns/credentials/v2'], type: ['VerifiableCredential'],
+    issuer: 'https://issuer.example/i', validFrom: '2026-10-01T00:00:00.000Z', credentialSubject: { id: 'x' } }, pem, 'https://issuer.example/i#key-1');
+  const batch = () => fetch(`http://127.0.0.1:${server.address().port}/verify/batch`, { method: 'POST',
+    headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jws: Array.from({ length: 5 }, () => jws) }) }).then((reply) => reply.json());
+  const reads = t.mock.method(fs, 'readFileSync');
+  const passed = await batch();
+  assert.deepEqual(passed.results.map((item) => item.report.signature.status), Array(5).fill('PASS'));
+  assert.equal(reads.mock.calls.filter((call) => call.arguments[0] === retired.file).length, 1);
+  process.env.CREDENTIAL_RETIRED_KEYS = '{not json';
+  const logged = t.mock.method(console, 'error', () => {});
+  const failed = await batch();
+  assert.deepEqual(failed.results.map((item) => item.httpStatus), Array(5).fill(503));
+  assert.equal(logged.mock.calls.length, 1);
+});
+
 test('two configured keys may not share one kid', (t) => {
   const { env } = withKeys(t);
   assert.throws(() => issuerJwks({ ...env, CREDENTIAL_TEST_KEY_ID: env.CREDENTIAL_KEY_ID }), /share one kid/);

@@ -43,15 +43,17 @@ function createMemoryStore() {
         decisionId: row.decisionId, examinationId: row.examinationId,
         subjectId: row.evidence.subjectId, configurationFingerprint: row.evidence.subjectFingerprint }) : null;
     },
-    async issue({ evidence, commandKey, commandDigest, createCredential, latencyStartedAt = process.hrtime.bigint() }) {
+    // statusListed: whether the credential gets status list entries; only then is an index spent on it.
+    async issue({ evidence, commandKey, commandDigest, createCredential, statusListed = false, latencyStartedAt = process.hrtime.bigint() }) {
       return serialize(async () => {
         const keyRow = byKey.get(commandKey);
         if (keyRow && keyRow.examinationId !== evidence.examinationId) throw fail('idempotency_conflict');
         const existing = byAttempt.get(evidence.examinationId);
         if (existing) return { ...clone(existing), replay: true };
         const decisionId = randomUUID();
-        const issued = createCredential(decisionId, nextStatusListIndex);
-        nextStatusListIndex += 1;
+        const index = statusListed ? nextStatusListIndex : null;
+        const issued = createCredential(decisionId, index);
+        if (statusListed) nextStatusListIndex += 1;
         const processingLatencyMs = Math.max(0, Number(process.hrtime.bigint() - latencyStartedAt) / 1e6);
         const row = { decisionId, examinationId: evidence.examinationId,
           commandKey, commandDigest, evidence: clone(evidence), decision: { outcome: 'certified', decidedAt: evidence.decidedAt },
@@ -131,7 +133,8 @@ function createPgStore(pool) {
         decisionId: row.decision_id, examinationId: row.examination_id, subjectId: row.subject_id,
         configurationFingerprint: row.subject_fingerprint })]));
     },
-    async issue({ evidence, commandKey, commandDigest, createCredential, latencyStartedAt = process.hrtime.bigint() }) {
+    // statusListed: whether the credential gets status list entries; only then is an index spent on it.
+    async issue({ evidence, commandKey, commandDigest, createCredential, statusListed = false, latencyStartedAt = process.hrtime.bigint() }) {
       const client = await pool.connect();
       try {
         await client.query('BEGIN');
@@ -141,8 +144,10 @@ function createPgStore(pool) {
         const found = await findByAttempt(evidence.examinationId, client);
         if (found) { await client.query('COMMIT'); return project(found, true); }
         const decisionId = randomUUID();
-        // The next status list index (assurance audit D2): a sequence never reuses one.
-        const { rows: [{ index }] } = await client.query("SELECT nextval('certification_engine.status_list_index')::int AS index");
+        // The next status list index (assurance audit D2): a sequence never reuses one, so
+        // none is drawn for a credential without status list entries.
+        const index = statusListed
+          ? (await client.query("SELECT nextval('certification_engine.status_list_index')::int AS index")).rows[0].index : null;
         const issued = createCredential(decisionId, index);
         await client.query(`INSERT INTO certification_engine.decisions
           (decision_id,examination_id,idempotency_key,command_digest,subject_id,subject_fingerprint,

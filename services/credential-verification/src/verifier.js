@@ -26,8 +26,13 @@ function keyIdOf(jws) {
 /**
  * Verify a credential JWS and return a structured verification report.
  * Each check is reported independently.
+ * statusStore, when given, must answer getStatus(id) and getIndex(id): a store
+ * that cannot name a credential's status list index would leave the status
+ * entry unchecked, so it is refused rather than trusted.
  */
 function verifyCredential(jws, publicKeyPem, statusStore = null) {
+  if (statusStore && (typeof statusStore.getStatus !== 'function' || typeof statusStore.getIndex !== 'function'))
+    throw new TypeError('statusStore must provide getStatus and getIndex');
   const report = {
     signature: { status: 'UNCHECKED', reason: null },
     schema: { status: 'UNCHECKED', reason: null },
@@ -120,7 +125,7 @@ function verifyCredential(jws, publicKeyPem, statusStore = null) {
     }
     // The credential's own status list entries (assurance audit D2) must name
     // the index it was registered with: none on both sides, or the same one.
-    if (typeof statusStore.getIndex === 'function' && status !== null) {
+    if (status !== null) {
       const registered = statusStore.getIndex(credential.id);
       const entries = Array.isArray(credential.credentialStatus) ? credential.credentialStatus : [];
       const consistent = registered === null ? entries.length === 0

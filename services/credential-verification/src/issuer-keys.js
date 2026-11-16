@@ -60,20 +60,42 @@ function issuerJwks(env = process.env) {
   }) };
 }
 
-/** @param {string} kid @param {NodeJS.ProcessEnv} env @returns {boolean} whether this kid names the status-list key, which never verifies a credential */
-const isStatusListKid = (kid, env = process.env) => keySources(env).some((source) => source.kid === kid && source.purpose === STATUS_LIST);
-
 /**
- * @param {string} kid the credential's key id
- * @param {string} issuedAt when the credential was issued (its validFrom)
- * @returns {string | null} the PEM public key of the credential key with this kid, or null when unknown,
- *   not a credential key, or retired before issuance
+ * The configured keys, parsed once, with each key file read on first use and
+ * kept: one keyring serves every credential of a request, so a verify batch of
+ * 500 does not re-parse the configuration or re-read a file 500 times. A key
+ * file that cannot be read is passed to onUnreadable once; every later use of
+ * that key throws the same error without reporting it again.
+ * @param {NodeJS.ProcessEnv} env
+ * @param {(error: Error) => void} onUnreadable
+ * @returns {{ isStatusListKid: (kid: string) => boolean, publicKeyForKid: (kid: string, issuedAt: string) => string | null }}
+ *   isStatusListKid: whether the kid names the status-list key, which never verifies a credential;
+ *   publicKeyForKid: the PEM of the credential key with this kid, or null when unknown, not a credential key,
+ *   or retired before issuance (issuedAt is the credential's validFrom)
  */
-function publicKeyForKid(kid, issuedAt, env = process.env) {
-  const source = keySources(env).find((value) => value.kid === kid && value.purpose === CREDENTIAL);
-  if (!source) return null;
-  if (source.retiredAt && !(Date.parse(issuedAt) < Date.parse(source.retiredAt))) return null;
-  return readKey(source);
+function createKeyring(env, onUnreadable) {
+  const sources = keySources(env);
+  const read = new Map();
+  function pemOf(source) {
+    if (!read.has(source.kid)) {
+      try { read.set(source.kid, { pem: readKey(source) }); } catch (error) { read.set(source.kid, { error }); onUnreadable(error); }
+    }
+    const { pem, error } = read.get(source.kid);
+    if (error) throw error;
+    return pem;
+  }
+  return {
+    isStatusListKid: (kid) => sources.some((source) => source.kid === kid && source.purpose === STATUS_LIST),
+    publicKeyForKid(kid, issuedAt) {
+      const source = sources.find((value) => value.kid === kid && value.purpose === CREDENTIAL);
+      if (!source) return null;
+      if (source.retiredAt && !(Date.parse(issuedAt) < Date.parse(source.retiredAt))) return null;
+      return pemOf(source);
+    },
+  };
 }
 
-module.exports = { issuerJwks, isStatusListKid, keySources, publicKeyForKid };
+/** One lookup with a keyring of its own; an unreadable key file throws. */
+const publicKeyForKid = (kid, issuedAt, env = process.env) => createKeyring(env, () => {}).publicKeyForKid(kid, issuedAt);
+
+module.exports = { createKeyring, issuerJwks, keySources, publicKeyForKid };

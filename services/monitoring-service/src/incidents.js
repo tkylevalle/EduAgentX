@@ -9,9 +9,30 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 
-// A page of the Attention Queue; the log itself is unbounded.
+// A page of the Attention Queue; the log itself is unbounded, so a reader pages with a cursor.
 const MAX_LIST = 500;
 const statusOf = (updates) => updates.at(-1)?.status || 'open';
+// A cursor names the last incident of the previous page: when it was recorded
+// (to the microsecond PostgreSQL keeps, so no row sharing a millisecond is
+// skipped) and its id, which orders incidents recorded at the same instant.
+const CURSOR = /^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,6})?Z),([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
+
+/** @param {unknown} text @returns {{ recordedAt: string, incidentId: string } | null} */
+function parseCursor(text) {
+  const match = typeof text === 'string' ? CURSOR.exec(text) : null;
+  return match ? { recordedAt: match[1], incidentId: match[2] } : null;
+}
+
+// The store reads one row past the page; that row only says another page follows.
+function toPage(entries, size) {
+  const page = entries.slice(0, size);
+  const last = page.at(-1);
+  return { incidents: page.map((entry) => entry.incident), next: entries.length > size ? `${last.cursorAt},${last.incident.incidentId}` : null };
+}
+const pageSize = (limit) => Math.min(Math.max(1, limit), MAX_LIST);
+const newestFirst = (a, b) => b.recordedAt.localeCompare(a.recordedAt) || b.incidentId.localeCompare(a.incidentId);
+const olderThan = (cursor) => (incident) => incident.recordedAt < cursor.recordedAt ||
+  (incident.recordedAt === cursor.recordedAt && incident.incidentId < cursor.incidentId);
 
 function createMemoryStore({ now = () => new Date() } = {}) {
   const incidents = [];
@@ -32,11 +53,20 @@ function createMemoryStore({ now = () => new Date() } = {}) {
       return { incident: view(stored), created: true };
     },
     async get(incidentId) { const found = incidents.find((value) => value.incidentId === incidentId); return found ? view(found) : null; },
-    async list({ status, limit = MAX_LIST } = {}) {
-      return incidents.map(view).filter((incident) => !status || (status === 'open' ? incident.status !== 'resolved' : incident.status === status))
-        .sort((a, b) => b.recordedAt.localeCompare(a.recordedAt)).slice(0, Math.min(limit, MAX_LIST));
+    async list({ status, limit = MAX_LIST, before } = {}) {
+      const size = pageSize(limit);
+      const found = incidents.map(view).filter((incident) => !status || (status === 'open' ? incident.status !== 'resolved' : incident.status === status))
+        .filter(before ? olderThan(before) : () => true).sort(newestFirst).slice(0, size + 1);
+      return toPage(found.map((incident) => ({ incident, cursorAt: incident.recordedAt })), size);
     },
-    async addUpdate(incidentId, update) { updates.push({ incidentId, ...update, recordedAt: now().toISOString() }); },
+    // The check and the append run in one synchronous step, as the PostgreSQL
+    // store's row lock makes them one step there: nothing lands after a resolution.
+    async addUpdate(incidentId, update) {
+      if (!incidents.some((value) => value.incidentId === incidentId)) return 'incident_not_found';
+      if (updates.some((value) => value.incidentId === incidentId && value.status === 'resolved')) return 'already_resolved';
+      updates.push({ incidentId, ...update, recordedAt: now().toISOString() });
+      return 'appended';
+    },
     async addManifest(record) { manifests.push({ ...structuredClone(record), recordedAt: now().toISOString() }); },
     async manifestFor(credentialId) { return structuredClone([...manifests].reverse().find((value) => value.credentialId === credentialId) || null); },
     async recordReport(credentialId, at) { reports.set(credentialId, at); },
@@ -54,7 +84,8 @@ function createPgStore(pool) {
     summary: row.summary, subject: row.subject, detail: row.detail, safeState: row.safe_state, requiredAction: row.required_action, owner: row.owner,
     occurredAt: row.occurred_at.toISOString(), recordedAt: row.recorded_at.toISOString(),
     status: row.status || 'open', updates: row.updates || [] });
-  const SELECT = `SELECT i.*, u.updates, u.updates->-1->>'status' AS status FROM monitoring_service.incidents i
+  const SELECT = `SELECT i.*, u.updates, u.updates->-1->>'status' AS status,
+    to_char(i.recorded_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_at FROM monitoring_service.incidents i
     LEFT JOIN LATERAL (SELECT jsonb_agg(jsonb_build_object('status', status, 'note', note, 'actor', actor, 'recordedAt', recorded_at) ORDER BY update_id) AS updates
       FROM monitoring_service.incident_updates WHERE incident_id = i.incident_id) u ON true`;
   return {
@@ -73,16 +104,37 @@ function createPgStore(pool) {
       const row = (await pool.query(`${SELECT} WHERE i.incident_id=$1`, [incidentId])).rows[0];
       return row ? toIncident(row) : null;
     },
-    async list({ status, limit = MAX_LIST } = {}) {
-      const where = status === 'open' ? `WHERE coalesce(u.updates->-1->>'status', 'open') <> 'resolved'`
-        : status ? `WHERE coalesce(u.updates->-1->>'status', 'open') = $2` : '';
-      const rows = await pool.query(`${SELECT} ${where} ORDER BY i.recorded_at DESC LIMIT $1`,
-        status && status !== 'open' ? [Math.min(limit, MAX_LIST), status] : [Math.min(limit, MAX_LIST)]);
-      return rows.rows.map(toIncident);
+    async list({ status, limit = MAX_LIST, before } = {}) {
+      const size = pageSize(limit);
+      const current = `coalesce(u.updates->-1->>'status', 'open')`;
+      const params = [];
+      const where = [];
+      if (status === 'open') where.push(`${current} <> 'resolved'`);
+      else if (status) { params.push(status); where.push(`${current} = $${params.length}`); }
+      if (before) {
+        params.push(before.recordedAt, before.incidentId);
+        where.push(`(i.recorded_at, i.incident_id) < ($${params.length - 1}::timestamptz, $${params.length}::uuid)`);
+      }
+      params.push(size + 1);
+      const { rows } = await pool.query(`${SELECT} ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+        ORDER BY i.recorded_at DESC, i.incident_id DESC LIMIT $${params.length}`, params);
+      return toPage(rows.map((row) => ({ incident: toIncident(row), cursorAt: row.cursor_at })), size);
     },
+    // The incident row is locked before the resolution check, so two updates to
+    // one incident run one after the other and none can land after a resolution.
     async addUpdate(incidentId, update) {
-      await pool.query(`INSERT INTO monitoring_service.incident_updates (incident_id, status, note, actor) VALUES ($1,$2,$3,$4)`,
-        [incidentId, update.status, update.note, update.actor]);
+      const client = await pool.connect();
+      let broken;
+      try {
+        await client.query('BEGIN');
+        const outcome = await appendUnlessResolved(client, incidentId, update);
+        await client.query(outcome === 'appended' ? 'COMMIT' : 'ROLLBACK');
+        return outcome;
+      } catch (error) {
+        // A connection that cannot roll back is discarded, not reused; the first error is the one reported.
+        await client.query('ROLLBACK').catch((rollbackError) => { broken = rollbackError; });
+        throw error;
+      } finally { client.release(broken); }
     },
     async addManifest(record) {
       await pool.query(`INSERT INTO monitoring_service.runtime_manifests (credential_id, agent_id, manifest, registered_by) VALUES ($1,$2,$3,$4)`,
@@ -108,4 +160,16 @@ function createPgStore(pool) {
   };
 }
 
-module.exports = { MAX_LIST, createMemoryStore, createPgStore };
+// Runs inside addUpdate's transaction. FOR UPDATE takes the row lock without
+// writing, so the incident's immutability trigger does not fire.
+async function appendUnlessResolved(client, incidentId, update) {
+  const locked = await client.query('SELECT 1 FROM monitoring_service.incidents WHERE incident_id=$1 FOR UPDATE', [incidentId]);
+  if (!locked.rowCount) return 'incident_not_found';
+  const resolved = await client.query(`SELECT 1 FROM monitoring_service.incident_updates WHERE incident_id=$1 AND status='resolved' LIMIT 1`, [incidentId]);
+  if (resolved.rowCount) return 'already_resolved';
+  await client.query(`INSERT INTO monitoring_service.incident_updates (incident_id, status, note, actor) VALUES ($1,$2,$3,$4)`,
+    [incidentId, update.status, update.note, update.actor]);
+  return 'appended';
+}
+
+module.exports = { MAX_LIST, createMemoryStore, createPgStore, parseCursor };

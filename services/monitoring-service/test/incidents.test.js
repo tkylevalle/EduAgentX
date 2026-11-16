@@ -8,6 +8,7 @@ const assert = require('node:assert/strict');
 const { randomUUID } = require('node:crypto');
 const { createApp } = require('../src/app');
 const { createMemoryStore } = require('../src/incidents');
+const { MAX_DETAIL_BYTES } = require('../../../packages/incident-log');
 
 const SERVICE_KEY = 'monitoring-service-key';
 const GATEWAY_KEY = 'monitoring-gateway-key';
@@ -93,14 +94,76 @@ test('a suspension that does not take effect is reported as failed and recorded,
   assert.deepEqual(kinds, ['runtime_violation', 'suspension_failed']);
 });
 
-test('a monitored deployment that stops reporting is recorded as silent, once per window', async (t) => {
+test('a monitored deployment that stops reporting is recorded once per silence, not once per window', async (t) => {
   const ctx = await boot(t);
   await register(ctx);
   await ctx.gateway('POST', '/internal/runtime/tool-calls', telemetry(), 'agent-1', 'agent');
   assert.equal(await ctx.app.locals.sweepSilence(), 0, 'reported just now');
   ctx.advance(2 * HOUR_MS);
   assert.equal(await ctx.app.locals.sweepSilence(), 1);
+  ctx.advance(5 * HOUR_MS);
   await ctx.app.locals.sweepSilence();
-  const silent = (await ctx.gateway('GET', '/internal/incidents', undefined, 'admin-1', 'admin')).body.incidents.filter((item) => item.kind === 'runtime_monitor_silent');
-  assert.equal(silent.length, 1, 'the same window records one incident');
+  const silent = async () => (await ctx.gateway('GET', '/internal/incidents?status=all', undefined, 'admin-1', 'admin')).body.incidents
+    .filter((item) => item.kind === 'runtime_monitor_silent');
+  assert.equal((await silent()).length, 1, 'later windows of the same silence add nothing');
+  await ctx.gateway('POST', '/internal/runtime/tool-calls', telemetry(), 'agent-1', 'agent');
+  ctx.advance(2 * HOUR_MS);
+  await ctx.app.locals.sweepSilence();
+  assert.equal((await silent()).length, 2, 'a new silence after the deployment reported again is a new incident');
+});
+
+test('the silence sweep skips a credential that is no longer active', async (t) => {
+  const ctx = await boot(t);
+  await register(ctx);
+  ctx.credentialStatus.state['cred-1'] = 'revoked';
+  ctx.advance(2 * HOUR_MS);
+  assert.equal(await ctx.app.locals.sweepSilence(), 0);
+  assert.deepEqual((await ctx.gateway('GET', '/internal/incidents', undefined, 'admin-1', 'admin')).body.incidents, []);
+});
+
+test('the Attention Queue pages with a cursor', async (t) => {
+  const ctx = await boot(t);
+  for (const sourceId of ['event-1', 'event-2', 'event-3']) {
+    await ctx.service('POST', '/internal/incidents', { ...incident, sourceId });
+    ctx.advance(1000);
+  }
+  const list = (query) => ctx.gateway('GET', `/internal/incidents${query}`, undefined, 'admin-1', 'admin');
+  const first = await list('?limit=2');
+  assert.deepEqual(first.body.incidents.map((item) => item.sourceId), ['event-3', 'event-2']);
+  const second = await list(`?limit=2&before=${encodeURIComponent(first.body.next)}`);
+  assert.deepEqual([second.body.incidents.map((item) => item.sourceId), second.body.next], [['event-1'], null]);
+  assert.equal((await list('?before=yesterday')).status, 400);
+  assert.equal((await list('?limit=0')).status, 400);
+  assert.equal((await list('?limit=501')).status, 400);
+});
+
+test('an update after the resolution is refused even when the route read the incident before it was resolved', async (t) => {
+  const store = createMemoryStore();
+  const { incident: stored } = await store.append(incident);
+  const staleRead = await store.get(stored.incidentId);
+  assert.equal(await store.addUpdate(stored.incidentId, { status: 'resolved', note: 'Done.', actor: 'admin-1' }), 'appended');
+  // A route that read the incident just before another request resolved it still sees it open.
+  const racing = { ...store, get: async () => staleRead };
+  const app = createApp({ store: racing, internalKey: SERVICE_KEY, gatewayKey: GATEWAY_KEY });
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise((resolve) => server.once('listening', resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const response = await fetch(`http://127.0.0.1:${server.address().port}/internal/incidents/${stored.incidentId}/updates`, { method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-internal-service-key': GATEWAY_KEY, 'x-actor-subject': 'admin-1', 'x-actor-role': 'admin' },
+    body: JSON.stringify({ status: 'acknowledged', note: 'Looking.' }) });
+  assert.equal(response.status, 409);
+  assert.equal((await store.get(stored.incidentId)).status, 'resolved', 'the resolution stays the last word');
+  assert.equal(await store.addUpdate(randomUUID(), { status: 'acknowledged', note: 'Looking.', actor: 'admin-1' }), 'incident_not_found');
+});
+
+test('a runtime incident keeps its detail within the log\'s limit', async (t) => {
+  const ctx = await boot(t);
+  await register(ctx);
+  const addresses = Array.from({ length: 100 }, (_, index) => `${'x'.repeat(280)}${index}@exfil.example`);
+  const bad = await ctx.gateway('POST', '/internal/runtime/tool-calls', telemetry({ tool: 'export_orders', addresses }), 'agent-1', 'agent');
+  assert.equal(bad.status, 409);
+  const [logged] = (await ctx.gateway('GET', '/internal/incidents?status=all', undefined, 'admin-1', 'admin')).body.incidents
+    .filter((item) => item.kind === 'runtime_violation');
+  assert.ok(Buffer.byteLength(JSON.stringify(logged.detail)) <= MAX_DETAIL_BYTES);
+  assert.deepEqual([logged.detail.tool, logged.detail.truncated], ['export_orders', true]);
 });

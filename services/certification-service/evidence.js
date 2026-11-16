@@ -3,6 +3,7 @@
 const execution = require('../../packages/execution-provenance');
 const { isPassingBehaviourEvidence } = require('../../packages/agent-sandbox/src/evidence');
 const { createHash, randomUUID, sign } = require('node:crypto');
+const telemetry = require('../../packages/telemetry');
 
 const digest = (value) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const text = (value) => typeof value === 'string' && value.trim().length > 0;
@@ -165,10 +166,16 @@ function validatedEvidence(attempt, trustedPackage = null, issuanceEnvironment =
 // its bit in the revocation list and in the suspension list.
 // Bits in one status list: the W3C minimum, 16 KB (credential-verification status-list.js).
 const STATUS_LIST_BITS = 131072;
+// Once nine tenths of the list is spent, each issuance logs a warning: about
+// 13,000 credentials remain before issuance stops at status_list_full, time
+// enough to add a second list.
+const STATUS_LIST_WARN_AT = Math.floor(STATUS_LIST_BITS * 0.9);
 function statusEntries(statusListBase, statusListIndex) {
   if (!statusListBase) return null;
   if (!Number.isSafeInteger(statusListIndex) || statusListIndex < 0) throw fail('status_list_index_unavailable', 503);
   if (statusListIndex >= STATUS_LIST_BITS) throw fail('status_list_full', 503);
+  if (statusListIndex >= STATUS_LIST_WARN_AT)
+    telemetry.log('certification-service', 'status_list_near_capacity', { outcome: `index_${statusListIndex}_of_${STATUS_LIST_BITS}` });
   return ['revocation', 'suspension'].map((purpose) => ({ id: `${statusListBase}/${purpose}#${statusListIndex}`,
     type: 'BitstringStatusListEntry', statusPurpose: purpose, statusListIndex: String(statusListIndex),
     statusListCredential: `${statusListBase}/${purpose}` }));

@@ -187,6 +187,29 @@ test('each credential signs its own entries in the revocation and suspension lis
   assert.equal(issued[0][0].statusListIndex, issued[0][1].statusListIndex);
 });
 
+test('a status list index is drawn only when status lists are configured', async () => {
+  const store = createMemoryStore();
+  const given = [];
+  const issue = (examinationId, statusListed) => store.issue({ evidence: { examinationId, decidedAt: '2026-11-01T00:00:00Z' }, commandKey: examinationId,
+    commandDigest: examinationId, statusListed, createCredential: (_decisionId, index) => { given.push(index);
+      return { credentialId: randomUUID(), compactJws: 'x', credential: {}, issuedAt: '2026-11-01T00:00:00Z' }; } });
+  await issue(randomUUID(), false);
+  await issue(randomUUID(), false);
+  await issue(randomUUID(), true);
+  assert.deepEqual(given, [null, null, 0], 'credentials without a status list spend no index');
+});
+
+test('issuing near the end of the status list logs a warning', async (t) => {
+  const base = createMemoryStore();
+  // An index nine tenths of the way through the 131072-bit list.
+  const store = { ...base, issue: (args) => base.issue({ ...args, createCredential: (decisionId) => args.createCredential(decisionId, 120000) }) };
+  const ctx = await boot(t, undefined, undefined, { store, statusListBase: 'https://issuer.example/status-lists' });
+  const logged = t.mock.method(console, 'log', () => {});
+  const response = await ctx.call('/internal/decisions', { examinationId: evidence().attemptId, idempotencyKey: 'near-full' });
+  assert.equal(response.status, 201, JSON.stringify(response.body));
+  assert.ok(logged.mock.calls.some((call) => JSON.parse(call.arguments[0]).event === 'status_list_near_capacity'));
+});
+
 test('a package under critical quarantine cannot receive a new credential', async (t) => {
   const ctx = await boot(t, async () => evidence(), async () => false);
   const response = await ctx.call('/internal/decisions', { examinationId: evidence().attemptId, idempotencyKey: 'quarantined' });
@@ -433,7 +456,7 @@ for (const mode of ['synthetic','replay']) {
     process.env.CREDENTIAL_ISSUER = vc.issuer;
     try {
       const key = publicKey.export({ type: 'spki', format: 'pem' });
-      const status = { getStatus: () => 'active' };
+      const status = { getStatus: () => 'active', getIndex: () => null };
       assert.equal(verifyCredential(issued.body.credential.compactJws, key, status).overall, 'VALID');
       for (const edit of [v => v.environment = 'live', v => v.evidenceMode = 'live', v => v.evidence.provenance.run.runId = randomUUID()]) {
         const v = structuredClone(vc); edit(v);

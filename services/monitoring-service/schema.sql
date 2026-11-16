@@ -29,6 +29,10 @@ CREATE TABLE IF NOT EXISTS monitoring_service.incident_updates (
   actor text NOT NULL,
   recorded_at timestamptz NOT NULL DEFAULT now()
 );
+-- Every read, update and list of an incident joins its updates by incident, in order.
+CREATE INDEX IF NOT EXISTS incident_updates_incident ON monitoring_service.incident_updates (incident_id, update_id);
+-- The Attention Queue pages by (recorded_at, incident_id), newest first.
+CREATE INDEX IF NOT EXISTS incidents_recorded_at_id ON monitoring_service.incidents (recorded_at DESC, incident_id DESC);
 
 CREATE OR REPLACE FUNCTION monitoring_service.forbid_change() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN RAISE EXCEPTION 'immutable assurance incident record'; END $$;
