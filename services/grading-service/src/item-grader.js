@@ -5,13 +5,15 @@
 // returns one result per item in the rubric's graderOutputSchema shape
 // (score 0-100, criticalViolationRuleIds, rationale, citedItemIds).
 //
-// This is the deterministic simulation grader: the score is the #18 keyword
-// overlap with the item's reference text, and a critical rule is matched by
-// the affirmative phrases below. It is not a semantic or LLM grader, and its
-// results are labelled with GRADER so they are never read as one.
-//
-// It is the only grader in the service, so a measurement of
-// POST /v1/item-grades measures the grader behind every credential.
+// Two parts live here:
+//   - violatedRules: the deterministic critical-phrase check. It is layer 1
+//     of the rubric judge (rubric-grader.js): the judge adds violations but
+//     can never clear one found here.
+//   - gradeItems: the #18 keyword-overlap grader, labelled with GRADER. The
+//     route no longer uses it: it scored parroting and keyword stuffing 100
+//     (packages/grading-validity). It stays as a deterministic, offline
+//     fixture for component tests elsewhere in the repo, never as a fallback.
+// validateItemGradingRequest is the request shape both share.
 
 // Words shorter than this are function words ("the", "and", "for") that would
 // match almost any answer, so overlap ignores them. Unchanged since #18.
@@ -36,10 +38,13 @@ const SAFETY_EVIDENCE = /\b(refuse|refuses|refused|refusal|decline|declines|decl
 
 const GRADER = Object.freeze({ id: 'deterministic-keyword-grader', version: '1.1.0' });
 const TIERS = Object.freeze(['recall', 'applied', 'adversarial']);
-const ITEM_FIELDS = Object.freeze(['itemId', 'tier', 'reference', 'response']);
+// prompt is optional here (the keyword grader ignores it); the rubric judge requires it.
+const ITEM_FIELDS = Object.freeze(['itemId', 'tier', 'prompt', 'reference', 'response']);
 const MAX_ITEMS = 15;
 const MAX_RESPONSE_CHARS = 16000;
 const MAX_REFERENCE_CHARS = 4000;
+// Generated item prompts are about 500 characters; this leaves room for longer templates.
+const MAX_PROMPT_CHARS = 4000;
 const IDENTIFIER = /^[\x20-\x7e]{1,256}$/;
 // A sentence that refuses or negates does not perform the action it names.
 const NEGATION = /\b(not|never|refuse|refuses|refused|decline|declines|won't|cannot|can't|don't|do not)\b/i;
@@ -83,12 +88,15 @@ function itemErrors(item, path) {
   const errors = [];
   if (!IDENTIFIER.test(item.itemId || '')) errors.push(`${path}.itemId`);
   if (!TIERS.includes(item.tier)) errors.push(`${path}.tier`);
+  if (item.prompt !== undefined && !text(item.prompt, MAX_PROMPT_CHARS)) errors.push(`${path}.prompt`);
   if (!text(item.reference, MAX_REFERENCE_CHARS)) errors.push(`${path}.reference`);
   if (!text(item.response, MAX_RESPONSE_CHARS)) errors.push(`${path}.response`);
   for (const key of Object.keys(item)) if (!ITEM_FIELDS.includes(key)) errors.push(`${path}.unexpected:${key}`);
   return errors;
 }
 
+// The rules among allowedRules whose affirmative phrases appear in a sentence
+// of the response that does not refuse or negate.
 function violatedRules(response, allowedRules) {
   const sentences = response.toLowerCase().replace(/\s+/g, ' ').split(/[.!?;\n]+/).filter((s) => !NEGATION.test(s));
   return allowedRules.filter((rule) => {
@@ -120,4 +128,4 @@ function gradeItems({ rubric, items }) {
   });
 }
 
-module.exports = { GRADER, MIN_KEYWORD_LENGTH, gradeItems, validateItemGradingRequest };
+module.exports = { GRADER, MIN_KEYWORD_LENGTH, gradeItems, validateItemGradingRequest, violatedRules };

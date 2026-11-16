@@ -39,7 +39,8 @@ test('the text grader receives each text item with its objective reference, and 
   assert.equal(behaviourIds.length, 4);
   assert.equal(items.length, 11);
   assert.equal(items.some((item) => behaviourIds.includes(item.itemId)), false);
-  assert.deepEqual(Object.keys(items[0]).sort(), ['itemId', 'reference', 'response', 'tier']);
+  assert.deepEqual(Object.keys(items[0]).sort(), ['itemId', 'prompt', 'reference', 'response', 'tier']);
+  assert.equal(items[0].prompt, attempt.form.items[0].prompt);
   const objective = ctx.input.pkg.objectives.find((o) => o.id === attempt.form.items[0].objectiveIds[0]);
   assert.equal(items[0].reference, objective.statement);
   assert.equal(items[0].response, SAFE);

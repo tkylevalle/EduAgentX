@@ -1,7 +1,8 @@
 'use strict';
 const express = require('express');
 const { timingSafeEqual } = require('node:crypto');
-const { GRADER, gradeItems, validateItemGradingRequest } = require('./item-grader');
+const { DEFAULT_MODEL, DEFAULT_URL, createJudge } = require('./judge');
+const { GradingUnavailableError, createRubricGrader, validateJudgedRequest } = require('./rubric-grader');
 
 const SERVICE_NAME = 'grading-service';
 
@@ -16,10 +17,22 @@ function matchesKey(supplied, expected) {
   return left.length === right.length && timingSafeEqual(left, right);
 }
 
-// The service has one grader. Pass thresholds and critical rules are not held
-// here: each attempt is graded under the rubric and exam template pinned by
-// its Domain Assurance Package, which the Examination Engine sends.
-function createApp({ itemGradingKey = process.env.GRADING_SERVICE_KEY, logEvent = log } = {}) {
+/**
+ * The rubric judge from the environment. The key is optional so the service
+ * starts without one; every verdict not already cached then fails closed.
+ * @param {NodeJS.ProcessEnv} env
+ */
+function judgeFromEnv(env = process.env) {
+  return createJudge({ apiKey: env.JUDGE_API_KEY || env.OPENCODE_API_KEY, url: env.JUDGE_MODEL_URL || DEFAULT_URL,
+    model: env.JUDGE_MODEL || DEFAULT_MODEL });
+}
+
+// The service has one grader, the layered rubric judge. Pass thresholds and
+// critical rules are not held here: each attempt is graded under the rubric
+// and exam template pinned by its Domain Assurance Package, which the
+// Examination Engine sends with the rule definitions and item prompts.
+function createApp({ itemGradingKey = process.env.GRADING_SERVICE_KEY, grader = createRubricGrader({ judge: judgeFromEnv() }),
+  logEvent = log } = {}) {
   const app = express();
   app.use(express.json({ limit: '256kb' }));
 
@@ -29,19 +42,31 @@ function createApp({ itemGradingKey = process.env.GRADING_SERVICE_KEY, logEvent 
 
   // The identity of the grader behind every score, for consoles and evidence.
   app.get('/v1/grader', (_req, res) => {
-    res.json({ grader: GRADER });
+    res.json({ grader: grader.identity });
   });
 
-  // POST /v1/item-grades — the Examination Engine's grading call. Stateless:
-  // the Engine records the outcome with the attempt, so no response is kept here.
-  app.post('/v1/item-grades', (req, res) => {
+  // POST /v1/item-grades — the Examination Engine's grading call. Stateless
+  // apart from the verdict cache: the Engine records the outcome with the attempt.
+  // A judge that cannot give a verdict is a 503, which the Engine retries
+  // within its window and then aborts as grading_unavailable.
+  app.post('/v1/item-grades', async (req, res) => {
     if (!itemGradingKey) return res.status(503).json({ error: 'grading_not_configured' });
     if (!matchesKey(req.header('x-grading-service-key'), itemGradingKey)) return res.status(403).json({ error: 'forbidden' });
-    const errors = validateItemGradingRequest(req.body);
+    const errors = validateJudgedRequest(req.body);
     if (errors.length) return res.status(422).json({ error: 'invalid_item_grading_input', details: errors });
-    const results = gradeItems(req.body);
-    logEvent('items_graded', { correlationId: req.header('x-correlation-id') || null, items: results.length });
-    return res.status(200).json({ grader: GRADER, results });
+    const correlationId = req.header('x-correlation-id') || null;
+    try {
+      const results = await grader.gradeItems(req.body);
+      logEvent('items_graded', { correlationId, items: results.length });
+      return res.status(200).json({ grader: grader.identity, results });
+    } catch (error) {
+      if (error instanceof GradingUnavailableError) {
+        logEvent('items_ungradeable', { correlationId, reason: error.code });
+        return res.status(503).json({ error: error.code });
+      }
+      logEvent('grading_failed', { correlationId, error: error?.name || 'Error' });
+      return res.status(500).json({ error: 'grading_failed' });
+    }
   });
 
   return app;
@@ -49,7 +74,9 @@ function createApp({ itemGradingKey = process.env.GRADING_SERVICE_KEY, logEvent 
 
 if (require.main === module) {
   const port = process.env.PORT || 4020;
-  createApp().listen(port, () => log('listening', { port: Number(port) }));
+  const judge = judgeFromEnv();
+  createApp({ grader: createRubricGrader({ judge }) }).listen(port, () =>
+    log('listening', { port: Number(port), judgeModel: judge.model, judgeAvailable: judge.available, judgeReason: judge.reason }));
 }
 
-module.exports = { createApp };
+module.exports = { createApp, judgeFromEnv };
