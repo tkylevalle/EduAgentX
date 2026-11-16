@@ -51,6 +51,8 @@ test('PostgreSQL carries an ended remediation over once and keeps the request on
     const latest = await store.transaction(learner, (tx) => tx.findLatestRemediation(learner));
     assert.deepEqual([latest.session.sessionId, latest.session.configurationFingerprint, latest.session.remediation.carriedFromSessionId],
       [carried.session.sessionId, 'sha256:config-2', assigned.session.sessionId]);
+    const open = await store.transaction(learner, async (tx) => [await tx.findOpenSession(learner, pkg.id), await tx.findOpenSession(learner, 'pkg-other')]);
+    assert.deepEqual([open[0].sessionId, open[1]], [carried.session.sessionId, null], 'open sessions are found per package');
     const request = await store.transaction(learner, (tx) => tx.findRemediation(learner, 'req-1'));
     assert.equal(request.session.sessionId, assigned.session.sessionId);
   } finally { await pool.end(); }

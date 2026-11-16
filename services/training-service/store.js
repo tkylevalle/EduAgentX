@@ -97,14 +97,15 @@ function pgQueries(db) {
         AND e.event_type='session_started' AND e.idempotency_key=$2 ORDER BY s.started_at LIMIT 1`, [actor, key]);
       return rows[0] ? toSession(rows[0]) : null;
     },
-    async findOpenSession(agentLearnerKey) {
+    // packageId: only that package's sessions; a learner trains in each domain separately.
+    async findOpenSession(agentLearnerKey, packageId = null) {
       // Open = started with no completion or block event yet.
       const result = await db.query(
         `SELECT ${SESSION_COLUMNS} FROM training_service.sessions s
-         WHERE s.agent_learner_key = $1 AND NOT EXISTS (
+         WHERE s.agent_learner_key = $1 AND ($2::text IS NULL OR s.package_id = $2) AND NOT EXISTS (
            SELECT 1 FROM training_service.session_events e
            WHERE e.session_id = s.session_id AND e.event_type IN ('session_completed', 'session_blocked'))
-         ORDER BY s.started_at DESC LIMIT 1`, [agentLearnerKey]);
+         ORDER BY s.started_at DESC LIMIT 1`, [agentLearnerKey, packageId]);
       return result.rows[0] ? toSession(result.rows[0]) : null;
     },
     async findRemediation(agentLearnerKey, requestId) {
@@ -118,10 +119,11 @@ function pgQueries(db) {
       return { session, events: await this.getEvents(session.sessionId) };
     },
     // The learner's newest remediation session, assigned or carried over, with its events.
-    async findLatestRemediation(agentLearnerKey) {
+    async findLatestRemediation(agentLearnerKey, packageId = null) {
       const result = await db.query(
         `SELECT ${SESSION_COLUMNS} FROM training_service.sessions
-         WHERE agent_learner_key = $1 AND kind = 'remediation' ORDER BY started_at DESC LIMIT 1`, [agentLearnerKey]);
+         WHERE agent_learner_key = $1 AND kind = 'remediation' AND ($2::text IS NULL OR package_id = $2)
+         ORDER BY started_at DESC LIMIT 1`, [agentLearnerKey, packageId]);
       if (!result.rows[0]) return null;
       const session = toSession(result.rows[0]);
       return { session, events: await this.getEvents(session.sessionId) };
@@ -354,9 +356,9 @@ function createMemoryStore() {
             const e = allEvents().find((e) => e.actor === actor && e.eventType === 'session_started' && e.idempotencyKey === key);
             return structuredClone(e ? sessions.get(e.sessionId) : null);
           },
-          async findOpenSession(agentLearnerKey) {
+          async findOpenSession(agentLearnerKey, packageId = null) {
             const candidates = [...sessions.values(), ...staged.sessions]
-              .filter((s) => s.agentLearnerKey === agentLearnerKey)
+              .filter((s) => s.agentLearnerKey === agentLearnerKey && (packageId === null || s.packageId === packageId))
               .filter((s) => ['open', 'assigned'].includes(
                 deriveSessionState(allEvents().filter((e) => e.sessionId === s.sessionId)).status));
             return structuredClone(candidates.at(-1) || null);
@@ -368,8 +370,9 @@ function createMemoryStore() {
               ? structuredClone({ session, events: allEvents().filter((e) => e.sessionId === session.sessionId) })
               : null;
           },
-          async findLatestRemediation(agentLearnerKey) {
-            const session = [...sessions.values()].filter((s) => s.agentLearnerKey === agentLearnerKey && s.kind === 'remediation').at(-1);
+          async findLatestRemediation(agentLearnerKey, packageId = null) {
+            const session = [...sessions.values()].filter((s) => s.agentLearnerKey === agentLearnerKey && s.kind === 'remediation' &&
+              (packageId === null || s.packageId === packageId)).at(-1);
             return session
               ? structuredClone({ session, events: allEvents().filter((e) => e.sessionId === session.sessionId) })
               : null;
