@@ -308,4 +308,5 @@ const db = {
   }
 };
 
-module.exports = { db };
+// The pool is shared with the grader-label store (labels-store.js); null in memory mode.
+module.exports = { db, pool };
