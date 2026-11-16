@@ -64,7 +64,9 @@
 .s-list { margin: 0; padding-left: 18px; color: var(--text-2); }
 
 /* Enrol */
-.s-students { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
+/* 184px: the longest name ("Blabbermouth", 159px at this size) plus the card's 24px of padding and border,
+   so a name never breaks inside a word. */
+.s-students { display: grid; grid-template-columns: repeat(auto-fill, minmax(184px, 1fr)); gap: 8px; margin-bottom: 12px; }
 .s-pick {
   display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 10px 11px 12px; text-align: left; cursor: pointer;
   border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-2);
