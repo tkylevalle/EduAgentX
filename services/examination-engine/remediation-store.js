@@ -70,10 +70,11 @@ function pgRemediationMethods(pool) {
       if (!row) return { event: null, delivery: null };
       return { event: row.envelope, delivery: await deliveryOf(row.envelope.eventId) };
     },
-    async latestRemediationEvent({ agentLearnerKey, packageId, packageVersion }) {
+    async latestRemediationEvent({ agentLearnerKey, packageId, packageVersion, configurationFingerprint = null }) {
       const row = await one(`SELECT envelope FROM examination_engine.remediation_events WHERE agent_learner_key=$1
-        AND package_id=$2 AND package_version=$3 ORDER BY occurred_at DESC, seq DESC LIMIT 1`,
-      [agentLearnerKey, packageId, packageVersion]);
+        AND package_id=$2 AND package_version=$3 AND ($4::text IS NULL OR envelope->>'configurationFingerprint' = $4)
+        ORDER BY occurred_at DESC, seq DESC LIMIT 1`,
+      [agentLearnerKey, packageId, packageVersion, configurationFingerprint]);
       return row?.envelope ?? null;
     },
     async hasAttemptAwaitingOutcome({ agentLearnerKey, packageId, packageVersion, now }) {
@@ -135,9 +136,10 @@ function memoryRemediationMethods(records, transaction) {
       if (!record?.remediation) return { event: null, delivery: null };
       return structuredClone({ event: record.remediation, delivery: record.delivery ?? null });
     },
-    async latestRemediationEvent({ agentLearnerKey, packageId, packageVersion }) {
+    async latestRemediationEvent({ agentLearnerKey, packageId, packageVersion, configurationFingerprint = null }) {
       const matching = events().filter((event) => event.agentLearnerKey === agentLearnerKey &&
-        event.package.id === packageId && event.package.version === packageVersion);
+        event.package.id === packageId && event.package.version === packageVersion &&
+        (configurationFingerprint === null || event.configurationFingerprint === configurationFingerprint));
       return structuredClone(matching.at(-1) ?? null);
     },
     async hasAttemptAwaitingOutcome({ agentLearnerKey, packageId, packageVersion, now }) {
