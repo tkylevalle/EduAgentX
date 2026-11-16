@@ -30,3 +30,13 @@ test('completing the remediation, also when it was carried over to a new configu
   await assert.doesNotReject(gate({ sessionKind: 'remediation', remediationRequestId: event.eventId,
     configurationFingerprint: 'sha256:changed-configuration' }));
 });
+
+test('a remediation the agent completed opens the gate even when later training is the latest completion', async () => {
+  const asked = [];
+  const completed = (eventId) => { asked.push(eventId); return Promise.resolve(true); };
+  await assert.doesNotReject(requireRemediation(store, { actor: 'agent-1', pkg: PKG, completion: { sessionKind: 'standard' },
+    now: '2026-11-16T00:00:00Z', remediationCompleted: completed }));
+  assert.deepEqual(asked, [event.eventId]);
+  await assert.rejects(requireRemediation(store, { actor: 'agent-1', pkg: PKG, completion: { sessionKind: 'standard' },
+    now: '2026-11-16T00:00:00Z', remediationCompleted: async () => false }), (error) => error.code === 'remediation_required');
+});

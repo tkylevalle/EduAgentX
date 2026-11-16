@@ -381,3 +381,22 @@ test('a remediation ended by a reconfiguration is carried over to the new config
   const replay = await ctx.call('POST', '/internal/remediations', remediationBody(), OPERATOR);
   assert.deepEqual([replay.body.outcome, replay.body.sessionId], ['replay', assigned.body.sessionId], 'the request still names its assigned session');
 });
+
+test('the completion lookup finds a completed remediation by its request, after later standard training', async (t) => {
+  const ctx = await boot(t);
+  const assigned = await ctx.call('POST', '/internal/remediations', remediationBody(), OPERATOR);
+  await ctx.start('rem-start');
+  await finish(ctx, assigned.body.sessionId, 'rem');
+  const standard = (await ctx.start('std-after')).body.sessionId;
+  await finish(ctx, standard, 'std');
+  const query = new URLSearchParams({ agentLearnerKey: LEARNER, packageId: 'pkg-a', packageVersion: '1.0.0', packageDigest: 'digest-1' });
+  assert.equal((await ctx.call('GET', `/internal/completions/latest?${query}`)).body.completion.sessionKind, 'standard');
+  query.set('remediationRequestId', 'req-1');
+  const remediation = await ctx.call('GET', `/internal/completions/latest?${query}`);
+  assert.deepEqual([remediation.status, remediation.body.completion.sessionId, remediation.body.completion.remediationRequestId],
+    [200, assigned.body.sessionId, 'req-1']);
+  query.set('remediationRequestId', 'req-never');
+  assert.equal((await ctx.call('GET', `/internal/completions/latest?${query}`)).status, 404);
+  query.set('remediationRequestId', 'bad id with spaces');
+  assert.equal((await ctx.call('GET', `/internal/completions/latest?${query}`)).status, 400);
+});
