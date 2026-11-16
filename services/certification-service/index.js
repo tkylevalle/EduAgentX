@@ -42,15 +42,19 @@ function createApp({ store, examinationEvidence, internalKey = process.env.CERTI
     try { await store.health(); res.json({ status: 'ok', service: 'certification-service' }); }
     catch { res.status(503).json({ status: 'unhealthy', service: 'certification-service' }); }
   });
-  // Marketplace's existing internal key authorizes ONLY this exact-selector
-  // read. It does not grant the issuer's broad Gateway reads or issuance rights.
-  // The same read for a whole candidate list (assurance audit F6), under the same key.
-  // 500 ids is the batch size every Marketplace batch route takes (marketplace-service clients.js MAX_BATCH).
-  app.post('/internal/credential-origins/batch', async (req, res) => {
+  // Marketplace's existing internal key authorizes ONLY the two exact-selector
+  // origin reads below. It does not grant the issuer's broad Gateway reads or
+  // issuance rights, and a key equal to the issuer's own is refused outright.
+  const requireMarketplaceOriginRead = (req, res, next) => {
     if (!originReadKey || matchesSecret(originReadKey, internalKey) ||
         !matchesSecret(req.header('x-internal-service-key'), originReadKey) ||
         req.header('x-actor-role') !== 'marketplace' || req.header('x-actor-subject') !== 'marketplace-service')
       return res.status(403).json({ error: 'forbidden' });
+    next();
+  };
+  // The same read for a whole candidate list (assurance audit F6), under the same key.
+  // 500 ids is the batch size every Marketplace batch route takes (marketplace-service clients.js MAX_BATCH).
+  app.post('/internal/credential-origins/batch', requireMarketplaceOriginRead, async (req, res) => {
     const ids = req.body?.credentialIds;
     if (!Array.isArray(ids) || !ids.length || ids.length > ORIGIN_BATCH_MAX || !ids.every((id) => typeof id === 'string' && UUID.test(id)))
       return res.status(400).json({ apiVersion: 'v1', error: 'invalid_request', max: ORIGIN_BATCH_MAX });
@@ -62,11 +66,7 @@ function createApp({ store, examinationEvidence, internalKey = process.env.CERTI
       res.status(503).json({ apiVersion: 'v1', error: 'certification_unavailable' });
     }
   });
-  app.get('/internal/credential-origins/:credentialId', async (req, res) => {
-    if (!originReadKey || matchesSecret(originReadKey, internalKey) ||
-        !matchesSecret(req.header('x-internal-service-key'), originReadKey) ||
-        req.header('x-actor-role') !== 'marketplace' || req.header('x-actor-subject') !== 'marketplace-service')
-      return res.status(403).json({ error: 'forbidden' });
+  app.get('/internal/credential-origins/:credentialId', requireMarketplaceOriginRead, async (req, res) => {
     if (!UUID.test(req.params.credentialId) ||
         Object.keys(req.query).length)
       return res.status(400).json({ apiVersion: 'v1', error: 'invalid_request' });
@@ -100,7 +100,7 @@ function createApp({ store, examinationEvidence, internalKey = process.env.CERTI
     const evidence = validatedEvidence(source, trustedPackage, issuanceEnvironment, issuer);
     return store.issue({ evidence, commandKey: idempotencyKey,
       commandDigest: digest({ examinationId, idempotencyKey }),
-      latencyStartedAt,
+      latencyStartedAt, statusListed: Boolean(statusListBase),
       createCredential: (decisionId, statusListIndex) => issueCredential(evidence, { privateKey, keyId, issuer, credentialBase, decisionId,
         environment: issuanceEnvironment, now: clock, statusListBase, statusListIndex }) });
   };
@@ -233,7 +233,7 @@ async function start() {
             const evidence = validatedEvidence(source, trustedPackage);
             await store.issue({ evidence, commandKey: `examination:${candidate.examinationId}`,
               commandDigest: digest({ examinationId: candidate.examinationId, event: 'attempt_completed' }),
-              latencyStartedAt,
+              latencyStartedAt, statusListed: Boolean(statusListBase),
               createCredential: (decisionId, statusListIndex) => issueCredential(evidence, { privateKey, decisionId, keyId: process.env.CERTIFICATION_KEY_ID,
                 issuer: process.env.CERTIFICATION_ISSUER, credentialBase: process.env.CREDENTIAL_BASE_URL, statusListBase, statusListIndex }) });
           } catch (error) {

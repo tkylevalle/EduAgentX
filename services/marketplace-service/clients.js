@@ -234,7 +234,8 @@ function createBatcher(run, { maxBytes = Infinity } = {}) {
     const groups = new Map();
     for (const call of queued) {
       const id = call.options.correlationId ?? '';
-      groups.set(id, [...(groups.get(id) || []), call]);
+      if (!groups.has(id)) groups.set(id, []);
+      groups.get(id).push(call);
     }
     for (const group of groups.values()) for (const chunk of chunksOf(group, maxBytes)) {
       run(chunk.map((call) => call.key), chunk[0].options)

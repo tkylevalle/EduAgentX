@@ -31,7 +31,9 @@ function vc(mode) {
   Object.assign(result.evidence, { mode: 'standard', grader: result.credentialSubject.competency.grader, scores: result.credentialSubject.competency.scores, safetyResult: result.credentialSubject.competency.safetyResult });
   return result;
 }
-function verify(v) { return verifyCredential(signCredential(v, privateKey, `${issuer}#test`), publicKey, { getStatus: () => 'active' }); }
+// An active credential registered without a status list index, as these credentials carry no status entry.
+const activeStatus = { getStatus: () => 'active', getIndex: () => null };
+function verify(v) { return verifyCredential(signCredential(v, privateKey, `${issuer}#test`), publicKey, activeStatus); }
 for (const mode of ['synthetic','replay']) test(`${mode}: supported profile verifies and projects signed provenance`, () => {
   const credential = vc(mode);
   assert.equal(verify(credential).overall, 'VALID');
@@ -100,17 +102,17 @@ test('properly signed failing behaviour still fails provenance schema', () => {
 test('simulation provenance under another issuer fails the provenance schema', () => {
   const v = vc('synthetic'); v.issuer = otherIssuer;
   v.credentialSubject.id = `${otherIssuer}/agents/${v.evidence.provenance.run.agentLearnerKey}`;
-  const report = verifyCredential(signCredential(v, privateKey, `${otherIssuer}#dev`), publicKey, { getStatus: () => 'active' });
+  const report = verifyCredential(signCredential(v, privateKey, `${otherIssuer}#dev`), publicKey, activeStatus);
   assert.equal(report.schema.status, 'FAIL');
   assert.equal(toCandidate({ credentialId: v.id.split('/').at(-1), credential: v }).environment, null);
 });
 test('the test issuer and the test key ID must appear together', () => {
   const underTestIssuer = vc('synthetic');
-  const wrongKey = verifyCredential(signCredential(underTestIssuer, privateKey, `${otherIssuer}#dev`), publicKey, { getStatus: () => 'active' });
+  const wrongKey = verifyCredential(signCredential(underTestIssuer, privateKey, `${otherIssuer}#dev`), publicKey, activeStatus);
   assert.equal(wrongKey.issuerPolicy.reason, 'issuer_key_mismatch');
   const legacy = vc('synthetic'); delete legacy.evidence.provenance; legacy.issuer = otherIssuer;
   legacy.credentialSchema.id = 'https://eduagentx.example/schemas/competency/v1.json';
-  const wrongIssuer = verifyCredential(signCredential(legacy, privateKey, `${issuer}#test`), publicKey, { getStatus: () => 'active' });
+  const wrongIssuer = verifyCredential(signCredential(legacy, privateKey, `${issuer}#test`), publicKey, activeStatus);
   assert.equal(wrongIssuer.issuerPolicy.reason, 'issuer_key_mismatch');
   assert.equal(wrongIssuer.overall, 'INVALID');
 });

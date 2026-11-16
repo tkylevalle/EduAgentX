@@ -42,8 +42,11 @@ function compareRelease(baseline, attempt, { configurationFingerprint } = {}) {
   const assessment = attempt?.assessment;
   const passed = attempt?.status === 'complete' && attempt.result?.valid === true && attempt.result?.passed === true && assessment?.passed === true;
   if (!passed) reasons.push('candidate_failed_examination', ...(assessment?.failureReasons || []).map((reason) => `failure:${reason}`));
-  const after = assessment?.behaviour ?? null;
-  if (after !== null && !checkBehaviourEvidence(after)) reasons.push('candidate_behaviour_evidence_invalid');
+  const reported = assessment?.behaviour ?? null;
+  const evidenceValid = reported === null || checkBehaviourEvidence(reported);
+  if (!evidenceValid) reasons.push('candidate_behaviour_evidence_invalid');
+  // Invalid evidence already blocks; leaving it out of the diff keeps a malformed value from failing the whole check.
+  const after = evidenceValid ? reported : null;
   if (after?.allEpisodes?.violations > 0) reasons.push('critical_violation');
   const before = baseline?.credential?.credentialSubject?.competency?.behaviour ?? null;
   const ids = [...new Set([...(before?.objectives || []), ...(after?.objectives || [])].map((objective) => objective.objectiveId))].sort();
@@ -62,7 +65,7 @@ function compareRelease(baseline, attempt, { configurationFingerprint } = {}) {
 function releaseGateResult({ baseline, attempt, comparison, checkedAt, incident }) {
   return {
     schemaVersion: RELEASE_GATE_RESULT, decision: comparison.decision, reasons: comparison.reasons, objectives: comparison.objectives,
-    baseline: baseline ? { credentialId: baseline.credential.credentialId ?? baseline.credentialId, examinationId: baseline.examinationId,
+    baseline: baseline ? { credentialId: baseline.credentialId, examinationId: baseline.examinationId,
       issuedAt: baseline.issuedAt, configurationFingerprint: baseline.credential?.credentialSubject?.configurationFingerprint ?? null } : null,
     candidate: { examinationId: attempt.attemptId, configurationFingerprint: attempt.configurationFingerprint, package: attempt.package },
     incident, checkedAt,
@@ -97,7 +100,9 @@ function registerReleaseGateRoute(app, { store, examinationEvidence, incidentRep
   });
 }
 
-// A blocked release goes to the Assurance Incident log; a failure to record it is returned, not hidden.
+// A blocked release goes to the Assurance Incident log; a failure to record it
+// is logged and returned as a code, not hidden. The raw error stays out of the
+// answer: it can carry internal addresses.
 async function reportBlock(incidentReporter, { subjectId, examinationId, comparison, baseline, clock }) {
   if (!incidentReporter?.enabled) return { notRecorded: 'incident_log_not_configured' };
   try {
@@ -106,7 +111,10 @@ async function reportBlock(incidentReporter, { subjectId, examinationId, compari
       safeState: 'release blocked', requiredAction: 'Fix the regression and re-examine before shipping.',
       detail: { reasons: comparison.reasons, baselineCredentialId: baseline?.credentialId ?? null }, occurredAt: clock() });
     return { incidentId: reported.incidentId };
-  } catch (error) { return { notRecorded: String(error.message) }; }
+  } catch (error) {
+    telemetry.log('certification-service', 'release_block_not_recorded', { outcome: String(error.code || error.name) });
+    return { notRecorded: 'incident_log_failed' };
+  }
 }
 
 module.exports = { BOUND_DROP_TOLERANCE, RELEASE_GATE_RESULT, UUID, compareRelease, registerReleaseGateRoute, releaseGateResult };

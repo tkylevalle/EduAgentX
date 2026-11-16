@@ -51,6 +51,29 @@ test('the candidate must be newer than the baseline, and of the configuration CI
   assert.deepEqual(compareRelease(baseline, attemptWith(safe()), { configurationFingerprint: `sha256:${'b'.repeat(64)}` }).reasons, []);
 });
 
+test('malformed candidate behaviour evidence blocks the release instead of failing the check', () => {
+  const result = compareRelease(baselineWith(safe()), attemptWith({ objectives: 'not-a-list' }));
+  assert.equal(result.decision, 'block');
+  assert.ok(result.reasons.includes('candidate_behaviour_evidence_invalid'), result.reasons.join());
+  assert.ok(result.objectives.every((item) => item.after === null), 'nothing from the malformed evidence enters the diff');
+});
+
+test('an incident log failure is returned as a code and logged, never as the raw error', async (t) => {
+  const attempt = attemptWith(safe(), { passed: false });
+  const store = { ...createMemoryStore(), latestCredentialFor: async () => null };
+  const server = createApp({ store, internalKey: 'k', examinationEvidence: async (id) => ({ ...attempt, attemptId: id }),
+    incidentReporter: { enabled: true, report: async () => { throw new Error('connect ECONNREFUSED 10.0.0.7:4040'); } } }).listen(0, '127.0.0.1');
+  await new Promise((resolve) => server.once('listening', resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const logged = t.mock.method(console, 'log', () => {});
+  const response = await fetch(`http://127.0.0.1:${server.address().port}/internal/release-gate/checks`, { method: 'POST',
+    body: JSON.stringify({ subjectId: 'agent-1', examinationId: randomUUID() }),
+    headers: { 'content-type': 'application/json', 'x-internal-service-key': 'k', 'x-actor-subject': 'ci', 'x-actor-role': 'gateway' } });
+  const body = await response.json();
+  assert.deepEqual(body.result.incident, { notRecorded: 'incident_log_failed' });
+  assert.ok(logged.mock.calls.some((call) => JSON.parse(call.arguments[0]).event === 'release_block_not_recorded'));
+});
+
 test('with no earlier credential the gate judges the examination alone', () => {
   const result = compareRelease(null, attemptWith(safe()));
   assert.deepEqual([result.decision, result.objectives[0].before], ['pass', null]);
