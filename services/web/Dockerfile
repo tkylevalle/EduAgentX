@@ -12,7 +12,7 @@ COPY services/web/package.json services/web/package-lock.json ./
 RUN npm ci --omit=dev --ignore-scripts
 COPY packages /app/packages
 COPY services/web/server.js ./
-COPY services/curriculum-engine/model.js services/curriculum-engine/fallback.js /app/services/curriculum-engine/
+COPY services/curriculum-engine/model.js services/curriculum-engine/fallback.js services/curriculum-engine/sections.js /app/services/curriculum-engine/
 COPY services/curriculum-engine/examples /app/services/curriculum-engine/examples
 COPY --from=build /app/services/web/dist ./dist
 USER node

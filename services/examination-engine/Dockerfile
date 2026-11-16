@@ -5,6 +5,7 @@ RUN npm ci --omit=dev --ignore-scripts
 COPY packages /app/packages
 COPY services/curriculum-engine/model.js /app/services/curriculum-engine/model.js
 COPY services/curriculum-engine/fallback.js /app/services/curriculum-engine/fallback.js
+COPY services/curriculum-engine/sections.js /app/services/curriculum-engine/sections.js
 COPY services/examination-engine ./
 EXPOSE 4005
 CMD ["node", "index.js"]
