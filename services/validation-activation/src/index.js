@@ -7,8 +7,9 @@ const { runValidationGates } = require('./gates');
 const { db } = require('./db');
 const { classifyFreshness, DEFAULT_FRESHNESS_DAYS, isDue } = require('./freshness');
 const { validateScope, createRefreshCandidate, selectFallback } = require('./package-lifecycle');
+const { runFreshnessJob } = require('./freshness-job');
 
-function createApp({ packageDb = db, now = () => new Date(), internalKey = process.env.CURRICULUM_INTERNAL_KEY } = {}) {
+function createApp({ packageDb = db, now = () => new Date(), internalKey = process.env.CURRICULUM_INTERNAL_KEY, fetchImpl = fetch } = {}) {
 const app = express();
 app.use(express.json({ limit: '512kb' }));
 const route = (method, path, ...handlers) => app[method](path, ...handlers.map(handler => (req, res, next) => {
@@ -177,25 +178,24 @@ route('get', '/packages/:id/freshness', requireInternalActor, async (req, res) =
   res.json({ packageId: pkg.id, version: pkg.version, intervalDays, sources });
 });
 
-route('post', '/packages/:id/freshness-checks', requireInternalActor, async (req, res) => {
-  const pkg = await packageDb.getPackage(req.params.id);
-  if (!pkg) return res.status(404).json({ error: 'package_not_found' });
-  if (!['Active', 'Superseded'].includes(pkg.state)) return res.status(409).json({ error: 'package_not_validated', state: pkg.state });
-  const source = (pkg.sources || []).find((item) => (item.id || item.sourceId) === req.body?.sourceId);
-  if (!source) return res.status(404).json({ error: 'source_not_found' });
-  const classified = classifyFreshness(source, req.body?.evidence);
-  if (classified.errors) return res.status(422).json({ error: 'invalid_source_evidence', details: classified.errors });
-  const criticalScope = req.body?.scope || classified.evidence.affectedScope;
+// Records one source check, from a person (the route below) or the scheduled
+// job; returns { status, body }. A Patch, Substantive or Critical change makes
+// a refresh candidate; a Critical one also quarantines its scope.
+async function recordFreshnessCheck(pkg, sourceId, evidence, actor, { scope, reason } = {}) {
+  const source = (pkg.sources || []).find((item) => (item.id || item.sourceId) === sourceId);
+  if (!source) return { status: 404, body: { error: 'source_not_found' } };
+  const classified = classifyFreshness(source, evidence);
+  if (classified.errors) return { status: 422, body: { error: 'invalid_source_evidence', details: classified.errors } };
+  const criticalScope = scope || classified.evidence.affectedScope;
   if (classified.classification === 'Critical') {
     const scopeError = validateScope(pkg, criticalScope);
-    if (scopeError) return res.status(422).json({ error: 'invalid_quarantine_scope', details: scopeError });
+    if (scopeError) return { status: 422, body: { error: 'invalid_quarantine_scope', details: scopeError } };
   }
   const checkedAt = now().toISOString();
-  const record = { sourceId: req.body.sourceId, classification: classified.classification, evidence: classified.evidence,
-    actor: req.header('x-actor-subject'), checkedAt };
+  const record = { sourceId, classification: classified.classification, evidence: classified.evidence, actor, checkedAt };
   if (classified.classification === 'Critical') {
     await packageDb.appendScopeEvent(pkg.id, pkg.version, { scopeType: criticalScope.type, scopeId: criticalScope.id, event: 'quarantined',
-      evidence: { check: record, reason: req.body?.reason || classified.evidence.summary }, actor: req.header('x-actor-subject'), occurredAt: checkedAt });
+      evidence: { check: record, reason: reason || classified.evidence.summary }, actor, occurredAt: checkedAt });
   }
   await packageDb.appendFreshnessCheck(pkg.id, pkg.version, record);
   let candidate = null;
@@ -206,11 +206,30 @@ route('post', '/packages/:id/freshness-checks', requireInternalActor, async (req
       classification: classified.classification, evidence: classified.evidence, ts: checkedAt });
   }
   await packageDb.appendEvidence(pkg.id, { event: 'freshness_check', ...record });
-  res.status(classified.classification === 'Critical' ? 202 : 200).json({ packageId: pkg.id, version: pkg.version,
+  return { status: classified.classification === 'Critical' ? 202 : 200, body: { packageId: pkg.id, version: pkg.version,
     classification: classified.classification, evidence: classified.evidence,
     candidatePackage: candidate ? { packageId: candidate.id, version: candidate.version, state: 'Candidate' } : null,
-    quarantinedScope: classified.classification === 'Critical' ? criticalScope : null });
+    quarantinedScope: classified.classification === 'Critical' ? criticalScope : null } };
+}
+
+route('post', '/packages/:id/freshness-checks', requireInternalActor, async (req, res) => {
+  const pkg = await packageDb.getPackage(req.params.id);
+  if (!pkg) return res.status(404).json({ error: 'package_not_found' });
+  if (!['Active', 'Superseded'].includes(pkg.state)) return res.status(409).json({ error: 'package_not_validated', state: pkg.state });
+  const { status, body } = await recordFreshnessCheck(pkg, req.body?.sourceId, req.body?.evidence, req.header('x-actor-subject'),
+    { scope: req.body?.scope, reason: req.body?.reason });
+  res.status(status).json(body);
 });
+
+// The scheduled source check (C5), run on demand by an admin. The schedule
+// itself runs it every FRESHNESS_JOB_INTERVAL_MS (see startFreshnessSchedule).
+const runFreshness = () => runFreshnessJob({ packageDb, fetchImpl, now,
+  record: async (pkg, sourceId, evidence, actor) => (await recordFreshnessCheck(pkg, sourceId, evidence, actor)).body });
+route('post', '/freshness/run', requireInternalActor, async (req, res) => {
+  if (req.header('x-actor-role') !== 'admin') return res.status(403).json({ error: 'admin_role_required' });
+  res.json({ ranAt: now().toISOString(), sources: await runFreshness() });
+});
+app.locals.runFreshness = runFreshness;
 
 route('post', '/packages/:id/quarantines/restore', requireInternalActor, async (req, res) => {
   const pkg = await packageDb.getPackage(req.params.id);
@@ -276,5 +295,21 @@ const PORT = process.env.PORT || 4010;
 return app;
 }
 
-if (require.main === module) createApp().listen(process.env.PORT || 4010, () => console.log(`[validation-activation] listening on ${process.env.PORT || 4010}`));
-module.exports = { createApp };
+// Runs the source check on a timer; the timer never keeps the process alive.
+// Off unless FRESHNESS_JOB_INTERVAL_MS is set, so tests and local runs fetch nothing.
+function startFreshnessSchedule(app, intervalMs = Number(process.env.FRESHNESS_JOB_INTERVAL_MS)) {
+  if (!Number.isFinite(intervalMs) || intervalMs <= 0) return null;
+  const run = () => app.locals.runFreshness()
+    .then((report) => console.log(`[validation-activation] freshness: ${report.map((line) => `${line.packageId}/${line.sourceId}=${line.result}`).join(', ') || 'no active package'}`))
+    .catch((error) => console.error(`[validation-activation] freshness run failed: ${error.message}`));
+  const timer = setInterval(run, intervalMs);
+  timer.unref();
+  return timer;
+}
+
+if (require.main === module) {
+  const app = createApp();
+  app.listen(process.env.PORT || 4010, () => console.log(`[validation-activation] listening on ${process.env.PORT || 4010}`));
+  startFreshnessSchedule(app);
+}
+module.exports = { createApp, startFreshnessSchedule };
