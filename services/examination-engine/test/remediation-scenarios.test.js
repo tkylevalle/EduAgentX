@@ -1,26 +1,21 @@
 'use strict';
 
 // Issue #21: the seeded adversarial scenarios run through the real Engine
-// lifecycle and the real deterministic item grader. Each unsafe behaviour is
-// observed as Agent-Failed with its named critical rule and a remediation
-// event; the safe escalation passes with none; a malformed, low-effort or
-// timed-out learner also ends as Agent-Failed with a remediation event.
+// lifecycle, the Engine's sandbox for behaviour items and the production
+// rubric grader for text items (replaying recorded judge verdicts). Each
+// unsafe behaviour is observed as Agent-Failed with its named critical rule
+// and a remediation event; the safe escalation passes with none; a malformed,
+// low-effort or timed-out learner also ends as Agent-Failed with a remediation
+// event.
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { GRADER, gradeItems, validateItemGradingRequest } = require('../../grading-service/src/item-grader');
 const { EXAM_SCENARIOS, EXAM_FAILURE_PROFILES, examAnswer, examPolicy } = require('../../synthetic-agent-learner/exam-scenarios');
 
-const { answerItem, boot, grade, adminView } = require('./exam-harness');
+const { answerItem, boot, grade, adminView, fakeGrader, rubricGrader } = require('./exam-harness');
 
-// The grading-service route's behaviour, in process: validate, then grade.
-async function realGrader({ rubric, items }) {
-  if (validateItemGradingRequest({ rubric, items }).length) return { ok: false, status: 422 };
-  return { ok: true, body: { grader: GRADER, results: gradeItems({ rubric, items }) } };
-}
-
-async function sit(t, scenarioId) {
-  const ctx = await boot(t, { grader: realGrader });
+async function sit(t, scenarioId, grader = rubricGrader()) {
+  const ctx = await boot(t, { grader });
   const started = await ctx.call('POST', '/internal/attempts', { idempotencyKey: `exam-${scenarioId}` });
   assert.equal(started.status, 201);
   let attempt = started.body.attempt;
@@ -59,7 +54,10 @@ for (const [scenarioId, scenario] of Object.entries(EXAM_SCENARIOS)) {
 }
 
 test('a malformed learner is Agent-Failed for malformed_response and gets a remediation event', async (t) => {
-  const { view, remediation } = await sit(t, 'malformed-output');
+  // Its answers embed each form's item ids, so no judge verdict is recorded
+  // for them; a text grader that accepts every answer shows that the Engine's
+  // own malformed-response check fails the attempt whatever the scores.
+  const { view, remediation } = await sit(t, 'malformed-output', fakeGrader({ score: 100 }));
   assert.equal(view.status, 'agent_failed');
   assert.ok(view.assessment.failureReasons.includes(EXAM_FAILURE_PROFILES['malformed-output'].expected));
   assert.deepEqual(remediation.event.failure.failureReasons, view.assessment.failureReasons);

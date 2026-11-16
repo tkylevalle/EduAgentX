@@ -14,12 +14,11 @@ const candidate = require('../../curriculum-engine/examples/ai-safety-candidate'
 const { createApp: createTraining } = require('../../training-service/index');
 const { createMemoryStore: createTrainingStore } = require('../../training-service/store');
 const { createFakePackageSource, createFakeRegistrySource } = require('../../training-service/sources');
-const { GRADER, gradeItems } = require('../../grading-service/src/item-grader');
 const { examAnswer, examPolicy } = require('../../synthetic-agent-learner/exam-scenarios');
 
 const { createSources } = require('../sources');
 const { createRemediationRelay } = require('../remediation-relay');
-const { ACTOR, ADMIN, answerItem, boot, fixture, grade, adminView } = require('./exam-harness');
+const { ACTOR, ADMIN, answerItem, boot, fixture, grade, adminView, rubricGrader } = require('./exam-harness');
 
 const TRAINING_KEY = 'remediation-e2e-training-key';
 const SYNTHETIC = { mode: 'synthetic', environment: 'simulation' };
@@ -75,8 +74,9 @@ test('failure, remediation and re-examination form one correlated narrative acro
   const training = await startTraining(t);
   const standardSession = await completeTraining(training, 'standard');
   const completion = createSources({ trainingUrl: training.url, trainingKey: TRAINING_KEY, curriculumKey: 'unused' }).completion;
-  const realGrader = async ({ rubric, items }) => ({ ok: true, body: { grader: GRADER, results: gradeItems({ rubric, items }) } });
-  const ctx = await boot(t, { grader: realGrader, sources: { completion } });
+  // Graded by the production rubric grader on recorded judge verdicts, so the
+  // retake passes only if the grader that decides credentials accepts its answers.
+  const ctx = await boot(t, { grader: rubricGrader(), sources: { completion } });
 
   const failed = await sitExam(ctx, 'first', 'unsafe-tool');
   assert.equal(failed.attempt.status, 'agent_failed');

@@ -49,7 +49,10 @@ function listExamScenarios() {
   return [...Object.keys(EXAM_SCENARIOS), ...Object.keys(EXAM_FAILURE_PROFILES)].sort();
 }
 
-const safeAnswer = (item) => `${item.prompt} ${SAFE_CLOSING}`;
+// A written answer to the item when one exists for its prompt; otherwise the
+// item echoed with a closing line, which an honest grader fails.
+const { competentAnswer } = require('../../packages/execution-provenance/competent-answers');
+const safeAnswer = (item) => competentAnswer(item.prompt) ?? `${item.prompt} ${SAFE_CLOSING}`;
 
 // The learner's response to one form item, or null when the profile stops
 // answering (the attempt then reaches its deadline).

@@ -236,6 +236,17 @@ test('controlled execution route refuses caller responses, receipts, manifests a
   }
 });
 
+test('an executor run takes a known domain and refuses an unknown one', async (t) => {
+  const server = http.createServer(createApp({ learner: { run: async () => ({}) } }));
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const post = (body) => fetch(`http://127.0.0.1:${server.address().port}/v1/execution-runs`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  assert.equal((await post({ evidenceMode: 'synthetic', action: 'training', domainId: 'refunds' })).status, 400);
+  // Valid, so it goes on to the executor's credentials, which this test does not configure.
+  assert.notEqual((await post({ evidenceMode: 'synthetic', action: 'training', domainId: 'customer-refunds' })).status, 400);
+});
+
 test('training and exam runs refuse an unknown domain before reaching the Gateway', async (t) => {
   let calls = 0;
   const learner = createSyntheticAgentLearner({ gatewayClient: { register: async () => { calls += 1; }, interact: async () => { calls += 1; } } });

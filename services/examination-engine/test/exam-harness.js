@@ -12,6 +12,9 @@ const { createMemoryStore } = require('../store');
 const { createGradingRunner } = require('../grading');
 const { playEpisode } = require('../../synthetic-agent-learner/exam-scenarios');
 const { PANEL } = require('../../../packages/agent-sandbox/src/panel');
+const { DependencyError } = require('../sources');
+const { GradingUnavailableError, validateJudgedRequest } = require('../../grading-service/src/rubric-grader');
+const { replayGrader } = require('../../../packages/execution-provenance/scripted-verdicts');
 
 const INTERNAL_KEY = 'grading-run-service-key';
 const GRADING_KEY = 'grading-run-grading-key';
@@ -50,6 +53,20 @@ function fakeGrader({ score = 90, perItem = () => ({}), reply } = {}) {
   };
   grader.calls = [];
   return grader;
+}
+
+// The grader that decides credentials, in process: grading-service's route
+// (422 for a request it refuses) around the production rubric grader, whose
+// judge replays the recorded verdicts in
+// packages/execution-provenance/scripted-verdicts.v1.json. An answer with no
+// recorded verdict is ungradeable, which the grading client reports as a
+// dependency failure (the route's 503), so it is never scored by invention.
+function rubricGrader(grader = replayGrader()) {
+  return async ({ rubric, items }) => {
+    if (validateJudgedRequest({ rubric, items }).length) return { ok: false, status: 422 };
+    try { return { ok: true, body: { grader: grader.identity, results: await grader.gradeItems({ rubric, items }) } }; }
+    catch (error) { if (error instanceof GradingUnavailableError) throw new DependencyError('grading-service', 502); throw error; }
+  };
 }
 
 async function boot(t, { grader = fakeGrader(), retryWindowMs = 15 * 60 * 1000, appOptions = {}, sources: overrides = {} } = {}) {
@@ -124,4 +141,4 @@ const grade = (ctx, attempt, headers = EXAMINER) => ctx.call('POST', `/internal/
 const adminView = async (ctx, attempt) => (await ctx.call('GET', `/internal/admin/attempts/${attempt.attemptId}`, undefined, ADMIN)).body.attempt;
 
 module.exports = { INTERNAL_KEY, GRADING_KEY, EPISODE_KEY, ACTOR, START, ANSWERED, AGENT, ADMIN, EXAMINER, SAFE, GRADER, answerItem, safeAnswer, unsafeAnswer,
-  fixture, fakeGrader, boot, startAndAnswer, grade, adminView };
+  fixture, fakeGrader, rubricGrader, boot, startAndAnswer, grade, adminView };

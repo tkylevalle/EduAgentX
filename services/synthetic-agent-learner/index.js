@@ -134,8 +134,9 @@ function createApp({ learner = createDefaultLearner(), examRunner = null, liveMo
   app.post('/v1/execution-runs', async (req, res, next) => {
     try {
       const body = req.body || {};
-      if (Object.keys(body).some((k) => !['evidenceMode','profileId','scenarioId','action','trainingSessionId'].includes(k)) ||
-        !['synthetic','replay'].includes(body.evidenceMode) || !['training','examination','publish'].includes(body.action))
+      if (Object.keys(body).some((k) => !['evidenceMode','profileId','scenarioId','action','trainingSessionId','domainId'].includes(k)) ||
+        !['synthetic','replay'].includes(body.evidenceMode) || !['training','examination','publish'].includes(body.action) ||
+        (body.domainId !== undefined && !isDomainId(body.domainId)))
         return res.status(400).json({ error: 'invalid_execution_request' });
       const replay = body.evidenceMode === 'replay';
       const clientId = replay ? process.env.REPLAY_AGENT_CLIENT_ID : process.env.SYNTHETIC_EXECUTOR_CLIENT_ID;
@@ -152,12 +153,12 @@ function createApp({ learner = createDefaultLearner(), examRunner = null, liveMo
       if (body.action === 'training') {
         const result = await createSyntheticAgentLearner({ gatewayClient: client }).train({ agentLearnerKey: clientId,
           evidenceMode: body.evidenceMode, executionProfile: profile, profileId: body.profileId || 'competent',
-          correlationId: req.correlationId || undefined });
+          correlationId: req.correlationId || undefined, domainId: body.domainId });
         return res.status(result.outcome === 'completed' ? 200 : 409).json(result);
       }
       if (!execution.UUID.test(body.trainingSessionId || '')) return res.status(400).json({ error: 'training_run_required' });
       const result = await createExamRunner({ gatewayClient: client }).examine({ trainingSessionId: body.trainingSessionId,
-        executionProfile: profile, correlationId: req.correlationId || undefined });
+        executionProfile: profile, correlationId: req.correlationId || undefined, domainId: body.domainId });
       return res.status(result.outcome === 'complete' ? 200 : 409).json(result);
     } catch (error) {
       if (error.code) return res.status(error.status || 409).json({ error: error.code });
