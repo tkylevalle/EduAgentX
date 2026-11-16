@@ -9,6 +9,10 @@ COPY services/validation-activation/src ./src
 # Runtime imports the shared curriculum model, fallback bank and quote check from the repo tree.
 RUN mkdir -p /app/services/curriculum-engine
 COPY services/curriculum-engine/model.js services/curriculum-engine/fallback.js services/curriculum-engine/sections.js /app/services/curriculum-engine/
+# Grader labelling reads packages/grading-validity's dataset and reference exam,
+# which builds the exam from the reference package with the Examination Engine's generator.
+COPY services/curriculum-engine/examples /app/services/curriculum-engine/examples
+COPY services/examination-engine/standard-generator.js /app/services/examination-engine/standard-generator.js
 EXPOSE 4010
 HEALTHCHECK --interval=5s --timeout=5s --retries=10 \
   CMD node -e "require('http').get('http://localhost:4010/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"

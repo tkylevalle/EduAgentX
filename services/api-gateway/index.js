@@ -28,6 +28,7 @@ const { registerAssuranceRoutes } = require('./assurance-routes');
 const { registerContinuousAssuranceRoutes } = require('./continuous-assurance-routes');
 const { registerReconciliationRoutes } = require('./reconciliation-routes');
 const { registerCurriculumRoutes } = require('./curriculum-routes');
+const { registerGraderLabellingRoutes } = require('./grader-labelling-routes');
 const { registerExaminationRoutes } = require('./examination-routes');
 const { createMarketplaceGateway } = require('./marketplace-routes');
 const { registerTrainingAdminRoutes } = require('./training-admin-routes');
@@ -308,6 +309,7 @@ function createApp({
 
   registerCurriculumRoutes(app, { requireRole, proxyJson, forwardJson, proxyFailure, serviceName: SERVICE_NAME,
     curriculumEngineUrl, curriculumInternalKey, validationActivationUrl, governanceApprovalStore });
+  registerGraderLabellingRoutes(app, { requireRole, proxyJson, validationActivationUrl, curriculumInternalKey });
 
   // Marketplace forwarding: the listing interaction below and the HTTP routes registered later.
   const marketplace = createMarketplaceGateway({ requireRole, proxyJson, forwardJson, proxyFailure, decorateProtocolResponse,

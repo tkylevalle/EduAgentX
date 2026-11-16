@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Activity, BadgeCheck, BellRing, BookOpenCheck, FileCheck2, FlaskConical, Gavel, LayoutDashboard, Network, ScanLine, Store } from 'lucide-react';
+import { Activity, BadgeCheck, BellRing, BookOpenCheck, FileCheck2, FlaskConical, Gavel, LayoutDashboard, Network, ScanLine, Store, Tags } from 'lucide-react';
 import { BrandMark } from './ui.jsx';
 import { api, ago, clock, EVENT_COPY } from './lib.js';
 import Overview from './pages/Overview.jsx';
@@ -12,6 +12,7 @@ import Marketplace from './pages/Marketplace.jsx';
 import Evidence from './pages/Evidence.jsx';
 import Governance from './pages/Governance.jsx';
 import Attention from './pages/Attention.jsx';
+import Labelling from './pages/Labelling.jsx';
 
 const PAGES = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard, component: Overview },
@@ -20,6 +21,7 @@ const PAGES = [
   { id: 'verify', label: 'Verify', icon: ScanLine, component: Verify },
   { id: 'curriculum', label: 'Curriculum', icon: BookOpenCheck, component: Curriculum },
   { id: 'governance', label: 'Governance', icon: Gavel, component: Governance },
+  { id: 'labelling', label: 'Labelling', icon: Tags, component: Labelling },
   { id: 'attention', label: 'Attention', icon: BellRing, component: Attention },
   { id: 'system', label: 'System', icon: Network, component: System },
   { id: 'marketplace', label: 'Marketplace', icon: Store, component: Marketplace },

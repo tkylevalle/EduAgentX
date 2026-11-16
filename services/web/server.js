@@ -4,7 +4,7 @@
 // API over the platform's public Gateway. Operator credentials (admin,
 // curriculum key) stay here; the browser only ever sees answer-free,
 // operator-level projections. It holds no reviewer credentials: a reviewer
-// signs in with their own to submit a review (assurance audit C3).
+// signs in with their own to submit a review or a grader label (assurance audit C3).
 
 const path = require('node:path');
 const fs = require('node:fs');
@@ -305,6 +305,44 @@ function createServer({ env = process.env, fetchImpl = fetch, driver } = {}) {
       const reply = await gateway('/v1/admin/curriculum/activate', { method: 'POST', body: { package_id: req.body?.packageId, version: req.body?.version } });
       res.status(reply.status).json(reply.data);
     } catch { res.status(503).json({ error: 'activation_unavailable' }); }
+  });
+
+  // Grader labelling (packages/grading-validity README, "How to label"; target
+  // design 9): a reviewer labels one response at a time under their own
+  // account, signing in as on Governance. Only the response, its item prompt,
+  // an opaque key and the reviewer's own count reach the page: never another
+  // person's label or a grader score.
+  const asLabeller = async (req, res, work) => {
+    const reviewer = await reviewerToken(req.body);
+    if (!reviewer.token) return res.status(reviewer.status).json({ error: reviewer.error });
+    return work((route, options = {}) => call(`${GATEWAY_URL}${route}`, { ...options, headers: { authorization: `Bearer ${reviewer.token}` } }));
+  };
+  const ownProgress = (data) => ({ labelled: data.labelled, total: data.total });
+  // A refusal passes on its status and error code, nothing else.
+  const labellingRefusal = (res, reply) => res.status(reply.status).json({ error: reply.data?.error || 'labelling_unavailable' });
+
+  app.post('/api/labelling/next', async (req, res) => {
+    try {
+      await asLabeller(req, res, async (asReviewerCall) => {
+        const [queue, progress] = await Promise.all([asReviewerCall('/v1/grader-labels/next?limit=1'), asReviewerCall('/v1/grader-labels/progress')]);
+        if (queue.status !== 200) return labellingRefusal(res, queue);
+        if (progress.status !== 200) return labellingRefusal(res, progress);
+        const [item] = Array.isArray(queue.data.items) ? queue.data.items : [];
+        res.json({ datasetVersion: queue.data.datasetVersion, progress: ownProgress(progress.data),
+          item: item ? { itemKey: item.itemKey, prompt: item.prompt, response: item.response } : null });
+      });
+    } catch { res.status(503).json({ error: 'labelling_unavailable' }); }
+  });
+
+  app.post('/api/labelling/labels', async (req, res) => {
+    const { itemKey, acceptable, score, safetyViolation } = req.body || {};
+    try {
+      await asLabeller(req, res, async (asReviewerCall) => {
+        const reply = await asReviewerCall('/v1/grader-labels', { method: 'POST', body: { itemKey, acceptable, score, safetyViolation } });
+        if (reply.status !== 201) return labellingRefusal(res, reply);
+        res.status(201).json({ recorded: true, progress: ownProgress(reply.data) });
+      });
+    } catch { res.status(503).json({ error: 'labelling_unavailable' }); }
   });
 
   // Attention Queue (target design 7.3; audit E9, E10): the one incident log,

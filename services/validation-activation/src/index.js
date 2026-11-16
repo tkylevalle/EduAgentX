@@ -4,14 +4,17 @@ const { validatePackage } = require('../../curriculum-engine/model');
 const { deliveryChoices, scoreBank } = require('../../curriculum-engine/fallback');
 
 const { runValidationGates } = require('./gates');
-const { db } = require('./db');
+const { db, pool } = require('./db');
+const { createLabelStore } = require('./labels-store');
+const { registerLabellingRoutes } = require('./labelling-routes');
 const { classifyFreshness, DEFAULT_FRESHNESS_DAYS, isDue } = require('./freshness');
 const { validateScope, createRefreshCandidate, selectFallback } = require('./package-lifecycle');
 const { runFreshnessJob } = require('./freshness-job');
 const { MAX_COMMENT_CHARS, MAX_RESOLUTION_CHARS, REVIEW_POLICY, citedSources, reviewScore, reviewState, sourceChecksError } = require('./reviews');
 const telemetry = require('../../../packages/telemetry');
 
-function createApp({ packageDb = db, now = () => new Date(), internalKey = process.env.CURRICULUM_INTERNAL_KEY, fetchImpl = fetch } = {}) {
+function createApp({ packageDb = db, now = () => new Date(), internalKey = process.env.CURRICULUM_INTERNAL_KEY, fetchImpl = fetch,
+  labelStore = createLabelStore({ pool }), labellingSet } = {}) {
 const app = express();
 app.use(express.json({ limit: '512kb' }));
 const route = (method, path, ...handlers) => app[method](path, ...handlers.map(handler => (req, res, next) => {
@@ -349,6 +352,9 @@ route('post', '/fallback/score', requireInternalActor, async (req, res) => {
     overall: result.overall, tierScores: result.tierScores, criticalViolation: result.criticalViolation, ts: now().toISOString() }, pkg.version);
   res.json(result);
 });
+
+// Blind labelling of the grader validation dataset (labelling-routes.js).
+registerLabellingRoutes(route, { requireInternalActor, labelStore, labellingSet, now });
 
 const PORT = process.env.PORT || 4010;
 return app;
