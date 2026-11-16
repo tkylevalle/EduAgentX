@@ -140,7 +140,8 @@ function actPrompt(observation, notes = []) {
 
 // The first complete JSON object in the text, or null: a reply that holds a
 // tool call and then a finish acts on the tool call, as a function-calling
-// runtime would. Braces inside JSON strings do not count.
+// runtime would. Braces inside JSON strings do not count. A balanced span that
+// is not valid JSON is skipped: the search goes on from the next { after its start.
 function firstObject(text) {
   for (let start = text.indexOf('{'); start >= 0; start = text.indexOf('{', start + 1)) {
     let depth = 0, inString = false, escaped = false;

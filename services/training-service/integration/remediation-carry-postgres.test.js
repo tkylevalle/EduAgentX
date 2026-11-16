@@ -6,23 +6,12 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const { Pool } = require('pg');
+const { randomUUID } = require('node:crypto');
 const { createPgStore } = require('../store');
+const { applySchema } = require('./schema');
 const { decideCarriedRemediation, decideRemediation, decideStart, deriveSessionState } = require('../session');
 const { completionPolicy } = require('../plan');
 const url = process.env.TRAINING_TEST_DATABASE_URL;
-
-// Each integration file applies schema.sql; the advisory lock makes them take
-// turns, because concurrent DDL on the same tables can deadlock.
-async function applySchema(pool, schema) {
-  const client = await pool.connect();
-  try {
-    await client.query('SELECT pg_advisory_lock(435200)');
-    await client.query(schema);
-  } finally {
-    await client.query('SELECT pg_advisory_unlock(435200)').catch(() => {});
-    client.release();
-  }
-}
 
 const payload = { objectives: [{ id: 'o1', deliveryItemIds: ['m1-lesson', 'm1-practice'] }],
   modules: [{ id: 'm1', sequence: 1, deliveryItems: [{ id: 'm1-lesson', kind: 'lesson', text: 'L1' }, { id: 'm1-practice', kind: 'practice', text: 'P1' }] }] };
@@ -45,7 +34,7 @@ test('PostgreSQL carries an ended remediation over once and keeps the request on
       await tx.insertEvents(decision.events);
     });
 
-    const assigned = decideRemediation(pkg, first, {}, input({ sessionId: crypto.randomUUID(), actor: 'operator-1', requestId: 'req-1',
+    const assigned = decideRemediation(pkg, first, {}, input({ sessionId: randomUUID(), actor: 'operator-1', requestId: 'req-1',
       packageId: pkg.id, packageVersion: pkg.version, objectiveIds: ['o1'], requestDigest: 'sha256:request-1',
       cause: { type: 'examination_failure', reference: 'attempt-1', evidenceDigest: `sha256:${'a'.repeat(64)}`, observedAt: '2026-11-16T09:00:00Z', summary: null } }));
     await append(assigned);
@@ -55,7 +44,7 @@ test('PostgreSQL carries an ended remediation over once and keeps the request on
     const previous = await store.transaction(learner, (tx) => tx.findLatestRemediation(learner));
     assert.deepEqual([previous.session.sessionId, deriveSessionState(previous.events).blockReason], [assigned.session.sessionId, 'configuration_changed']);
     const carry = () => decideCarriedRemediation(pkg, second, { session: previous.session, state: deriveSessionState(previous.events) },
-      input({ sessionId: crypto.randomUUID() }));
+      input({ sessionId: randomUUID() }));
     const carried = carry();
     await append(carried);
     await assert.rejects(append(carry()), (error) => error.code === '23505', 'one carry-over per ended session');

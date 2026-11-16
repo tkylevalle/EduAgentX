@@ -110,9 +110,12 @@ app.post('/verify', (req, res) => {
 // single routes, in input order.
 // The size every Marketplace batch read uses (marketplace-service clients.js MAX_BATCH).
 const MAX_BATCH = 500;
-const batchOf = (value) => (Array.isArray(value) && value.length >= 1 && value.length <= MAX_BATCH && value.every((item) => typeof item === 'string' && item) ? value : null);
+// One compact JWS in a batch is held to the size the single /verify route takes.
+const MAX_JWS_CHARS = 64 * 1024;
+const batchOf = (value, maxChars = Infinity) => (Array.isArray(value) && value.length >= 1 && value.length <= MAX_BATCH &&
+  value.every((item) => typeof item === 'string' && item && item.length <= maxChars) ? value : null);
 app.post('/verify/batch', (req, res) => {
-  const jwsList = batchOf((req.body || {}).jws);
+  const jwsList = batchOf((req.body || {}).jws, MAX_JWS_CHARS);
   if (!jwsList) return res.status(400).json({ error: 'invalid_batch', max: MAX_BATCH });
   res.json({ results: jwsList.map((jws) => { const { status, body } = verifyOne(jws); return { httpStatus: status, report: body }; }) });
 });

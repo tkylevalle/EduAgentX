@@ -81,11 +81,11 @@ function toPackageAnswer(body, packageId, version) {
   return { digest: text(body.digest) ? body.digest : null, domain, objectiveIds };
 }
 
-// POST /verify on credential-verification, used for signature and schema only.
-// Each check is mapped on its own and only an explicit PASS counts.
 // The verifier's reason codes for a credential's status (credential-verification verifier.js).
 const STATUS_REASON_CODES = Object.freeze(['SUSPENDED', 'REVOKED']);
 
+// POST /verify on credential-verification, used for signature and schema only.
+// Each check is mapped on its own and only an explicit PASS counts.
 function toSignatureAndSchema(report) {
   if (!object(report)) return null;
   const check = (part) => ({ PASS: 'pass', FAIL: 'fail' })[part?.status] ?? null;
