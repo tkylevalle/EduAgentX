@@ -22,6 +22,10 @@ const LIVE_SCENARIO = 'live-model';
 const LIVE_TRAINING_TIMEOUT_MS = 240_000;
 const LIVE_EXAM_TIMEOUT_MS = 420_000;
 const isLive = (scenario) => scenario === LIVE_SCENARIO;
+// The activation route's refusals that mean people still have to review
+// (validation-activation POST /activate): too few approvals, or reviewers who
+// disagree and have not resolved it. Any other refusal is a fault, not a wait.
+const AWAITING_REVIEW_REFUSALS = Object.freeze(['insufficient_approvals', 'unresolved_review_disagreement']);
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -101,9 +105,11 @@ function createLifecycleDriver({ gatewayUrl, syntheticUrl, validationUrl, curric
       // Who approved the package the run will use, so a reused package is never taken on trust.
       const detail = await http(`${gatewayUrl}/v1/admin/curriculum/packages/${encodeURIComponent(existing.packageId)}/${encodeURIComponent(existing.version)}`,
         { token: await adminToken() });
+      // Without the review record the run cannot say who approved the package, so it stops rather than show none.
+      if (detail.status !== 200) throw new LifecycleError('package_details_unavailable', { packageId: existing.packageId, version: existing.version, status: detail.status });
       return { reused: true, packageId: existing.packageId, version: existing.version, digest: existing.digest,
         domain: existing.manifest?.domain || existing.domain || null, moduleCount: existing.modules?.length ?? null,
-        reviews: detail.status === 200 ? (detail.data.reviews || []).map((review) => ({ reviewer: review.reviewer_id, score: review.score, approved: review.approved })) : null };
+        reviews: (detail.data.reviews || []).map((review) => ({ reviewer: review.reviewer_id, score: review.score, approved: review.approved })) };
     }
     if (!candidate) throw new LifecycleError('no_candidate_package');
     const auth = await adminToken();
@@ -125,10 +131,11 @@ function createLifecycleDriver({ gatewayUrl, syntheticUrl, validationUrl, curric
     }
     const reviews = (stored.data.reviews || []).map((review) => ({ reviewer: review.reviewer_id, score: review.score, approved: review.approved }));
     const activated = await http(`${gatewayUrl}/v1/admin/curriculum/activate`, { method: 'POST', token: auth, body: { package_id: id, version } });
-    if (activated.status !== 200) {
+    if (activated.status !== 200 && AWAITING_REVIEW_REFUSALS.includes(activated.data.error)) {
       throw new LifecycleError('package_awaiting_review', { packageId: id, version, state: stored.data.state, reviews,
         openDisagreements: stored.data.openDisagreements || [], reason: activated.data.error });
     }
+    if (activated.status !== 200) throw new LifecycleError('activation_failed', { packageId: id, version, status: activated.status, reason: activated.data.error });
     return { reused: false, packageId: id, version, digest: stored.data.digest, domain: candidate.manifest.domain, gates, reviews,
       moduleCount: candidate.modules?.length ?? null };
   }

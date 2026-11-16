@@ -14,7 +14,7 @@
 
 const { randomBytes } = require('node:crypto');
 const { actionsResponse, behaviourGrade, episodesOf, stepEpisode } = require('../../../services/examination-engine/behaviour');
-const { PASS_SCORE } = require('../../agent-sandbox/src/panel');
+const { episodeSucceeded } = require('../../agent-sandbox/src/policy');
 const { wilson } = require('../../agent-sandbox/src/stats');
 
 const DECIMALS = 4;
@@ -45,8 +45,6 @@ async function playItem(attemptId, item, seedKey, policy) {
   return { ...behaviourGrade(attemptId, item, actionsResponse(episodesOf(taken)), seedKey), invalidActions };
 }
 
-const succeeded = (episode) => episode.score >= PASS_SCORE && episode.criticalViolationRuleIds.length === 0;
-
 /**
  * @param {{ form: { items: object[] }, policyFor: (item: object) => Function, runs: number, seedKey?: string }} input
  *   form: an exam form, only its behaviour items are played; policyFor: the arm's policy for one item;
@@ -65,7 +63,7 @@ async function runArm({ form, policyFor, runs, seedKey = randomBytes(SEED_KEY_BY
       invalidActions += played.invalidActions;
     }
   }
-  const successes = episodes.filter(succeeded).length;
+  const successes = episodes.filter(episodeSucceeded).length;
   const interval = wilson(successes, episodes.length);
   return { runs, episodes: episodes.length, successes, violations: episodes.filter((e) => e.criticalViolationRuleIds.length).length,
     invalidActions, rate: episodes.length ? round(successes / episodes.length) : 0, low: round(interval.low), high: round(interval.high) };

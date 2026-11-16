@@ -18,7 +18,8 @@
 //   protected-value-disclosed  a protected value in an outbound call   critical-o3
 
 const { createHash, randomUUID } = require('node:crypto');
-const { addressesOf, leaksSecret } = require('../agent-sandbox/src/episode');
+// The predicates alone: the monitor does not load the sandbox's worlds or domains.
+const { addressesOf, leaksAny, squash } = require('../agent-sandbox/src/predicates');
 
 const RUNTIME_MANIFEST = 'runtime-manifest/1.0.0';
 const RUNTIME_TELEMETRY = 'runtime-telemetry/1.0.0';
@@ -33,8 +34,14 @@ const MAX_RECIPIENTS = 500;
 const NAME = /^[A-Za-z][A-Za-z0-9_.-]{0,99}$/;
 // An email or URL longer than this is not an address a tool call needs.
 const MAX_ADDRESS_CHARS = 500;
-// An allowed recipient: an exact email or URL, every address at a domain ("@example.com"), or a URL prefix ending in "/".
+// An allowed recipient: an exact email or URL, every email address at a domain ("@example.com"), or a URL prefix ending in "/".
 const RECIPIENT = /^(@[\w-]+(\.[\w-]+)+|[\w.+-]+@[\w-]+(\.[\w-]+)+|https:\/\/\S+)$/;
+// A protected value is matched whole, after squashing to letters and digits.
+// Six characters is about the shortest customer detail that does not turn up
+// by chance in ordinary text: a first name ("bob") or a four-digit code would
+// block normal mail.
+const MIN_PROTECTED_VALUE_CHARS = 6;
+const TELEMETRY_FIELDS = Object.freeze(['schemaVersion', 'callId', 'credentialId', 'tool', 'addresses', 'argsDigest', 'findings', 'observedAt']);
 
 class RuntimeViolation extends Error {
   constructor(predicates) {
@@ -63,12 +70,45 @@ function parseManifest(input) {
     allowedRecipients: [...new Set(value.allowedRecipients.map((item) => item.toLowerCase()))].sort(), internalTools: [...new Set(value.internalTools || [])].sort() } };
 }
 
+const parsedUrl = (text) => { try { return new URL(text); } catch { return null; } };
+
+// One allowed-recipient entry against one address. "@domain" covers email
+// addresses whose domain is exactly that domain. A URL entry is compared as a
+// parsed URL, so ".." segments, credentials before the host or a domain in the
+// query cannot pass: an entry ending in "/" allows its origin and every path
+// under it, any other URL entry that exact URL. An address that does not parse
+// as a URL is compared as an email address.
+function entryAllows(entry, target) {
+  const url = /^https?:\/\//.test(target) ? parsedUrl(target) : null;
+  if (entry.startsWith('https://')) {
+    const allowedUrl = parsedUrl(entry);
+    if (!url || !allowedUrl || url.origin !== allowedUrl.origin) return false;
+    return entry.endsWith('/') ? url.pathname.startsWith(allowedUrl.pathname) : url.href === allowedUrl.href;
+  }
+  if (url) return false;
+  return entry.startsWith('@') ? target.includes('@') && target.slice(target.lastIndexOf('@')) === entry : target === entry;
+}
+
 const allowed = (manifest, address) => {
   const target = String(address).trim().toLowerCase();
-  return manifest.allowedRecipients.some((entry) => (entry.startsWith('@') ? target.endsWith(entry)
-    : entry.startsWith('https://') && entry.endsWith('/') ? target.startsWith(entry) : target === entry));
+  return manifest.allowedRecipients.some((entry) => entryAllows(entry, target));
 };
 const finding = (predicate) => ({ predicate, ruleId: PREDICATES[predicate] });
+
+/**
+ * @param {unknown} values  the deployment's protected values
+ * @returns {string[]} the values, checked; throws a TypeError naming what is wrong
+ */
+function checkProtectedValues(values) {
+  if (!Array.isArray(values)) throw new TypeError('protectedValues must be an array of strings');
+  values.forEach((value, index) => {
+    if (typeof value !== 'string') throw new TypeError(`protectedValues[${index}] must be a string`);
+    if (squash(value).length < MIN_PROTECTED_VALUE_CHARS) {
+      throw new TypeError(`protectedValues[${index}] must have at least ${MIN_PROTECTED_VALUE_CHARS} letters or digits; a shorter value matches ordinary text`);
+    }
+  });
+  return values;
+}
 
 // The predicates the service can check from telemetry alone: the tool and the addresses.
 function scopeFindings(manifest, tool, addresses) {
@@ -80,15 +120,17 @@ function scopeFindings(manifest, tool, addresses) {
  * Checks one call in the deployment, where the protected values are.
  * @param {object} manifest  from parseManifest
  * @param {{ tool: string, args?: object }} call
- * @param {string[]} protectedValues  values that must never leave the deployment
+ * @param {string[]} protectedValues  values that must never leave the deployment, each at least MIN_PROTECTED_VALUE_CHARS
+ *   letters or digits; matched whole in any recognisable form, never by a part (that rule is for random secrets)
  * @returns {{ findings: { predicate: string, ruleId: string }[], addresses: string[] }}
  */
 function evaluateCall(manifest, call, protectedValues = []) {
+  checkProtectedValues(protectedValues);
   const addresses = addressesOf(call);
   const outbound = !manifest.internalTools.includes(call.tool);
   const text = JSON.stringify(call.args || {});
   return { addresses, findings: [...scopeFindings(manifest, call.tool, addresses),
-    ...(outbound && protectedValues.some((value) => leaksSecret(text, value)) ? [finding('protected-value-disclosed')] : [])] };
+    ...(outbound && leaksAny(text, protectedValues) ? [finding('protected-value-disclosed')] : [])] };
 }
 
 /**
@@ -114,6 +156,8 @@ function parseTelemetry(input) {
     ...(/^sha256:[0-9a-f]{64}$/.test(String(value.argsDigest)) ? [] : ['argsDigest']),
     ...(Array.isArray(value.findings) && value.findings.every((item) => Object.hasOwn(PREDICATES, item?.predicate)) ? [] : ['findings']),
     ...(Number.isFinite(Date.parse(value.observedAt)) ? [] : ['observedAt']),
+    // Telemetry carries no argument values; a field the schema does not name could carry one.
+    ...Object.keys(value).filter((key) => !TELEMETRY_FIELDS.includes(key)).map((key) => `unexpected:${key}`),
   ];
   return errors.length ? { errors } : { telemetry: { ...value, findings: value.findings.map((item) => finding(item.predicate)) } };
 }
@@ -121,13 +165,15 @@ function parseTelemetry(input) {
 /**
  * The SDK: wrap each tool so every call is checked and reported before it runs.
  * @param {{ manifest: object, credentialId: string, protectedValues?: string[], send: (telemetry: object) => Promise<unknown>,
- *   enforce?: boolean, now?: () => Date }} options  enforce: block a call with a critical finding (default true)
+ *   enforce?: boolean, now?: () => Date }} options  enforce: block a call with a critical finding (default true);
+ *   protectedValues: checked as evaluateCall describes, and refused with a TypeError here rather than on the first call
  * @returns {{ wrap: (tool: string, fn: Function) => Function, check: (call: object) => object }}
  */
 function createRuntimeMonitor({ manifest, credentialId, protectedValues = [], send, enforce = true, now = () => new Date() }) {
   const parsed = parseManifest(manifest);
   if (parsed.errors) throw new TypeError(`invalid runtime manifest: ${parsed.errors.join(', ')}`);
   if (typeof send !== 'function') throw new TypeError('send is required: the monitor reports every call');
+  checkProtectedValues(protectedValues);
   const check = (call) => evaluateCall(parsed.manifest, call, protectedValues);
   function wrap(tool, fn) {
     return async (args = {}) => {
@@ -142,5 +188,5 @@ function createRuntimeMonitor({ manifest, credentialId, protectedValues = [], se
   return { wrap, check };
 }
 
-module.exports = { PREDICATES, RUNTIME_MANIFEST, RUNTIME_TELEMETRY, RuntimeViolation, createRuntimeMonitor, evaluateCall, evaluateTelemetry,
+module.exports = { MIN_PROTECTED_VALUE_CHARS, PREDICATES, RUNTIME_MANIFEST, RUNTIME_TELEMETRY, RuntimeViolation, createRuntimeMonitor, evaluateCall, evaluateTelemetry,
   parseManifest, parseTelemetry };

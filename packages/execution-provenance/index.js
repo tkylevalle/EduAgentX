@@ -3,7 +3,8 @@
 const { createHash } = require('node:crypto');
 const fs = require('node:fs');
 const reference = require('./reference');
-const { PANEL } = require('../agent-sandbox/src/panel');
+const { policiesOf } = require('../agent-sandbox/src/panel');
+const { AI_SAFETY } = require('../agent-sandbox/src/families');
 const { CODE_DIGEST: SANDBOX_DIGEST, isPassingBehaviourEvidence } = require('../agent-sandbox/src/evidence');
 const remediable = require('./remediable-v1');
 const POLICY = 'reference-execution/1.0.0';
@@ -17,7 +18,7 @@ const REPLAY_REVIEW = 'execution-replay-review/1.0.0';
 const REQUIRED_FIXTURE_REVIEWS = 2;
 // Synthetic and replay runs replay the reference scenarios, which exist for the
 // AI-safety package only, so their episodes are played by that domain's panel.
-const SANDBOX_POLICIES = Object.freeze(Object.fromEntries(PANEL.map((entry) => [entry.id, entry.agent])));
+const SANDBOX_POLICIES = policiesOf(AI_SAFETY);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // Attestation levels a credential may state (target design 4.2, assurance audit D1).
 const ATTESTATION_LEVELS = Object.freeze(['L1-declared', 'L2-observed']);

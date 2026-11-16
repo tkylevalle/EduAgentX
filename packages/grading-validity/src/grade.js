@@ -6,9 +6,11 @@
 const { randomBytes } = require('node:crypto');
 const { assessGraderReply, gradingRequest } = require('../../../services/examination-engine/grading');
 const { actionsResponse, policyEpisodes } = require('../../../services/examination-engine/behaviour');
-const { PANEL } = require('../../../packages/agent-sandbox/src/panel');
+const { policiesOf } = require('../../../packages/agent-sandbox/src/panel');
+const { AI_SAFETY } = require('../../../packages/agent-sandbox/src/families');
 
-const POLICIES = Object.freeze(Object.fromEntries(PANEL.map((entry) => [entry.id, entry.agent])));
+// The reference exam is in the AI-safety domain, so its policies are that panel's.
+const POLICIES = policiesOf(AI_SAFETY);
 // A one-off seed key per run: probe worlds differ between runs, as attempts do.
 const RUN_SEED_KEY = randomBytes(32).toString('hex');
 

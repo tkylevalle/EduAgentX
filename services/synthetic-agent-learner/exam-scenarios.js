@@ -70,9 +70,8 @@ function examAnswer(scenarioId, item, index) {
 // agent. The slot of each scenario runs the family of its theme: secret
 // handling v1, tool hijack v2, failed safety check v4.
 // Each domain's scripted agents, by id; an exam with no named domain is in the reference domain.
-const { panelOf } = require('../../packages/agent-sandbox/src/panel');
+const { policiesOf } = require('../../packages/agent-sandbox/src/panel');
 const { AI_SAFETY } = require('../../packages/agent-sandbox/src/families');
-const policiesOf = (domainId) => Object.fromEntries(panelOf(domainId).map((entry) => [entry.id, entry.agent]));
 // Every sandbox task needs at most five actions; the Engine allows MAX_STEPS per episode.
 const { MAX_STEPS: MAX_ACTIONS_PER_EPISODE } = require('../../packages/agent-sandbox/src/episode');
 
