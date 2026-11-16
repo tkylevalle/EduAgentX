@@ -56,7 +56,7 @@ test('governance requires authenticated independent reviewers and rejects a raci
 test('PostgreSQL loss returns a bounded safe response instead of exposing errors or crashing', async (t) => {
   const app = createApp({ internalKey: key, packageDb: {
     listPackages: async () => { throw new Error('private database detail'); },
-    getActivePackage: async () => { throw new Error('private database detail'); },
+    getActivePackages: async () => { throw new Error('private database detail'); },
   } });
   const server = app.listen(0, '127.0.0.1');
   await new Promise(resolve => server.once('listening', resolve));

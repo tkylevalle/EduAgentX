@@ -524,6 +524,8 @@ function createApp({
       ...(training.needsItem && message.payload.data.executionEvidence ? { executionEvidence: message.payload.data.executionEvidence } : {}),
       evidence: { mode: message.evidence.mode, environment: message.evidence.environment },
       ...(training.needsItem ? { deliveryItemId: data.deliveryItemId, response: data.response } : {}),
+      // A start may name the domain to train in; Training validates it.
+      ...(training.action === 'start' && data.domainId !== undefined ? { domainId: data.domainId } : {}),
     };
     try {
       const upstream = await forwardJson(req, `${trainingServiceUrl}${path}`, {
@@ -693,8 +695,9 @@ function createApp({
     error: 'examination_unavailable', correlationId: req.correlationId });
   app.post('/v1/examinations', requireRole('agent'), async (req, res) => {
     if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body) ||
-      Object.keys(req.body).some((name) => !['idempotencyKey','trainingSessionId','executionProfile'].includes(name)) ||
-      !TRAINING_IDENTIFIER.test(req.body.idempotencyKey || ''))
+      Object.keys(req.body).some((name) => !['idempotencyKey','trainingSessionId','executionProfile','domainId'].includes(name)) ||
+      !TRAINING_IDENTIFIER.test(req.body.idempotencyKey || '') ||
+      (req.body.domainId !== undefined && !TRAINING_IDENTIFIER.test(String(req.body.domainId))))
       return res.status(400).json({ apiVersion: 'v1', error: 'invalid_request', correlationId: req.correlationId });
     if (!examinationInternalKey) return examinationUnavailable(req, res);
     let trustedExecution;
@@ -704,6 +707,8 @@ function createApp({
       return res.status(400).json({ error: 'training_run_required' });
     const body = { idempotencyKey: req.body.idempotencyKey,
       ...(req.body.trainingSessionId ? { trainingSessionId: req.body.trainingSessionId } : {}),
+      // The domain to be examined in, when more than one is Active; never a package version.
+      ...(req.body.domainId ? { domainId: req.body.domainId } : {}),
       ...(trustedExecution ? { trustedExecution } : {}) };
     await proxyJson(req, res, `${examinationEngineUrl}/internal/attempts`, { method: 'POST', body,
       headers: examinationHeaders(req) });

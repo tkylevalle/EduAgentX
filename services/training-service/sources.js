@@ -5,7 +5,8 @@
 // package state is durable; tests inject the fakes below.
 //
 // PackageSource
-//   getActive(options)    -> Promise<PackageRecord | null>   the current Active Domain Assurance Package
+//   getActive(options, selector?) -> Promise<PackageRecord | null>   the Active package of one domain;
+//                         selector { domain } or { packageId }, none for the only one
 //   getById(id, options)  -> Promise<PackageRecord | null>
 //   PackageRecord = { id, version, state, digest, payload: { objectives, modules } }
 //   `digest` is the validation service's own digest and is what a session pins.
@@ -23,7 +24,10 @@ function createFakePackageSource(records = []) {
   const byId = new Map(records.map((record) => [record.id, structuredClone(record)]));
   const copy = (record) => (record ? structuredClone(record) : null);
   return {
-    async getActive() { return copy([...byId.values()].find((record) => record.state === 'Active')); },
+    async getActive(options, { domain, packageId } = {}) {
+      return copy([...byId.values()].find((record) => record.state === 'Active' &&
+        (!domain || record.domainId === domain) && (!packageId || record.id === packageId)));
+    },
     async getById(id) { return copy(byId.get(id)); },
     // Test helpers that stand in for activation, quarantine and silent edits.
     setState(id, state) { byId.get(id).state = state; },

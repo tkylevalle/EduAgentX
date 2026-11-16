@@ -25,7 +25,9 @@ function createSources({
 } = {}) {
   if (!curriculumKey || !trainingKey) throw new Error('curriculum and training keys required');
   return {
-    activePackage: (correlationId) => getJson('validation-activation', `${validationUrl}/packages/active`, {
+    // selector: { packageId } or { domain }; none asks for the only Active package.
+    activePackage: (correlationId, selector = {}) => getJson('validation-activation',
+      `${validationUrl}/packages/active${Object.keys(selector).length ? `?${new URLSearchParams(selector)}` : ''}`, {
       correlationId, headers: { 'x-internal-service-key': curriculumKey, 'x-actor-subject': 'examination-engine' },
     }),
     registration: async (actor, correlationId) => {

@@ -32,7 +32,7 @@ async function stub(routes) {
 
 test('toPackageRecord maps the validation-activation response and keeps only objectives and modules', () => {
   assert.deepEqual(toPackageRecord(activeBody), {
-    id: 'pkg-a', version: '1.0.0', state: 'Active', digest: 'digest-1',
+    id: 'pkg-a', version: '1.0.0', state: 'Active', digest: 'digest-1', domainId: null,
     quarantinedScopes: [],
     payload: { objectives: [{ id: 'o1' }], modules: [{ id: 'm1' }], curriculumTrack: { moduleIds: ['m1'] } },
   });

@@ -30,8 +30,10 @@ const API_VERSION = 'v1';
 const IDENTIFIER = /^[\x20-\x7e]{1,256}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // The only body fields each interaction accepts; anything else is refused.
+// A sandbox domain id, such as customer-refunds.
+const DOMAIN_ID = /^[a-z][a-z-]{1,40}$/;
 const BODY_FIELDS = {
-  start: ['idempotencyKey', 'evidence', 'trustedExecution'],
+  start: ['idempotencyKey', 'evidence', 'trustedExecution', 'domainId'],
   continue: ['idempotencyKey', 'evidence', 'trustedExecution'],
   submit: ['idempotencyKey', 'evidence', 'deliveryItemId', 'response', 'trustedExecution', 'executionEvidence'],
 };
@@ -90,13 +92,16 @@ function createApp({
 
   app.post('/internal/sessions/start', handle(async (req) => {
     const actor = req.header('x-actor-subject');
-    const input = requestInput(req, 'start');
+    const { domainId } = req.body || {};
+    if (domainId !== undefined && !DOMAIN_ID.test(String(domainId))) throw new HttpError(400, 'invalid_request', { details: ['domainId'] });
+    const input = requestInput(req, 'start', domainId ? { domainId } : {});
     const options = { correlationId: req.correlationId };
     return decideAndAppend(store, actor, async (tx) => {
       const open = await tx.findStart?.(actor, input.idempotencyKey) || await tx.findOpenSession(actor);
       if (!open) {
+        // A learner names the domain to train in when more than one is Active.
         const [pkg, registration] = await Promise.all([
-          packageSource.getActive(options), registrySource.getRegistration(actor, options)]);
+          packageSource.getActive(options, input.domainId ? { domain: input.domainId } : {}), registrySource.getRegistration(actor, options)]);
         return decideStart(pkg, registration, null, { ...input, sessionId: randomUUID(), agentLearnerKey: actor });
       }
       const events = await tx.getEvents(open.sessionId);
@@ -161,8 +166,9 @@ function createApp({
       const existingRequest = await tx.findRemediation(request.agentLearnerKey, request.requestId);
       const openSession = existingRequest ? null : await tx.findOpenSession(request.agentLearnerKey);
       if (existingRequest || openSession) return decideRemediation(null, null, { existingRequest, openSession }, input);
+      // Remediation trains on the package the failed attempt was for.
       const [pkg, registration] = await Promise.all([
-        packageSource.getActive(options), registrySource.getRegistration(request.agentLearnerKey, options)]);
+        packageSource.getActive(options, { packageId: request.packageId }), registrySource.getRegistration(request.agentLearnerKey, options)]);
       return decideRemediation(pkg, registration, {}, input);
     });
   }));
