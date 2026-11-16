@@ -76,8 +76,8 @@ async function main() {
   step('six_gates', { passed: validated.data.gates.map(gate => gate.name) });
   for (const [index, reviewerToken] of reviewerTokens.entries()) {
     const reviewed = await request(`${gateway}/v1/curriculum/review`, { method: 'POST', token: reviewerToken,
-      body: { package_id: id, version: pkg.manifest.version, reviewer_id: 'ignored-forgery', score: index ? 4.5 : 4,
-        approved: true } });
+      body: { package_id: id, version: pkg.manifest.version, reviewer_id: 'ignored-forgery',
+        criterionScores: Object.fromEntries(pkg.rubric.criteria.map((criterion) => [criterion.id, index ? 4.5 : 4])), approved: true } });
     expect(reviewed.status, 200, 'review');
     step(`synthetic_reviewer_${index + 1}`, { status: reviewed.status, approvals: reviewed.data.approvals,
       mean: reviewed.data.mean });

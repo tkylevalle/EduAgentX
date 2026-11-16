@@ -1,9 +1,10 @@
 'use strict';
 
 // EduAgentX web app server. It serves the built client and a small read/act
-// API over the platform's public Gateway. Every credential (admin, reviewers,
-// curriculum key) stays here; the browser only ever sees answer-free,
-// operator-level projections.
+// API over the platform's public Gateway. Operator credentials (admin,
+// curriculum key) stay here; the browser only ever sees answer-free,
+// operator-level projections. It holds no reviewer credentials: a reviewer
+// signs in with their own to submit a review (assurance audit C3).
 
 const path = require('node:path');
 const fs = require('node:fs');
@@ -72,10 +73,8 @@ function sameHost(origin, host) {
 
 function createServer({ env = process.env, fetchImpl = fetch, driver } = {}) {
   const admin = { clientId: env.ADMIN_CLIENT_ID, clientSecret: env.ADMIN_CLIENT_SECRET };
-  const reviewers = [1, 2].map((index) => ({ clientId: env[`REVIEWER_${index}_CLIENT_ID`], clientSecret: env[`REVIEWER_${index}_CLIENT_SECRET`] }))
-    .filter((reviewer) => reviewer.clientId && reviewer.clientSecret);
   const lifecycle = driver || createLifecycleDriver({ gatewayUrl: GATEWAY_URL, syntheticUrl: SYNTHETIC_URL,
-    validationUrl: VALIDATION_URL, curriculumInternalKey: env.CURRICULUM_INTERNAL_KEY, admin, reviewers,
+    validationUrl: VALIDATION_URL, curriculumInternalKey: env.CURRICULUM_INTERNAL_KEY, admin,
     candidate: loadCandidate(), fetchImpl });
   let token = null;
   let tokenExpiresAt = 0;
@@ -140,6 +139,7 @@ function createServer({ env = process.env, fetchImpl = fetch, driver } = {}) {
     if (!pkg) return null;
     return {
       packageId: pkg.packageId, version: pkg.version, digest: pkg.digest, state: pkg.state,
+      domain: pkg.manifest?.domain || pkg.domain || null,
       certificationBlocked: pkg.certificationBlocked, quarantinedScopes: pkg.quarantinedScopes,
       track: pkg.curriculumTrack,
       modules: (pkg.modules || []).map((module) => ({ id: module.id, title: module.title,
@@ -208,6 +208,69 @@ function createServer({ env = process.env, fetchImpl = fetch, driver } = {}) {
   app.get('/api/package', async (req, res) => {
     try { res.json({ package: await activePackage() }); }
     catch { res.status(503).json({ error: 'package_unavailable' }); }
+  });
+
+  // Governance (target design 3.2 step 5; assurance audit C1-C3): what a
+  // reviewer needs to judge a package, and the review they submit under their
+  // own identity. The server never stores a reviewer's credentials: it trades
+  // them for a token for this one request.
+  const reviewView = (pkg) => ({
+    packageId: pkg.packageId, version: pkg.version, digest: pkg.digest, state: pkg.state, domain: pkg.manifest?.domain || pkg.domain || null,
+    domainId: pkg.manifest?.domainId || null, createdBy: pkg.createdBy || null,
+    sources: (pkg.sources || []).map((source) => ({ id: source.id, title: source.title, issuer: source.issuer, edition: source.edition,
+      licence: source.licenseBasis, kind: source.snapshotKind, status: source.verificationStatus, url: source.canonicalUrl })),
+    sections: (pkg.sourceSections || []).map((section) => ({ id: section.id, sourceId: section.sourceId, locator: section.locator, text: section.text, url: section.url || null })),
+    modules: (pkg.modules || []).map((module) => ({ id: module.id, title: module.title, objectiveIds: module.objectiveIds,
+      items: (module.deliveryItems || []).map((item) => ({ kind: item.kind || 'lesson', text: item.text })),
+      claims: (module.claims || []).map((claim) => ({ text: claim.text, quote: claim.quote, sectionId: claim.sectionId })) })),
+    objectives: (pkg.objectives || []).map((objective) => ({ id: objective.id, statement: objective.statement, safetyCritical: objective.safetyCritical })),
+    criticalRules: pkg.rubric?.criticalViolationRules || [],
+    criteria: (pkg.rubric?.criteria || []).map((criterion) => ({ id: criterion.id, weight: criterion.weight, anchor: criterion.anchor })),
+    reviews: (pkg.reviews || []).map((review) => ({ reviewer: review.reviewer_id, score: review.score, approved: review.approved,
+      criterionScores: review.criterionScores || {}, comment: review.comment || '', at: review.ts })),
+    openDisagreements: pkg.openDisagreements || [], resolutions: pkg.resolutions || [],
+    gates: (pkg.evidence || []).filter((entry) => entry.event === 'validation_run').slice(-1)[0]?.result?.gates || [],
+  });
+  const reviewerToken = async (body) => {
+    if (typeof body?.clientId !== 'string' || typeof body?.clientSecret !== 'string' || !body.clientId || !body.clientSecret) return null;
+    const reply = await call(`${GATEWAY_URL}/v1/auth/tokens`, { method: 'POST', body: { clientId: body.clientId, clientSecret: body.clientSecret } });
+    return reply.status === 200 ? reply.data.accessToken : null;
+  };
+  const asReviewer = async (req, res, route, body) => {
+    const reviewer = await reviewerToken(req.body);
+    if (!reviewer) return res.status(401).json({ error: 'reviewer_sign_in_failed' });
+    const reply = await call(`${GATEWAY_URL}${route}`, { method: 'POST', body, headers: { authorization: `Bearer ${reviewer}` } });
+    return res.status(reply.status).json(reply.data);
+  };
+
+  app.get('/api/governance/packages', async (req, res) => {
+    try {
+      const list = await gateway('/v1/admin/curriculum/packages');
+      if (list.status !== 200) return res.status(503).json({ error: 'packages_unavailable' });
+      const details = await Promise.all((list.data || []).filter((pkg) => ['AwaitingReview', 'Active'].includes(pkg.state)).map((pkg) =>
+        gateway(`/v1/admin/curriculum/packages/${encodeURIComponent(pkg.packageId)}/${encodeURIComponent(pkg.version)}`)));
+      res.json({ packages: details.filter((reply) => reply.status === 200).map((reply) => reviewView(reply.data)) });
+    } catch { res.status(503).json({ error: 'packages_unavailable' }); }
+  });
+
+  app.post('/api/governance/reviews', async (req, res) => {
+    const { packageId, version, criterionScores, approved, comment } = req.body || {};
+    try { await asReviewer(req, res, '/v1/curriculum/review', { package_id: packageId, version, criterionScores, approved, comment }); }
+    catch { res.status(503).json({ error: 'review_unavailable' }); }
+  });
+
+  app.post('/api/governance/resolutions', async (req, res) => {
+    const { packageId, version, criterionId, resolution } = req.body || {};
+    try { await asReviewer(req, res, '/v1/curriculum/review/resolutions', { package_id: packageId, version, criterionId, resolution }); }
+    catch { res.status(503).json({ error: 'resolution_unavailable' }); }
+  });
+
+  // Activation is the operator's step, and the service refuses it until two people approved with no open disagreement.
+  app.post('/api/governance/activate', async (req, res) => {
+    try {
+      const reply = await gateway('/v1/admin/curriculum/activate', { method: 'POST', body: { package_id: req.body?.packageId, version: req.body?.version } });
+      res.status(reply.status).json(reply.data);
+    } catch { res.status(503).json({ error: 'activation_unavailable' }); }
   });
 
   app.get('/api/credentials', async (req, res) => {

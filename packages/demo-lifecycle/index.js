@@ -7,7 +7,9 @@
 // records what that service answered.
 //
 // Used by scripts/poc-lifecycle.js (CLI evidence run) and by the web app's
-// server (live demonstration). Operator credentials stay server-side.
+// server (live demonstration). Operator credentials stay server-side. It
+// never reviews a package: activation waits for two people's reviews,
+// submitted in the governance console (assurance audit C3).
 
 const { randomUUID } = require('node:crypto');
 
@@ -43,7 +45,7 @@ class LifecycleError extends Error {
 }
 
 function createLifecycleDriver({ gatewayUrl, syntheticUrl, validationUrl, curriculumInternalKey,
-  admin, reviewers = [], candidate, examScenario = 'safe-escalation', fetchImpl = fetch } = {}) {
+  admin, candidate, examScenario = 'safe-escalation', fetchImpl = fetch } = {}) {
   if (!gatewayUrl || !syntheticUrl || !admin?.clientId || !admin?.clientSecret) {
     throw new TypeError('gatewayUrl, syntheticUrl and admin credentials are required');
   }
@@ -73,18 +75,23 @@ function createLifecycleDriver({ gatewayUrl, syntheticUrl, validationUrl, curric
   }
   const adminToken = () => token(admin);
 
+  // The Active package of the candidate's domain (or the only Active one).
   async function activePackage() {
     if (!validationUrl || !curriculumInternalKey) return null;
-    const reply = await http(`${validationUrl}/packages/active`, {
+    const domain = candidate?.manifest?.domainId;
+    const reply = await http(`${validationUrl}/packages/active${domain ? `?domain=${encodeURIComponent(domain)}` : ''}`, {
       headers: { 'x-internal-service-key': curriculumInternalKey, 'x-actor-subject': 'demo-lifecycle' } });
     if (reply.status === 404) return null;
     if (reply.status !== 200) throw new LifecycleError('active_package_unavailable', { status: reply.status });
     return reply.data;
   }
 
-  // Reuses the active package when one exists; otherwise ingests the
-  // reference candidate and takes it through six gates, two distinct
-  // reviews and activation.
+  // Reuses the Active package of the candidate's domain. Otherwise it ingests
+  // the candidate under its own id and version (idempotent), runs the six
+  // gates once, and activates it only when two people have already approved
+  // that exact version in the governance console. Until then the run stops at
+  // this step with the package's review state, so nobody mistakes an
+  // unreviewed package for an approved one.
   async function ensurePackage() {
     const existing = await activePackage();
     if (existing) {
@@ -92,30 +99,31 @@ function createLifecycleDriver({ gatewayUrl, syntheticUrl, validationUrl, curric
         domain: existing.manifest?.domain || existing.domain || null, moduleCount: existing.modules?.length ?? null };
     }
     if (!candidate) throw new LifecycleError('no_candidate_package');
-    if (reviewers.length < 2) throw new LifecycleError('two_reviewers_required');
     const auth = await adminToken();
-    const pkg = structuredClone(candidate);
-    pkg.manifest.packageId = `ai-safety-demo-${randomUUID().slice(0, 8)}`;
-    const id = pkg.manifest.packageId, version = pkg.manifest.version;
-    const ingested = await http(`${gatewayUrl}/v1/admin/curriculum/packages`, { method: 'POST', token: auth, body: pkg });
-    if (ingested.status !== 201) throw new LifecycleError('ingestion_failed', { status: ingested.status, error: ingested.data.error });
-    const validated = await http(`${gatewayUrl}/v1/admin/curriculum/validate`, { method: 'POST', token: auth,
-      body: { package_id: id, version } });
-    if (validated.status !== 200 || !validated.data.passed) {
-      throw new LifecycleError('validation_failed', { status: validated.status, gates: validated.data.gates });
+    const id = candidate.manifest.packageId, version = candidate.manifest.version;
+    const read = () => http(`${gatewayUrl}/v1/admin/curriculum/packages/${encodeURIComponent(id)}/${encodeURIComponent(version)}`, { token: auth });
+    let stored = await read();
+    if (stored.status === 404) {
+      const ingested = await http(`${gatewayUrl}/v1/admin/curriculum/packages`, { method: 'POST', token: auth, body: candidate });
+      if (![200, 201].includes(ingested.status)) throw new LifecycleError('ingestion_failed', { status: ingested.status, error: ingested.data.error });
+      stored = await read();
     }
-    const reviews = [];
-    for (const [index, reviewer] of reviewers.slice(0, 2).entries()) {
-      const reviewed = await http(`${gatewayUrl}/v1/curriculum/review`, { method: 'POST', token: await token(reviewer),
-        body: { package_id: id, version, reviewer_id: reviewer.clientId, score: index ? 4.5 : 4, approved: true } });
-      if (reviewed.status !== 200) throw new LifecycleError('review_failed', { status: reviewed.status, error: reviewed.data.error });
-      reviews.push({ reviewer: reviewer.clientId, approvals: reviewed.data.approvals });
+    if (stored.status !== 200) throw new LifecycleError('package_unavailable', { status: stored.status });
+    let gates = null;
+    if (stored.data.state === 'Candidate') {
+      const validated = await http(`${gatewayUrl}/v1/admin/curriculum/validate`, { method: 'POST', token: auth, body: { package_id: id, version } });
+      if (validated.status !== 200 || !validated.data.passed) throw new LifecycleError('validation_failed', { status: validated.status, gates: validated.data.gates });
+      gates = validated.data.gates.map((gate) => gate.name);
+      stored = await read();
     }
-    const activated = await http(`${gatewayUrl}/v1/admin/curriculum/activate`, { method: 'POST', token: auth,
-      body: { package_id: id, version } });
-    if (activated.status !== 200) throw new LifecycleError('activation_failed', { status: activated.status, error: activated.data.error });
-    return { reused: false, packageId: id, version, digest: ingested.data.digest, domain: pkg.manifest.domain,
-      gates: validated.data.gates.map((gate) => gate.name), reviews, moduleCount: pkg.modules?.length ?? null };
+    const reviews = (stored.data.reviews || []).map((review) => ({ reviewer: review.reviewer_id, score: review.score, approved: review.approved }));
+    const activated = await http(`${gatewayUrl}/v1/admin/curriculum/activate`, { method: 'POST', token: auth, body: { package_id: id, version } });
+    if (activated.status !== 200) {
+      throw new LifecycleError('package_awaiting_review', { packageId: id, version, state: stored.data.state, reviews,
+        openDisagreements: stored.data.openDisagreements || [], reason: activated.data.error });
+    }
+    return { reused: false, packageId: id, version, digest: stored.data.digest, domain: candidate.manifest.domain, gates, reviews,
+      moduleCount: candidate.modules?.length ?? null };
   }
 
   async function register(scenario = examScenario) {

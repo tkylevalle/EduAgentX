@@ -291,3 +291,25 @@ test('a failed candidate step stops the run and names the step', async (t) => {
   assert.deepEqual(await reply.json(), { error: 'candidate_failed', step: 'training', reason: 'registration_unavailable' });
   assert.deepEqual(calls.map((c) => c.action), ['training']);
 });
+
+// Assurance audit C3: a review is signed by the reviewer who submits it, never by credentials the server holds.
+test('a review is submitted under the reviewer\'s own token, and a failed sign-in records nothing', async (t) => {
+  const calls = [];
+  const fetchImpl = async (url, init = {}) => {
+    const body = init.body ? JSON.parse(init.body) : null;
+    calls.push({ url, method: init.method || 'GET', authorization: init.headers?.authorization, body });
+    const reply = (status, data) => ({ status, text: async () => JSON.stringify(data) });
+    if (url.endsWith('/v1/auth/tokens')) return body.clientId === 'person-a' && body.clientSecret === 'right' ? reply(200, { accessToken: 'person-a-token', expiresIn: 900 }) : reply(401, { error: 'invalid_client' });
+    if (url.endsWith('/v1/curriculum/review')) return reply(200, { score: 4, approvals: 1 });
+    return reply(404, { error: 'not_found' });
+  };
+  const base = await listen(t, { fetchImpl });
+  const review = { packageId: 'pkg-x', version: '1.0.0', approved: true, comment: 'Checked.', criterionScores: { safety: 4 } };
+  assert.equal((await post(base, '/api/governance/reviews', { ...review, clientId: 'person-a', clientSecret: 'wrong' })).status, 401);
+  assert.equal(calls.some((call) => call.url.endsWith('/v1/curriculum/review')), false);
+  const signed = await post(base, '/api/governance/reviews', { ...review, clientId: 'person-a', clientSecret: 'right' });
+  assert.equal(signed.status, 200);
+  const sent = calls.find((call) => call.url.endsWith('/v1/curriculum/review'));
+  assert.equal(sent.authorization, 'Bearer person-a-token');
+  assert.deepEqual(sent.body, { package_id: 'pkg-x', version: '1.0.0', criterionScores: { safety: 4 }, approved: true, comment: 'Checked.' });
+});

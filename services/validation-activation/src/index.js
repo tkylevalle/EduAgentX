@@ -8,6 +8,7 @@ const { db } = require('./db');
 const { classifyFreshness, DEFAULT_FRESHNESS_DAYS, isDue } = require('./freshness');
 const { validateScope, createRefreshCandidate, selectFallback } = require('./package-lifecycle');
 const { runFreshnessJob } = require('./freshness-job');
+const { MAX_COMMENT_CHARS, MAX_RESOLUTION_CHARS, reviewScore, unresolvedDisagreements } = require('./reviews');
 
 function createApp({ packageDb = db, now = () => new Date(), internalKey = process.env.CURRICULUM_INTERNAL_KEY, fetchImpl = fetch } = {}) {
 const app = express();
@@ -64,27 +65,54 @@ route('post', '/validate', requireInternalActor, async (req, res) => {
   res.json({ passed: true, gates: result.gates, state: 'AwaitingReview' });
 });
 
-// POST /review — submit reviewer approval
+// POST /review — a reviewer's scores for every rubric criterion, a comment and
+// an approval decision. The reviewer is the authenticated subject; the score
+// is the rubric-weighted mean of the criterion scores (reviews.js).
 route('post', '/review', requireInternalActor, async (req, res) => {
-  const { package_id, version, score, approved } = req.body;
+  const { package_id, version, criterionScores, approved, comment = '' } = req.body;
   const reviewer_id = req.header('x-actor-subject');
   if (!['reviewer', 'admin'].includes(req.header('x-actor-role')))
     return res.status(403).json({ error: 'reviewer_role_required' });
-  if (!package_id || !version || !Number.isFinite(score) || typeof approved !== 'boolean')
+  if (!package_id || !version || typeof approved !== 'boolean' || typeof comment !== 'string' || comment.length > MAX_COMMENT_CHARS)
     return res.status(400).json({ error: 'missing_fields' });
-  if (score < 0 || score > 5) return res.status(422).json({ error: 'invalid_score' });
   const pkg = await packageDb.getPackage(package_id, version);
   if (!pkg) return res.status(404).json({ error: 'package_not_found' });
   if (pkg.state !== 'AwaitingReview') return res.status(409).json({ error: 'not_awaiting_review', state: pkg.state });
   if (pkg.createdBy === reviewer_id) return res.status(403).json({ error: 'author_cannot_review' });
-  if (!await packageDb.submitReview(package_id, version, pkg.digest, { reviewer_id, score, approved, ts: now().toISOString() }))
+  const scored = reviewScore(pkg.rubric, criterionScores);
+  if (scored.error) return res.status(422).json({ error: scored.error, criteria: (pkg.rubric?.criteria || []).map((criterion) => criterion.id) });
+  const review = { reviewer_id, score: scored.score, approved, criterionScores, comment: comment.trim(), ts: now().toISOString() };
+  if (!await packageDb.submitReview(package_id, version, pkg.digest, review))
     return res.status(409).json({ error: 'duplicate_reviewer' });
-  await packageDb.appendEvidence(package_id, { event: 'review_submitted', reviewer_id, score, approved, ts: now().toISOString() }, version);
+  await packageDb.appendEvidence(package_id, { event: 'review_submitted', ...review }, version);
   const packageReviews = await packageDb.getReviews(package_id, version);
   const approvals = packageReviews.filter(r => r.approved && r.score >= 3.5);
-  const mean = approvals.length ? approvals.reduce((sum, review) => sum + review.score, 0) / approvals.length : null;
-  res.json({ reviews: packageReviews.length, approvals: approvals.length, mean, target_met: mean >= 4,
-    ready_to_activate: approvals.length >= 2 && mean >= 3.5 });
+  const mean = approvals.length ? approvals.reduce((sum, item) => sum + item.score, 0) / approvals.length : null;
+  const disagreements = unresolvedDisagreements(approvals, pkg.rubric, await packageDb.getResolutions(package_id, version));
+  res.json({ score: scored.score, reviews: packageReviews.length, approvals: approvals.length, mean, target_met: mean >= 4, disagreements,
+    ready_to_activate: approvals.length >= 2 && mean >= 3.5 && disagreements.length === 0 });
+});
+
+// POST /review/resolutions — how a disagreement on one criterion was resolved.
+// Only a reviewer of this version, or an admin, may record it, once.
+route('post', '/review/resolutions', requireInternalActor, async (req, res) => {
+  const { package_id, version, criterionId, resolution } = req.body;
+  const actor = req.header('x-actor-subject');
+  if (!['reviewer', 'admin'].includes(req.header('x-actor-role'))) return res.status(403).json({ error: 'reviewer_role_required' });
+  if (!package_id || !version || typeof criterionId !== 'string' || typeof resolution !== 'string' || !resolution.trim() ||
+    resolution.length > MAX_RESOLUTION_CHARS) return res.status(400).json({ error: 'missing_fields' });
+  const pkg = await packageDb.getPackage(package_id, version);
+  if (!pkg) return res.status(404).json({ error: 'package_not_found' });
+  const reviews = await packageDb.getReviews(package_id, version);
+  if (req.header('x-actor-role') !== 'admin' && !reviews.some((review) => review.reviewer_id === actor))
+    return res.status(403).json({ error: 'only_a_reviewer_of_this_version_may_resolve' });
+  const open = unresolvedDisagreements(reviews.filter((review) => review.approved), pkg.rubric, await packageDb.getResolutions(package_id, version));
+  if (!open.some((item) => item.criterionId === criterionId)) return res.status(409).json({ error: 'no_open_disagreement', criterionId });
+  if (!await packageDb.addResolution(package_id, version, { criterionId, resolvedBy: actor, resolution: resolution.trim() }))
+    return res.status(409).json({ error: 'already_resolved' });
+  await packageDb.appendEvidence(package_id, { event: 'review_disagreement_resolved', criterionId, resolvedBy: actor,
+    resolution: resolution.trim(), ts: now().toISOString() }, version);
+  res.json({ criterionId, resolvedBy: actor });
 });
 
 // POST /activate — atomically activate after 2 approvals
@@ -104,6 +132,8 @@ route('post', '/activate', requireInternalActor, async (req, res) => {
     return res.status(403).json({ error: 'insufficient_approvals', required: 2, distinct_approvers: distinctReviewers.size });
   const avgScore = approvals.reduce((sum, r) => sum + r.score, 0) / approvals.length;
   if (avgScore < 3.5) return res.status(422).json({ error: 'score_below_floor', floor: 3.5, average: avgScore });
+  const disagreements = unresolvedDisagreements(approvals, pkg.rubric, await packageDb.getResolutions(package_id, version));
+  if (disagreements.length) return res.status(409).json({ error: 'unresolved_review_disagreement', disagreements });
   let result;
   try { result = await packageDb.activatePackage(package_id, version, pkg.digest); }
   catch { return res.status(409).json({ error: 'activation_precondition_failed' }); }
@@ -151,8 +181,10 @@ route('get', '/packages/:id', requireInternalActor, async (req, res) => {
   const evidence = await packageDb.getEvidence(req.params.id, pkg.version);
   const packageReviews = await packageDb.getReviews(req.params.id, pkg.version);
   const quarantinedScopes = await packageDb.getScopedQuarantines(pkg.id, pkg.version);
+  const resolutions = await packageDb.getResolutions(pkg.id, pkg.version);
   const { fallbackBank, fallback_bank, ...safePackage } = pkg;
-  res.json({ ...safePackage, packageId: pkg.id, digest: pkg.digest || null, evidence, reviews: packageReviews,
+  res.json({ ...safePackage, packageId: pkg.id, digest: pkg.digest || null, evidence, reviews: packageReviews, resolutions,
+    openDisagreements: unresolvedDisagreements(packageReviews.filter((review) => review.approved), pkg.rubric, resolutions),
     quarantinedScopes, certificationBlocked: quarantinedScopes.length > 0 });
 });
 
