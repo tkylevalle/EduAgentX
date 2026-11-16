@@ -443,3 +443,14 @@ input:focus, textarea:focus { outline: none; border-color: var(--signal-line); b
 }
 .spin { animation: spin 900ms linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Mode switch: School and Operator, in both shells ── */
+.mode-switch { flex: none; display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--surface-1); }
+.mode-switch button {
+  display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border: 0; border-radius: var(--radius-sm);
+  background: none; color: var(--text-2); cursor: pointer; font-size: 12px; font-weight: 700; font-stretch: 110%;
+  transition: background 140ms, color 140ms;
+}
+.mode-switch button:hover { color: var(--text); }
+.mode-switch button[aria-pressed='true'] { background: var(--text); color: var(--ink); cursor: default; }
+@media (max-width: 720px) { .mode-switch button span { display: none; } .mode-switch button { padding: 0 9px; } }

@@ -1,164 +1,53 @@
-import { useEffect, useRef, useState } from 'react';
-import { Activity, BadgeCheck, BellRing, BookOpenCheck, FileCheck2, FlaskConical, Gavel, LayoutDashboard, Network, ScanLine, Store, Tags } from 'lucide-react';
-import { BrandMark } from './ui.jsx';
-import { api, ago, clock, EVENT_COPY } from './lib.js';
-import Overview from './pages/Overview.jsx';
-import Lab from './pages/Lab.jsx';
-import Credentials from './pages/Credentials.jsx';
-import Verify from './pages/Verify.jsx';
-import Curriculum from './pages/Curriculum.jsx';
-import System from './pages/System.jsx';
-import Marketplace from './pages/Marketplace.jsx';
-import Evidence from './pages/Evidence.jsx';
-import Governance from './pages/Governance.jsx';
-import Attention from './pages/Attention.jsx';
-import Labelling from './pages/Labelling.jsx';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { parseHash, switchMode } from './mode.mjs';
+import { useStatus } from './status.js';
+import OperatorShell from './OperatorShell.jsx';
+import School from './school/School.jsx';
 
-const PAGES = [
-  { id: 'overview', label: 'Overview', icon: LayoutDashboard, component: Overview },
-  { id: 'lab', label: 'Lifecycle Lab', icon: FlaskConical, component: Lab },
-  { id: 'credentials', label: 'Credentials', icon: BadgeCheck, component: Credentials },
-  { id: 'verify', label: 'Verify', icon: ScanLine, component: Verify },
-  { id: 'curriculum', label: 'Curriculum', icon: BookOpenCheck, component: Curriculum },
-  { id: 'governance', label: 'Governance', icon: Gavel, component: Governance },
-  { id: 'labelling', label: 'Labelling', icon: Tags, component: Labelling },
-  { id: 'attention', label: 'Attention', icon: BellRing, component: Attention },
-  { id: 'system', label: 'System', icon: Network, component: System },
-  { id: 'marketplace', label: 'Marketplace', icon: Store, component: Marketplace },
-  { id: 'evidence', label: 'Evidence', icon: FileCheck2, component: Evidence },
-];
-const LIGHT_TARGETS = '.panel, .ledger-cell, .seg-option';
-const TICKER_POLL_MS = 8000;
-// The Critical banner checks the Attention Queue this often.
-const CRITICAL_POLL_MS = 15000;
+const MODE_KEY = 'eduagentx.mode';
+const TYPING = 'input, textarea, select, [contenteditable="true"]';
 
-const pageFromHash = () => PAGES.find((page) => page.id === window.location.hash.slice(2).split('/')[0]) || PAGES[0];
-
-// The newest domain event, shown in the top bar; it flashes when it changes.
-function useLatestEvent() {
-  const [event, setEvent] = useState(null);
-  const [fresh, setFresh] = useState(false);
-  const last = useRef(null);
-  useEffect(() => {
-    let alive = true;
-    const load = () => api('/api/overview').then((data) => {
-      const latest = data.events?.[0] || null;
-      if (!alive || !latest) return;
-      const key = `${latest.type}:${latest.receivedAt}`;
-      if (last.current && last.current !== key) { setFresh(true); setTimeout(() => alive && setFresh(false), 1300); }
-      last.current = key;
-      setEvent(latest);
-    }).catch(() => {});
-    load();
-    const timer = setInterval(load, TICKER_POLL_MS);
-    return () => { alive = false; clearInterval(timer); };
-  }, []);
-  return [event, fresh];
+// Storage can be blocked (private window, site data off). The mode then lives
+// in the hash only, which is enough for the session.
+function storedMode() {
+  try { return window.localStorage.getItem(MODE_KEY); } catch { return null; }
+}
+function storeMode(mode) {
+  try { window.localStorage.setItem(MODE_KEY, mode); } catch { /* see above */ }
 }
 
+const readRoute = () => parseHash(window.location.hash, storedMode());
+
 export default function App() {
-  const [page, setPage] = useState(pageFromHash);
-  const [liveAvailable, setLiveAvailable] = useState(false);
-  useEffect(() => { api('/api/live-model').then((data) => setLiveAvailable(data.available === true)).catch(() => {}); }, []);
-  const [now, setNow] = useState(() => new Date());
-  const [health, setHealth] = useState(null);
-  const [event, fresh] = useLatestEvent();
+  const [route, setRoute] = useState(readRoute);
+  const status = useStatus();
+  const lastSwitch = useRef(null);
 
   useEffect(() => {
-    const onHash = () => setPage(pageFromHash());
+    const onHash = () => setRoute(readRoute());
     window.addEventListener('hashchange', onHash);
-    const tick = setInterval(() => setNow(new Date()), 1000);
-    // Pointer light: each surface lights up where the pointer is.
-    const onMove = (moveEvent) => {
-      const target = moveEvent.target.closest?.(LIGHT_TARGETS);
-      if (!target) return;
-      const rect = target.getBoundingClientRect();
-      target.style.setProperty('--mx', `${moveEvent.clientX - rect.left}px`);
-      target.style.setProperty('--my', `${moveEvent.clientY - rect.top}px`);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+  useEffect(() => { storeMode(route.mode); }, [route.mode]);
+
+  // The hash is read at the time of the switch: School moves it as the run moves.
+  const onSwitch = useCallback(() => {
+    const next = switchMode(readRoute(), lastSwitch.current);
+    lastSwitch.current = next.last;
+    window.location.hash = next.hash;
+  }, []);
+
+  useEffect(() => {
+    const onKey = (event) => {
+      if (event.key?.toLowerCase() !== 'm' || event.ctrlKey || event.metaKey || event.altKey) return;
+      if (event.target.closest?.(TYPING)) return;
+      onSwitch();
     };
-    window.addEventListener('pointermove', onMove, { passive: true });
-    return () => { window.removeEventListener('hashchange', onHash); window.removeEventListener('pointermove', onMove); clearInterval(tick); };
-  }, []);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onSwitch]);
 
-  useEffect(() => {
-    let alive = true;
-    const load = () => api('/api/health').then((data) => alive && setHealth(data.services)).catch(() => alive && setHealth([]));
-    load();
-    const timer = setInterval(load, 15000);
-    return () => { alive = false; clearInterval(timer); };
-  }, []);
-
-  // Open critical incidents, shown on every page until someone resolves them (target design 7.3).
-  // null: the incident log could not be read, so the critical state is unknown and says so.
-  const [critical, setCritical] = useState(0);
-  useEffect(() => {
-    let alive = true;
-    const load = () => api('/api/incidents?status=open').then((data) => alive &&
-      setCritical(data.incidents.filter((incident) => incident.severity === 'critical').length)).catch(() => alive && setCritical(null));
-    load();
-    const timer = setInterval(load, CRITICAL_POLL_MS);
-    return () => { alive = false; clearInterval(timer); };
-  }, []);
-
-  useEffect(() => { document.title = `${page.label} · EduAgentX`; }, [page]);
-
-  const healthy = health?.filter((service) => service.healthy).length ?? 0;
-  const total = health?.length ?? 0;
-  const tone = !health ? '' : healthy === total ? 'ok' : healthy >= total - 2 ? 'warn' : 'bad';
-  const [eventCopy, eventTone] = EVENT_COPY[event?.type] || [event?.type, ''];
-  const Page = page.component;
-
-  return (
-    <div className="shell">
-      <nav className="rail" aria-label="Primary">
-        <div className="brand">
-          <BrandMark />
-          <div>
-            <div className="brand-name">EduAgentX</div>
-            <div className="brand-sub">Agent assurance</div>
-          </div>
-        </div>
-        {PAGES.map(({ id, label, icon: Icon }, index) => (
-          <button key={id} className="nav-item" aria-current={page.id === id ? 'page' : undefined} title={label}
-            onClick={() => { window.location.hash = `/${id}`; }}>
-            <span className="nav-index">{String(index + 1).padStart(2, '0')}</span>
-            <Icon size={16} strokeWidth={2} /><span>{label}</span>
-          </button>
-        ))}
-        <div className="rail-foot">
-          Local Compose<br />
-          {liveAvailable ? 'Simulation + live evidence' : 'Simulation evidence'}
-        </div>
-      </nav>
-      <div className="main">
-        <header className="topbar">
-          <span className="crumb">EduAgentX / <strong>{page.label}</strong></span>
-          <span className="spacer" />
-          {event && (
-            <span className={`ticker ${fresh ? 'flash' : ''}`} aria-live="polite">
-              <span className={`dot ${eventTone} live`} />
-              <span className="ticker-text">{eventCopy} · <code>{event.agentId}</code> · {ago(event.receivedAt)}</span>
-            </span>
-          )}
-          <span className="env-chip hide-sm"><Activity size={12} /> {liveAvailable ? 'Synthetic + live learner' : 'Synthetic learner'}</span>
-          <button className="env-chip" style={{ background: 'none', cursor: 'pointer' }} onClick={() => { window.location.hash = '/system'; }}>
-            <span className={`dot ${tone} ${tone === 'ok' ? 'live' : ''}`} />{health ? `${healthy}/${total} up` : 'Checking'}
-          </button>
-          <span className="data faint hide-sm">{clock(now)}</span>
-        </header>
-        {critical === null && (
-          <div className="notice warn" role="status" style={{ margin: '12px 24px 0' }}>
-            <BellRing size={14} /> Incident log unreachable: whether a critical incident is open is UNKNOWN.
-          </div>
-        )}
-        {critical > 0 && page.id !== 'attention' && (
-          <button className="notice bad" role="alert" style={{ margin: '12px 24px 0', textAlign: 'left', cursor: 'pointer' }}
-            onClick={() => { window.location.hash = '/attention'; }}>
-            <BellRing size={14} /> {critical} open critical incident{critical > 1 ? 's' : ''}: a runtime violation or a failed suspension needs a person. Open the Attention Queue.
-          </button>
-        )}
-        <Page key={page.id} health={health} />
-      </div>
-    </div>
-  );
+  return route.mode === 'school'
+    ? <School place={route.part} status={status} onSwitch={onSwitch} />
+    : <OperatorShell pageId={route.part} status={status} onSwitch={onSwitch} />;
 }
