@@ -62,3 +62,18 @@ test('a domain with no Active package is refused as no_active_package', async (t
   const refused = await start({ idempotencyKey: 'start-ai', evidence: synthetic, domainId: 'ai-safety' });
   assert.deepEqual([refused.status, refused.body.error], [409, 'no_active_package']);
 });
+
+test('a start with no domain while several are Active is told to name one', async (t) => {
+  const { DomainRequiredError } = require('../clients');
+  const app = createApp({ internalKey: KEY, store: createMemoryStore(), clock: () => '2026-11-16T10:00:00.000Z',
+    packageSource: { getActive: async () => { throw new DomainRequiredError(['customer-refunds', 'personal-data']); }, getById: async () => null },
+    registrySource: createFakeRegistrySource([{ agentLearnerKey: LEARNER, configurationFingerprint: 'sha256:c', configurationVersion: 1 }]) });
+  const server = http.createServer(app);
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const response = await fetch(`http://127.0.0.1:${server.address().port}/internal/sessions/start`, { method: 'POST',
+    headers: { 'x-internal-service-key': KEY, 'x-actor-subject': LEARNER, 'content-type': 'application/json' },
+    body: JSON.stringify({ idempotencyKey: 'start-none', evidence: synthetic }) });
+  assert.deepEqual([response.status, await response.json()].map((v, i) => (i ? [v.error, v.domains] : v)),
+    [409, ['domain_required', ['customer-refunds', 'personal-data']]]);
+});

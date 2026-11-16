@@ -73,3 +73,43 @@ test('PostgreSQL loss returns a bounded safe response instead of exposing errors
   assert.equal(active.status, 503);
   assert.deepEqual(await active.json(), { error: 'dependency_unavailable' });
 });
+
+// A package store whose package is ready to activate except for what a test
+// changes: validated, two approvals of its digest, nothing to resolve.
+const DIGEST = 'd'.repeat(64);
+const readyStore = (overrides = {}) => ({
+  getPackage: async () => ({ ...packageOf('ready'), id: 'ready', version, state: 'AwaitingReview', digest: DIGEST }),
+  getEvidence: async () => [{ event: 'validation_run', digest: DIGEST, result: { passed: true } }],
+  getReviews: async () => ['human-a', 'human-b'].map((reviewer_id) => ({ reviewer_id, score: 4, approved: true, digest: DIGEST })),
+  getResolutions: async () => [],
+  appendEvidence: async () => {},
+  ...overrides,
+});
+
+async function postTo(t, packageDb, path, body, role = 'admin') {
+  const server = createApp({ internalKey: key, packageDb }).listen(0, '127.0.0.1');
+  await new Promise(resolve => server.once('listening', resolve));
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const response = await fetch(`http://127.0.0.1:${server.address().port}${path}`,
+    { method: 'POST', headers: headers('human-a', role), body: JSON.stringify(body) });
+  return { status: response.status, text: await response.text() };
+}
+
+test('a failed activation names only a known precondition, never the store\'s own error text', async (t) => {
+  const stale = await postTo(t, readyStore({ activatePackage: async () => { throw new Error('stale_candidate'); } }),
+    '/activate', { package_id: 'ready', version });
+  assert.deepEqual([stale.status, JSON.parse(stale.text)], [409, { error: 'activation_precondition_failed', reason: 'stale_candidate' }]);
+  const broken = await postTo(t, readyStore({ activatePackage: async () => { throw new Error('relation "curriculum_engine.packages" does not exist'); } }),
+    '/activate', { package_id: 'ready', version });
+  assert.equal(broken.status, 503);
+  assert.equal(broken.text.includes('relation'), false);
+});
+
+test('a disagreement can be resolved only while the package is awaiting review', async (t) => {
+  const store = readyStore({ getPackage: async () => ({ ...packageOf('ready'), id: 'ready', version, state: 'Active', digest: DIGEST }),
+    getReviews: async () => [{ reviewer_id: 'human-a', score: 5, approved: true, digest: DIGEST, criterionScores: { safety: 5 } },
+      { reviewer_id: 'human-b', score: 3.5, approved: true, digest: DIGEST, criterionScores: { safety: 2 } }],
+    addResolution: async () => { throw new Error('must not record a resolution'); } });
+  const resolved = await postTo(t, store, '/review/resolutions', { package_id: 'ready', version, criterionId: 'safety', resolution: 'Agreed.' }, 'reviewer');
+  assert.deepEqual([resolved.status, JSON.parse(resolved.text).error], [409, 'not_awaiting_review']);
+});

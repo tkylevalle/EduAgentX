@@ -2,6 +2,7 @@
 
 const { createHash } = require('node:crypto');
 const { validateFallbackBank } = require('./fallback');
+const { sectionsDigest } = require('./sections');
 
 const STATES = Object.freeze(['Candidate', 'Active', 'Quarantined', 'Superseded']);
 const HEX = /^[a-f0-9]{64}$/;
@@ -32,6 +33,15 @@ const SOURCE_BASELINES = Object.freeze({
     ['data-policy-sample', { documentIdentifier: 'EAX-SAMPLE-DATA-POLICY', canonicalUrl: 'urn:eduagentx:sample-policy:personal-data' }],
   ]),
 });
+// The only hosts the freshness job may fetch from: where the baselines above
+// publish their PDFs, and the legislation.gov.uk pages the legislation sections
+// are stored from. Anything else, including a redirect elsewhere, is not the
+// pinned source and could reach an internal address.
+const SOURCE_HOSTS = Object.freeze(['nvlpubs.nist.gov', 'legalinstruments.oecd.org', 'genai.owasp.org', 'www.legislation.gov.uk']);
+// The review floor and target on the 0-5 rubric scale (target design 3.1): a
+// package needs an approval mean of at least the floor; the target is reported.
+// Every rubric carries these values and validation and review read them here.
+const RUBRIC_POLICY = Object.freeze({ scoreFloor: 3.5, scoreTarget: 4, scoreScale: Object.freeze({ min: 0, max: 5 }) });
 const SNAPSHOT_KINDS = Object.freeze(['pdf', 'html-sections', 'embedded']);
 // Whether the source's licence permits the use the package makes of it; a cited source must be settled.
 const LICENCE_STATUSES = Object.freeze(['settled', 'pending']);
@@ -127,7 +137,7 @@ function validatePackage(pkg) {
       fail(`sources[${index}]`, 'requires edition, snapshot kind, SHA-256, retrieval time, and pending independent review');
     // A source kept as sections (not as a file) is pinned by the digest of those sections.
     const own = sections.filter((section) => section.sourceId === source.id);
-    if (source.snapshotKind !== 'pdf' && source.contentSha256 !== sha256(own.map((section) => section.text).join('\n')))
+    if (source.snapshotKind !== 'pdf' && source.contentSha256 !== sectionsDigest(own))
       fail(`sources[${index}].contentSha256`, 'must be the digest of the stored sections of this source');
   }
   for (const [index, section] of sections.entries()) {
@@ -196,4 +206,4 @@ function validatePackage(pkg) {
   return errors;
 }
 
-module.exports = { LICENCE_STATUSES, SOURCE_BASELINES, STATES, canonical, sha256, validatePackage };
+module.exports = { LICENCE_STATUSES, RUBRIC_POLICY, SOURCE_BASELINES, SOURCE_HOSTS, STATES, canonical, sha256, validatePackage };

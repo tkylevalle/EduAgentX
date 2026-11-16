@@ -84,3 +84,13 @@ test('three failed sends quarantine one event, preserve incident evidence, and n
     correlationId: null, affected: { sessionId: 's-1', package: null }, retryCount: 3,
   }]);
 });
+
+test('incidents are listed newest first, at most the asked-for limit', async () => {
+  const store = await storeWith(3);
+  const redis = fakeRedis();
+  redis.xAdd = async () => { throw new Error('stream down'); };
+  for (let n = 0; n < 3; n += 1) await relayCompletions({ store, redis });
+  assert.deepEqual((await store.listCompletionIncidents()).map((incident) => incident.eventId),
+    [envelope(3).eventId, envelope(2).eventId, envelope(1).eventId]);
+  assert.deepEqual((await store.listCompletionIncidents({ limit: 1 })).map((incident) => incident.eventId), [envelope(3).eventId]);
+});

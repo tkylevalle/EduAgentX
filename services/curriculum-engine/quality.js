@@ -1,5 +1,5 @@
 'use strict';
-const { sha256 } = require('./model');
+const { RUBRIC_POLICY, sha256 } = require('./model');
 const { quoteFound } = require('./sections');
 
 // These are mechanical coverage measurements. They do not assert that cited
@@ -32,7 +32,7 @@ function measureCurriculum(pkg, reviews = []) {
         objective.criticalViolationRuleIds?.some(id => pkg.rubric?.criticalViolationRuleIds?.includes(id))));
   });
   const approvals = reviews.filter(review => review.approved === true &&
-    review.reviewer_id !== pkg.createdBy && Number.isFinite(review.score) && review.score >= 3.5 && review.score <= 5);
+    review.reviewer_id !== pkg.createdBy && Number.isFinite(review.score) && review.score >= RUBRIC_POLICY.scoreFloor && review.score <= RUBRIC_POLICY.scoreScale.max);
   const distinct = new Set(approvals.map(review => review.reviewer_id));
   const reviewerMean = distinct.size >= 2
     ? approvals.reduce((sum, review) => sum + review.score, 0) / approvals.length : null;
@@ -45,8 +45,8 @@ function measureCurriculum(pkg, reviews = []) {
       ratio: ratio(covered.length, objectives.length), floorMet: objectives.length > 0 && covered.length / objectives.length >= 0.85,
       targetMet: objectives.length > 0 && covered.length / objectives.length >= 0.90 },
     reviewerQuality: { independentApprovals: distinct.size, mean: reviewerMean,
-      floorMet: reviewerMean !== null && reviewerMean >= 3.5,
-      targetMet: reviewerMean !== null && reviewerMean >= 4 },
+      floorMet: reviewerMean !== null && reviewerMean >= RUBRIC_POLICY.scoreFloor,
+      targetMet: reviewerMean !== null && reviewerMean >= RUBRIC_POLICY.scoreTarget },
     knownCriticalFactualErrors: null,
     criticalErrorStatus: 'human_review_required',
   };

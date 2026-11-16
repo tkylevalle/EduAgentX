@@ -21,6 +21,6 @@ const toIncident = (row) => ({
 
 /** @returns {{ runOnce: Function, stop: Function } | null} the forwarder, or null when the log is not configured */
 const startIncidentForwarding = (store, { env, onError } = {}) => start({ source: 'training-service', env, onError,
-  list: async () => (await store.listCompletionIncidents()).slice(0, FORWARD_BATCH).map(toIncident) });
+  list: async () => (await store.listCompletionIncidents({ limit: FORWARD_BATCH })).map(toIncident) });
 
 module.exports = { startIncidentForwarding, toIncident };

@@ -5,7 +5,7 @@
 // The Studio checks (studio-checks.js) run inside them: quotes and licences in
 // source_traceability, lesson structure in objective_coverage, sandbox
 // families and predicate coverage in examination_policy.
-const { validatePackage, sha256 } = require('../../curriculum-engine/model');
+const { RUBRIC_POLICY, validatePackage, sha256 } = require('../../curriculum-engine/model');
 const { behaviourErrors, claimErrors, lessonErrors } = require('./studio-checks');
 const { validateFallbackBank, POLICY } = require('../../curriculum-engine/fallback');
 
@@ -60,11 +60,11 @@ function runValidationGates(pkg) {
   examinationErrors.push(...behaviourErrors(pkg));
   const rubric = pkg?.rubric || {};
   const rubricErrors = [];
-  if (rubric.scoreFloor !== 3.5 || rubric.scoreTarget !== 4 ||
+  if (rubric.scoreFloor !== RUBRIC_POLICY.scoreFloor || rubric.scoreTarget !== RUBRIC_POLICY.scoreTarget ||
       !Array.isArray(rubric.criteria) || rubric.criteria.length < 3 ||
       !rubric.criticalViolationRuleIds?.length)
-    rubricErrors.push('review floor 3.5, target 4, criteria and critical rules required');
-  if (rubric.scoreScale?.min !== 0 || rubric.scoreScale?.max !== 5 ||
+    rubricErrors.push(`review floor ${RUBRIC_POLICY.scoreFloor}, target ${RUBRIC_POLICY.scoreTarget}, criteria and critical rules required`);
+  if (rubric.scoreScale?.min !== RUBRIC_POLICY.scoreScale.min || rubric.scoreScale?.max !== RUBRIC_POLICY.scoreScale.max ||
       (rubric.criteria || []).reduce((sum, criterion) => sum + (criterion.weight || 0), 0) !== 100 ||
       rubric.criteria?.some(criterion => !criterion.id || !criterion.anchor?.trim()) ||
       !rubric.graderOutputSchema?.score ||

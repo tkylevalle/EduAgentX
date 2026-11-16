@@ -8,7 +8,8 @@
 // customer brings; it is not a real organisation's policy. The lessons
 // explain the quoted text; they are not legal advice.
 const { buildFallbackBank } = require('../fallback');
-const { buildPackage, sectionsDigest, sectionsOf } = require('./package-builder');
+const { buildPackage, sectionsOf } = require('./package-builder');
+const { sectionsDigest } = require('../sections');
 
 const version = '0.1.0-draft';
 const retrievedAt = '2026-11-16T12:00:00Z';

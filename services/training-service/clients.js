@@ -14,6 +14,15 @@ class SourceUnavailableError extends Error {
   }
 }
 
+// Several domains are Active and the caller named none: a caller error, not an outage.
+class DomainRequiredError extends Error {
+  constructor(domains) {
+    super('several domains are Active; name one');
+    this.code = 'domain_required';
+    this.domains = domains;
+  }
+}
+
 // The upstream answered, but not in the agreed shape. Never guess a field.
 class ContractError extends Error {
   constructor(source, details) {
@@ -66,7 +75,8 @@ function toRegistration(body) {
   };
 }
 
-// Returns the parsed body, or null on 404. Every other failure is an outage.
+// Returns the parsed body, or null on 404. A 409 domain_required is the
+// caller's to fix; every other failure is an outage.
 async function getJson(source, url, { correlationId, timeoutMs = DEFAULT_TIMEOUT_MS, headers = {} } = {}) {
   let response;
   try {
@@ -78,6 +88,10 @@ async function getJson(source, url, { correlationId, timeoutMs = DEFAULT_TIMEOUT
     throw new SourceUnavailableError(source);
   }
   if (response.status === 404) return null;
+  if (response.status === 409) {
+    const body = await response.json().catch(() => null);
+    if (body?.error === 'domain_required') throw new DomainRequiredError(Array.isArray(body.domains) ? body.domains : []);
+  }
   if (!response.ok) throw new SourceUnavailableError(source);
   try {
     return await response.json();
@@ -118,5 +132,5 @@ function createRegistrySource({
 }
 
 module.exports = {
-  ContractError, SourceUnavailableError, createPackageSource, createRegistrySource, toPackageRecord, toRegistration,
+  ContractError, DomainRequiredError, SourceUnavailableError, createPackageSource, createRegistrySource, toPackageRecord, toRegistration,
 };

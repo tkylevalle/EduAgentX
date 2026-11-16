@@ -7,13 +7,12 @@
 // Every artifact is pinned in the manifest. Building a package does not
 // approve it: that needs two people's recorded review.
 
-const { sha256 } = require('../model');
+// RUBRIC_POLICY: the review floor, target and scale every rubric carries, as
+// the rubric_policy validation gate requires.
+const { RUBRIC_POLICY, sha256 } = require('../model');
 const { POLICY } = require('../fallback');
 const SECTIONS = require('./source-sections.json');
 
-// The rubric's review floor and target and its 0-5 scale: what the
-// rubric_policy validation gate requires of every package.
-const RUBRIC_POLICY = Object.freeze({ scoreFloor: 3.5, scoreTarget: 4, scoreScale: Object.freeze({ min: 0, max: 5 }) });
 // Each objective has a recall and an applied slot; a6 adds a second applied
 // slot on o2; the adversarial slots test the three safety-critical objectives
 // (v4 is a second o4 slot), as in the first domain.
@@ -131,7 +130,4 @@ function buildPackage(spec) {
   };
 }
 
-/** @returns {string} the digest of a source's cited sections, for sources snapshotted as sections rather than files */
-const sectionsDigest = (sections) => sha256(sections.map((section) => section.text).join('\n'));
-
-module.exports = { buildPackage, deliveryItemsOf, sectionsDigest, sectionsOf };
+module.exports = { buildPackage, deliveryItemsOf, sectionsOf };

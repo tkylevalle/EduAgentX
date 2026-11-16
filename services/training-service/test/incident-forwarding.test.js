@@ -28,3 +28,15 @@ test('forwarding sends every listed incident, and is off without the log\'s addr
     assert.deepEqual(sent.map((incident) => incident.source), ['training-service', 'training-service']);
   } finally { global.fetch = realFetch; }
 });
+
+test('each run asks the store for one batch of incidents, not every incident ever recorded', async () => {
+  const asked = [];
+  const realFetch = global.fetch;
+  global.fetch = async () => ({ status: 201, json: async () => ({ created: true }) });
+  try {
+    const forwarder = startIncidentForwarding({ listCompletionIncidents: async (options) => { asked.push(options); return [row]; } },
+      { env: { MONITORING_SERVICE_URL: 'http://monitoring', MONITORING_INTERNAL_KEY: 'k', INCIDENT_FORWARD_INTERVAL_MS: '-1' } });
+    await forwarder.runOnce();
+    assert.deepEqual(asked, [{ limit: 500 }]);
+  } finally { global.fetch = realFetch; }
+});

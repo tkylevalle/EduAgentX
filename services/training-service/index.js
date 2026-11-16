@@ -25,7 +25,7 @@ const { createPgStore, decideAndAppend, isUniqueViolation } = require('./store')
 const { idleCutoff, sessionTimeoutFromEnv, startExpirySweep } = require('./expiry');
 const { DEFAULT_STREAM, createRelayClient, startCompletionRelay } = require('./relay');
 const { startIncidentForwarding } = require('./incident-forwarding');
-const { ContractError, SourceUnavailableError, createPackageSource, createRegistrySource } = require('./clients');
+const { ContractError, DomainRequiredError, SourceUnavailableError, createPackageSource, createRegistrySource } = require('./clients');
 
 const SERVICE_NAME = 'training-service';
 const API_VERSION = 'v1';
@@ -41,6 +41,8 @@ const REJECTION_STATUS = {
   not_registered: 403, response_too_long: 422, unknown_objectives: 422, no_targeted_content: 422,
 };
 const MAX_COMPLETION_EVENTS = 100;
+// The incident view is a page of the newest, like the outbox view above.
+const MAX_COMPLETION_INCIDENTS = 100;
 
 class HttpError extends Error {
   constructor(status, error, extra = {}) {
@@ -95,44 +97,49 @@ function createApp({
     const { domainId } = req.body || {};
     if (domainId !== undefined && !isDomainId(domainId)) throw new HttpError(400, 'invalid_request', { details: ['domainId'] });
     const input = requestInput(req, 'start', domainId ? { domainId } : {});
-    const options = { correlationId: req.correlationId };
-    return decideAndAppend(store, actor, async (tx) => {
-      // A retried start replays its own session first, whatever the domain now holds.
-      const replayed = await tx.findStart?.(actor, input.idempotencyKey);
-      // A start that names its domain resumes, or carries over, only that domain's
-      // session: a remediation owed in one domain never takes over training in another.
-      // A start with no domain takes the learner's newest session in any domain, as
-      // before domains; with several domains Active, learners name theirs.
-      const domainPkg = !replayed && input.domainId ? await packageSource.getActive(options, { domain: input.domainId }) : null;
-      // decideStart with no package refuses as no_active_package (or not_registered first).
-      if (!replayed && input.domainId && !domainPkg) {
-        return decideStart(null, await registrySource.getRegistration(actor, options), null, { ...input, agentLearnerKey: actor });
-      }
-      const scope = domainPkg?.id ?? null;
-      const open = replayed || await tx.findOpenSession(actor, scope);
-      if (!open) {
-        // A remediation ended unfinished (idle or reconfigured) is still owed: it is carried over before any standard session.
-        const previous = await tx.findLatestRemediation(actor, scope);
-        const ended = previous && deriveSessionState(previous.events);
-        // Checked here too so an ordinary start never fetches the old package.
-        if (endedUnfinished(ended)) {
-          const [pkg, registration] = await Promise.all([governingPackage(previous.session, options), registrySource.getRegistration(actor, options)]);
-          const carried = decideCarriedRemediation(pkg, registration, { session: previous.session, state: ended },
-            { ...input, sessionId: randomUUID(), agentLearnerKey: actor });
-          if (carried) return carried;
-        }
-        // A learner names the domain to train in when more than one is Active.
-        const [pkg, registration] = await Promise.all([
-          domainPkg || packageSource.getActive(options, {}), registrySource.getRegistration(actor, options)]);
-        return decideStart(pkg, registration, null, { ...input, sessionId: randomUUID(), agentLearnerKey: actor });
-      }
-      const events = await tx.getEvents(open.sessionId);
-      const [pkg, registration] = await Promise.all([
-        governingPackage(open, options), registrySource.getRegistration(actor, options)]);
-      return decideStart(pkg, registration, { session: open, state: deriveSessionState(events) },
-        { ...input, agentLearnerKey: actor });
-    });
+    return decideAndAppend(store, actor, (tx) => startSession(tx, actor, input, { correlationId: req.correlationId }));
   }));
+
+  // One start decision: replay, resume the open session, carry over an owed
+  // remediation, or start a standard session. The registration is read at most
+  // once per decision, however many of those paths it tries.
+  async function startSession(tx, actor, input, options) {
+    let registrationRead;
+    const registration = () => (registrationRead ??= registrySource.getRegistration(actor, options));
+    // A retried start replays its own session first, whatever the domain now holds.
+    const replayed = await tx.findStart?.(actor, input.idempotencyKey);
+    // A start that names its domain resumes, or carries over, only that domain's
+    // session: a remediation owed in one domain never takes over training in another.
+    // A start with no domain takes the learner's newest session in any domain, as
+    // before domains; with several domains Active, learners name theirs.
+    const domainPkg = !replayed && input.domainId ? await packageSource.getActive(options, { domain: input.domainId }) : null;
+    // decideStart with no package refuses as no_active_package (or not_registered first).
+    if (!replayed && input.domainId && !domainPkg) return decideStart(null, await registration(), null, { ...input, agentLearnerKey: actor });
+    const scope = domainPkg?.id ?? null;
+    const open = replayed || await tx.findOpenSession(actor, scope);
+    if (open) {
+      const events = await tx.getEvents(open.sessionId);
+      const [pkg, current] = await Promise.all([governingPackage(open, options), registration()]);
+      return decideStart(pkg, current, { session: open, state: deriveSessionState(events) }, { ...input, agentLearnerKey: actor });
+    }
+    const carried = await carryOverRemediation(tx, actor, scope, input, { options, registration });
+    if (carried) return carried;
+    // A learner names the domain to train in when more than one is Active.
+    const [pkg, current] = await Promise.all([domainPkg || packageSource.getActive(options, {}), registration()]);
+    return decideStart(pkg, current, null, { ...input, sessionId: randomUUID(), agentLearnerKey: actor });
+  }
+
+  // A remediation ended unfinished (idle or reconfigured) is still owed: it is
+  // carried over before any standard session. Null when nothing is carried.
+  async function carryOverRemediation(tx, actor, scope, input, { options, registration }) {
+    const previous = await tx.findLatestRemediation(actor, scope);
+    const ended = previous && deriveSessionState(previous.events);
+    // Checked here too so an ordinary start never fetches the old package.
+    if (!endedUnfinished(ended)) return null;
+    const [pkg, current] = await Promise.all([governingPackage(previous.session, options), registration()]);
+    return decideCarriedRemediation(pkg, current, { session: previous.session, state: ended },
+      { ...input, sessionId: randomUUID(), agentLearnerKey: actor });
+  }
 
   const sessionStep = (action, decide, readExtra = () => ({})) => handle(async (req) => {
     const actor = req.header('x-actor-subject');
@@ -229,7 +236,7 @@ function createApp({
 
   app.get('/internal/completion-incidents', async (req, res) => {
     try {
-      const incidents = await store.listCompletionIncidents();
+      const incidents = await store.listCompletionIncidents({ limit: MAX_COMPLETION_INCIDENTS });
       res.json({ apiVersion: API_VERSION, incidents, correlationId: req.correlationId });
     } catch (error) { sendError(req, res, error); }
   });
@@ -317,6 +324,9 @@ function createApp({
     const correlationId = req.correlationId;
     if (error.code === 'provenance_conflict') return res.status(409).json({ error: error.code, correlationId });
     if (error instanceof HttpError) return res.status(error.status).json({ apiVersion: API_VERSION, ...error.body, correlationId });
+    if (error instanceof DomainRequiredError) {
+      return res.status(409).json({ apiVersion: API_VERSION, error: error.code, domains: error.domains, correlationId });
+    }
     if (error instanceof SourceUnavailableError) {
       telemetry.log(SERVICE_NAME, 'dependency_failed', { correlationId, dependency: error.source, outcome: error.code });
       return res.status(503).json({ apiVersion: API_VERSION, error: 'dependency_unavailable', dependency: error.source, correlationId });

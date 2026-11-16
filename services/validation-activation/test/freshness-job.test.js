@@ -7,20 +7,22 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createHash } = require('node:crypto');
-const { observeSource, pageText, runFreshnessJob } = require('../src/freshness-job');
+const { MAX_SOURCE_BYTES, observeSource, pageText, runFreshnessJob } = require('../src/freshness-job');
 const { createApp } = require('../src');
 
 const refunds = structuredClone(require('../../curriculum-engine/examples/customer-refunds-candidate'));
 const crd = refunds.sources.find((source) => source.id === 'crd-2011-83');
 const crdSections = refunds.sourceSections.filter((section) => section.sourceId === 'crd-2011-83');
-const pdfSource = { id: 'doc', snapshotKind: 'pdf', snapshotUrl: 'https://publisher.example/doc.pdf',
+const pdfSource = { id: 'doc', snapshotKind: 'pdf', snapshotUrl: 'https://nvlpubs.nist.gov/nistpubs/ai/doc.pdf',
   contentSha256: createHash('sha256').update('pinned bytes').digest('hex') };
 
-// A fetch that serves the given body per URL, as HTML pages wrap their text in markup.
-const fakeFetch = (bodies) => async (url) => {
-  if (!Object.hasOwn(bodies, url)) return { ok: false, status: 404, headers: new Map(), arrayBuffer: async () => new ArrayBuffer(0) };
-  const bytes = Buffer.from(bodies[url]);
-  return { ok: true, status: 200, headers: new Map([['content-length', String(bytes.length)]]), arrayBuffer: async () => bytes };
+// A fetch that serves the given body per URL, as HTML pages wrap their text in
+// markup. A body given as { redirect } answers with a redirect to that address.
+const fakeFetch = (bodies, requested = []) => async (url) => {
+  requested.push(url);
+  if (!Object.hasOwn(bodies, url)) return new Response(null, { status: 404 });
+  if (bodies[url]?.redirect) return new Response(null, { status: 302, headers: { location: bodies[url].redirect } });
+  return new Response(Buffer.from(bodies[url]), { status: 200 });
 };
 const asPage = (text) => `<html><body><div class="LegP1"><p>${text.replace(/’/g, '&#8217;').replace(/‘/g, '&#x2018;')}</p></div><script>var x = 1;</script></body></html>`;
 const pagesWith = (sections) => Object.fromEntries(crdSections.map((section) => [section.url, asPage(sections.includes(section.id) ? section.text : 'Article repealed.')]));
@@ -39,6 +41,44 @@ test('a legislation source is unchanged while every stored section is still on i
   assert.equal((await observeSource(crd, crdSections, fakeFetch(pagesWith(['crd-art9-1', 'crd-art13-1'])))).status, 'unchanged');
   const changed = await observeSource(crd, crdSections, fakeFetch(pagesWith(['crd-art9-1'])));
   assert.deepEqual([changed.status, changed.missingSectionIds], ['changed', ['crd-art13-1']]);
+});
+
+test('a source on a host that publishes no pinned source is never fetched', async () => {
+  const requested = [];
+  const elsewhere = { ...pdfSource, snapshotUrl: 'https://publisher.example/doc.pdf' };
+  await assert.rejects(observeSource(elsewhere, [], fakeFetch({ [elsewhere.snapshotUrl]: 'pinned bytes' }, requested)), /source_host_not_allowed/);
+  const internal = { ...pdfSource, snapshotUrl: 'http://169.254.169.254/latest/meta-data' };
+  await assert.rejects(observeSource(internal, [], fakeFetch({}, requested)), /source_host_not_allowed/);
+  assert.deepEqual(requested, []);
+});
+
+test('a redirect is followed only to another allowed host, so an allowed host cannot send the job inward', async () => {
+  const moved = 'https://nvlpubs.nist.gov/nistpubs/ai/moved.pdf';
+  const followed = await observeSource(pdfSource, [], fakeFetch({ [pdfSource.snapshotUrl]: { redirect: moved }, [moved]: 'pinned bytes' }));
+  assert.equal(followed.status, 'unchanged');
+  const requested = [];
+  await assert.rejects(observeSource(pdfSource, [], fakeFetch({ [pdfSource.snapshotUrl]: { redirect: 'http://127.0.0.1:5432/' } }, requested)),
+    /source_host_not_allowed/);
+  assert.deepEqual(requested, [pdfSource.snapshotUrl]);
+});
+
+test('a body larger than the limit stops being read once it passes the limit', async () => {
+  const chunk = new Uint8Array(1024 * 1024);
+  let pulled = 0;
+  // An endless body that does not declare its length.
+  const endless = () => new Response(new ReadableStream({ pull(controller) { pulled += 1; controller.enqueue(chunk); } }), { status: 200 });
+  await assert.rejects(observeSource(pdfSource, [], async () => endless()), /source_too_large/);
+  assert.ok(pulled <= MAX_SOURCE_BYTES / chunk.length + 2, `read ${pulled} chunks`);
+});
+
+test('a check the store refuses is reported as record_failed with its error, not as a result', async () => {
+  const pkg = { id: 'p', version: '1.0.0', sources: [pdfSource], sourceSections: [] };
+  const report = await runFreshnessJob({
+    packageDb: { getActivePackages: async () => [pkg], getFreshnessChecks: async () => [] },
+    record: async () => ({ status: 422, body: { error: 'invalid_source_evidence' } }),
+    fetchImpl: fakeFetch({ [pdfSource.snapshotUrl]: 'pinned bytes' }),
+  });
+  assert.deepEqual(report, [{ packageId: 'p', version: '1.0.0', sourceId: 'doc', result: 'record_failed', status: 422, error: 'invalid_source_evidence' }]);
 });
 
 async function withApp(bodies, fn) {
@@ -78,6 +118,18 @@ test('an unreachable source records nothing and is retried on the next run', asy
     assert.deepEqual(report.filter((line) => line.result === 'unreachable').map((line) => line.sourceId), ['crd-2011-83', 'gdpr']);
     assert.equal(checks.length, 0);
   });
+});
+
+test('a run asked for while one is in flight joins it instead of checking every source twice', async () => {
+  let runs = 0;
+  const packageDb = { getActivePackages: async () => { runs += 1; return []; } };
+  const app = createApp({ packageDb, internalKey: 'k', fetchImpl: fakeFetch({}) });
+  const [first, second] = [app.locals.runFreshness(), app.locals.runFreshness()];
+  assert.equal(first, second);
+  await first;
+  assert.equal(runs, 1);
+  await app.locals.runFreshness();
+  assert.equal(runs, 2, 'a finished run does not block the next one');
 });
 
 test('only an admin may trigger a run through the route', async () => {
