@@ -693,6 +693,8 @@ services:
       SERVICE_NAME: validation-activation
       DATABASE_URL: postgres://curriculum_owner:${CURRICULUM_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
       CURRICULUM_INTERNAL_KEY: ${CURRICULUM_INTERNAL_KEY:?Run node scripts/setup-dev.js}
+      # Fetches every Active package's sources and compares them with the pins (audit C5); daily by default, 0 turns it off.
+      FRESHNESS_JOB_INTERVAL_MS: ${FRESHNESS_JOB_INTERVAL_MS:-86400000}
     ports:
       - "127.0.0.1:${VALIDATION_ACTIVATION_PORT:-4010}:4010"
     depends_on:
