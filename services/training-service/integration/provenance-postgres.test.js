@@ -7,11 +7,24 @@ const { createPgStore } = require('../store');
 const { fixture } = require('../../../packages/execution-provenance/test/fixtures');
 const url = process.env.TRAINING_TEST_DATABASE_URL;
 
+// Each integration file applies schema.sql; the advisory lock makes them take
+// turns, because concurrent DDL on the same tables can deadlock.
+async function applySchema(pool, schema) {
+  const client = await pool.connect();
+  try {
+    await client.query('SELECT pg_advisory_lock(435200)');
+    await client.query(schema);
+  } finally {
+    await client.query('SELECT pg_advisory_unlock(435200)').catch(() => {});
+    client.release();
+  }
+}
+
 test('PostgreSQL preserves immutable synthetic/replay runs and receipts across connections and rolls back receipt reuse', { skip: !url }, async () => {
   const pool = new Pool({ connectionString: url });
   const schema = fs.readFileSync(`${__dirname}/../schema.sql`, 'utf8');
   try {
-    await pool.query(schema);
+    await applySchema(pool, schema);
     for (const mode of ['synthetic','replay']) {
       const f = fixture(mode, `pg-${mode}`), store = createPgStore(pool);
       await store.transaction(f.run.agentLearnerKey, async (tx) => {
@@ -39,7 +52,7 @@ test('PostgreSQL preserves immutable synthetic/replay runs and receipts across c
     const legacy = fixture('synthetic', 'pg-legacy'); delete legacy.session.provenance;
     const store = createPgStore(pool);
     await store.transaction('pg-legacy', async (tx) => { await tx.insertSession(legacy.session); });
-    await pool.query(schema);
+    await applySchema(pool, schema);
     assert.equal((await store.readSession(legacy.session.sessionId)).session.provenance, undefined);
   } finally { await pool.end(); }
 });

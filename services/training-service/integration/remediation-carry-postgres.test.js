@@ -1,8 +1,7 @@
 'use strict';
 // A remediation ended by a reconfiguration is carried over once, on the same
 // request, and the request still names its assigned session.
-//   TRAINING_TEST_DATABASE_URL=postgres://...@host/db node --test --test-concurrency=1 integration/
-// One file at a time: each applies schema.sql, and concurrent DDL can deadlock.
+//   TRAINING_TEST_DATABASE_URL=postgres://...@host/db node --test integration/
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -12,6 +11,19 @@ const { decideCarriedRemediation, decideRemediation, decideStart, deriveSessionS
 const { completionPolicy } = require('../plan');
 const url = process.env.TRAINING_TEST_DATABASE_URL;
 
+// Each integration file applies schema.sql; the advisory lock makes them take
+// turns, because concurrent DDL on the same tables can deadlock.
+async function applySchema(pool, schema) {
+  const client = await pool.connect();
+  try {
+    await client.query('SELECT pg_advisory_lock(435200)');
+    await client.query(schema);
+  } finally {
+    await client.query('SELECT pg_advisory_unlock(435200)').catch(() => {});
+    client.release();
+  }
+}
+
 const payload = { objectives: [{ id: 'o1', deliveryItemIds: ['m1-lesson', 'm1-practice'] }],
   modules: [{ id: 'm1', sequence: 1, deliveryItems: [{ id: 'm1-lesson', kind: 'lesson', text: 'L1' }, { id: 'm1-practice', kind: 'practice', text: 'P1' }] }] };
 const pkg = { id: 'pkg-carry', version: '1.0.0', state: 'Active', digest: 'digest-carry', payload };
@@ -19,7 +31,7 @@ const pkg = { id: 'pkg-carry', version: '1.0.0', state: 'Active', digest: 'diges
 test('PostgreSQL carries an ended remediation over once and keeps the request on its assigned session', { skip: !url }, async () => {
   const pool = new Pool({ connectionString: url });
   try {
-    await pool.query(fs.readFileSync(`${__dirname}/../schema.sql`, 'utf8'));
+    await applySchema(pool, fs.readFileSync(`${__dirname}/../schema.sql`, 'utf8'));
     const learner = `carry-${Date.now()}`;
     const first = { agentLearnerKey: learner, configurationFingerprint: 'sha256:config-1', configurationVersion: 1 };
     const second = { ...first, configurationFingerprint: 'sha256:config-2', configurationVersion: 2 };
