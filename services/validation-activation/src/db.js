@@ -45,14 +45,15 @@ const db = {
   async listPackages() {
     if (!pool) return Array.from(_packages.values());
     const r = await pool.query(
-      `SELECT p.package_id AS id, p.version, p.digest, latest.state
+      `SELECT p.package_id AS id, p.version, p.digest, latest.state, p.payload->'manifest'->>'domainId' AS domain_id
        FROM curriculum_engine.packages p
        LEFT JOIN LATERAL (
          SELECT state FROM curriculum_engine.package_lifecycle_events e
          WHERE e.package_id=p.package_id AND e.version=p.version ORDER BY e.event_id DESC LIMIT 1
        ) latest ON true
        ORDER BY p.created_at DESC`);
-    return r.rows;
+    // Only the manifest's domain id is read from the payload, in the shape the memory store has.
+    return r.rows.map(({ domain_id: domainId, ...row }) => ({ ...row, manifest: { domainId } }));
   },
 
   async setPackageState(id, state, version) {
