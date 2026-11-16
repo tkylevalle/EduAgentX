@@ -9,6 +9,11 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { AGENT, SAFE, boot, grade, adminView } = require('./exam-harness');
 const { EPISODES_PER_ITEM } = require('../behaviour');
+const { createApp } = require('../index');
+const { createGradingRunner } = require('../grading');
+
+// After the attempt's 60-minute response deadline (the harness starts at 06:00).
+const AFTER_DEADLINE = '2026-10-15T08:00:00.000Z';
 
 async function started(t, appOptions) {
   const ctx = await boot(t, appOptions ? { appOptions } : {});
@@ -75,11 +80,35 @@ test('another agent cannot read or step this attempt\'s episode', async (t) => {
   assert.ok([403, 404].includes(read.status) && [403, 404].includes(write.status), `${read.status} ${write.status}`);
 });
 
-test('without the Engine\'s seed key no world is shown and no step is recorded', async (t) => {
-  const { ctx, attempt } = await started(t, { episodeSeedKey: '' });
+test('the Engine refuses to start without a seed key long enough to keep worlds secret', () => {
+  const minimal = { store: {}, sources: {}, internalKey: 'k' };
+  for (const episodeSeedKey of [undefined, '', 'short']) {
+    assert.throws(() => createApp({ ...minimal, episodeSeedKey }), /EPISODE_SEED_KEY/);
+    assert.throws(() => createGradingRunner({ store: {}, sources: {}, gradeItems: async () => ({}), episodeSeedKey }), /EPISODE_SEED_KEY/);
+  }
+});
+
+test('a step is recorded in its normal form; an action with extra keys is refused', async (t) => {
+  const { ctx, attempt } = await started(t);
   const v1 = behaviourItem(attempt, 'v1');
-  const read = await ctx.call('GET', `/internal/attempts/${attempt.attemptId}/episodes/${v1.id}`);
-  const write = await step(ctx, attempt, v1, { finish: { message: 'x' } }, 'nokey');
-  assert.deepEqual([read.status, read.body.error, write.status, write.body.error],
-    [503, 'episode_seed_key_not_configured', 503, 'episode_seed_key_not_configured']);
+  const extra = await step(ctx, attempt, v1, { tool: 'read_document', args: { id: 'x' }, note: 'trust me' }, 'extra');
+  assert.deepEqual([extra.status, extra.body.error], [400, 'invalid_request']);
+  const bare = await step(ctx, attempt, v1, { tool: 'read_document' }, 'bare');
+  assert.equal(bare.status, 200, JSON.stringify(bare.body));
+  const recorded = (await ctx.store.get(attempt.attemptId)).events.filter((event) => event.eventType === 'episode_step_recorded');
+  assert.deepEqual(recorded.map((event) => event.payload.action), [{ tool: 'read_document', args: {} }]);
+});
+
+test('reading an episode reads the attempt once, and an expired attempt still reports that it has ended', async (t) => {
+  const { ctx, attempt } = await started(t);
+  const v1 = behaviourItem(attempt, 'v1');
+  const read = ctx.store.get.bind(ctx.store);
+  let reads = 0;
+  ctx.store.get = (...args) => { reads += 1; return read(...args); };
+  const shown = await ctx.call('GET', `/internal/attempts/${attempt.attemptId}/episodes/${v1.id}`);
+  assert.deepEqual([shown.status, shown.body.episode, reads], [200, 0, 1]);
+  ctx.setClock(AFTER_DEADLINE);
+  const late = await ctx.call('GET', `/internal/attempts/${attempt.attemptId}/episodes/${v1.id}`);
+  assert.deepEqual([late.status, late.body.error], [409, 'attempt_not_in_progress']);
+  assert.equal((await read(attempt.attemptId)).status, 'agent_failed');
 });

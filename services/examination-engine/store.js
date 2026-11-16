@@ -5,7 +5,7 @@ const execution = require('../../packages/execution-provenance');
 const { randomUUID } = require('node:crypto');
 const { sha256 } = require('../curriculum-engine/model');
 const { fail, validateCommand, commandDigest, derive, stateReceipt, isResponseExpired } = require('./lifecycle');
-const { actionsResponse, episodesOf, itemEnded } = require('./behaviour');
+const { actionsResponse, episodesOf, itemEnded, recordedSteps } = require('./behaviour');
 const { checkAssessment } = require('./assessment');
 const { remediationEventFor } = require('./remediation');
 const { pgRemediationMethods, memoryRemediationMethods } = require('./remediation-store');
@@ -44,21 +44,72 @@ function attachRemediation(record, command, terminalEventId) {
     correlationId: command.correlationId || record.attempt.correlationId, terminalEventId });
 }
 
-// Steps already recorded for one behaviour item, in order.
-const stepsFor = (record, itemId) => record.events
-  .filter((e) => e.eventType === 'episode_step_recorded' && e.payload.itemId === itemId).map((e) => e.payload.action);
-
 // A provenance-bound attempt plays its source's reference policy: each step
 // must be that policy's next action. The check runs here, under the attempt's
 // lock, so two concurrent steps cannot both be checked at one position.
-// options.referenceActions(attempt, item) gives the policy's actions; only
-// the Engine can compute them, because only it holds the world seed.
+// options.referenceStep(attempt, item, taken) gives the policy's next action
+// after the steps already taken; only the Engine can compute it, because only
+// it holds the world seed.
 function checkReferenceStep(record, current, item, command, options) {
   if (command.executionEvidence) throw fail('provenance_conflict');
   if (!current.form.provenanceProfile) return;
-  if (typeof options.referenceActions !== 'function') throw fail('provenance_conflict');
-  const expected = options.referenceActions(current, item);
-  if (!execution.same(command.action, expected[stepsFor(record, item.id).length])) throw fail('provenance_conflict');
+  if (typeof options.referenceStep !== 'function') throw fail('provenance_conflict');
+  const expected = options.referenceStep(current, item, recordedSteps(record.events, item.id));
+  if (!execution.same(command.action, expected)) throw fail('provenance_conflict');
+}
+
+const appendEvent = (record, current, command, eventType, payload, eventId = randomUUID()) => {
+  record.events.push({ attemptId: current.attemptId, seq: record.events.length + 1, eventId,
+    eventType, payload, occurredAt: command.now, correlationId: command.correlationId || current.correlationId });
+};
+
+// Records one episode step. After the item's last episode ends (each at a
+// finish or the step limit), the Engine answers the item with its own record
+// of the steps. Returns the attempt after the step.
+function recordEpisodeStep(record, current, command, target) {
+  appendEvent(record, current, command, 'episode_step_recorded', { itemId: target.id, action: command.action });
+  const taken = recordedSteps(record.events, target.id);
+  if (!itemEnded(taken)) return snapshot(record);
+  const response = actionsResponse(episodesOf(taken));
+  const responseDigest = sha256(response);
+  // A provenance-bound episode carries the receipt the Engine issues for it.
+  const evidence = current.form.provenanceProfile
+    ? execution.episodeReceipt(current.form.provenance, target, current.attemptId, response, command.now) : null;
+  appendEvent(record, current, command, 'response_accepted', { itemId: target.id, responseDigest,
+    ...(evidence ? { executionEvidence: evidence } : {}) });
+  const row = { itemId: target.id, response, responseDigest, acceptedAt: command.now, seq: record.events.length };
+  record.responses.push(row);
+  const after = snapshot(record);
+  row.receipt = stateReceipt(after);
+  return after;
+}
+
+// Records one written answer; returns the attempt after it.
+function recordResponse(record, current, command) {
+  const responseDigest = sha256(command.response);
+  appendEvent(record, current, command, 'response_accepted', { itemId: command.itemId, responseDigest,
+    ...(command.executionEvidence ? { executionEvidence: command.executionEvidence } : {}) });
+  const row = { itemId: command.itemId, response: command.response, responseDigest, acceptedAt: command.now, seq: record.events.length };
+  record.responses.push(row);
+  const after = snapshot(record);
+  row.receipt = stateReceipt(after);
+  return after;
+}
+
+// Records the grade and the terminal outcome it decides; returns the attempt after them.
+function recordGrade(record, current, command) {
+  if (!current.responseCollectionComplete) throw fail('responses_incomplete');
+  if (command.formDigest !== current.formDigest || command.rubricDigest !== current.form.rubric.digest ||
+    command.responseSetDigest !== current.responseSetDigest) throw fail('result_binding_mismatch');
+  if (command.assessment !== undefined && !checkAssessment(command.assessment, current.form, command.result.passed))
+    throw fail('invalid_result', 400);
+  appendEvent(record, current, command, 'grade_recorded', { result: command.result, formDigest: command.formDigest,
+    rubricDigest: command.rubricDigest, responseSetDigest: command.responseSetDigest,
+    ...(command.assessment !== undefined ? { assessment: command.assessment } : {}) }, command.eventId);
+  appendEvent(record, current, command, command.result.passed ? 'attempt_completed' : 'agent_failed',
+    { reason: command.result.passed ? 'valid_passing_result' : 'valid_failing_result' }, `${command.eventId}:terminal`);
+  if (!command.result.passed) attachRemediation(record, command, `${command.eventId}:terminal`);
+  return snapshot(record);
 }
 
 function execute(record, command, options = {}) {
@@ -73,6 +124,7 @@ function execute(record, command, options = {}) {
   }
   const system = ['timeout', 'system_abort'].includes(command.type);
   const digest = system ? null : commandDigest(current.attemptId, command);
+  const target = current.form.items.find((item) => item.id === command.itemId);
   if (!system) {
     const saved = record.commands.find((c) => c.key === command.idempotencyKey);
     if (saved) {
@@ -86,11 +138,9 @@ function execute(record, command, options = {}) {
       return reply(record, duplicate.receipt, true);
     }
     // A behaviour item is answered only by recorded episode steps, never directly.
-    const target = current.form.items.find((item) => item.id === command.itemId);
     if (command.type === 'episode_step') {
       if (!target || target.kind !== 'behaviour') throw fail('behaviour_item_not_found', 404);
       if (record.responses.some((r) => r.itemId === command.itemId)) throw fail('episode_ended');
-      checkReferenceStep(record, current, target, command, options);
     }
     if (command.type === 'response' && target?.kind === 'behaviour') throw fail('behaviour_item_requires_steps');
     // An item's first accepted answer is final, even across distinct command keys.
@@ -108,63 +158,26 @@ function execute(record, command, options = {}) {
     }
     if (current.status !== 'in_progress') throw fail('attempt_terminal');
     if (command.expectedSequence !== current.sequence) throw fail('sequence_conflict');
+    // Last of the refusals: it runs an episode of the reference policy, so a
+    // stale or terminal step is refused by the cheap checks above first.
+    if (command.type === 'episode_step') checkReferenceStep(record, current, target, command, options);
   } else if (current.status !== 'in_progress') return { attempt: current, replay: true };
   if (command.type === 'timeout' && !isResponseExpired(current, command.now)) return { attempt: current, replay: true };
   if (Date.parse(command.now) < Date.parse(record.events.at(-1).occurredAt)) throw fail('timestamp_conflict');
 
-  const append = (eventType, payload, eventId = randomUUID()) => {
-    record.events.push({ attemptId: current.attemptId, seq: record.events.length + 1, eventId,
-      eventType, payload, occurredAt: command.now, correlationId: command.correlationId || current.correlationId });
-  };
   if (command.type === 'timeout' || (['response', 'episode_step'].includes(command.type) && isResponseExpired(current, command.now))) {
     if (!isResponseExpired(current, command.now)) return { attempt: current, replay: true };
-    append('agent_failed', { reason: 'response_deadline_elapsed' }, `timeout:${current.attemptId}`);
+    appendEvent(record, current, command, 'agent_failed', { reason: 'response_deadline_elapsed' }, `timeout:${current.attemptId}`);
     attachRemediation(record, command, `timeout:${current.attemptId}`);
     current = snapshot(record);
     // Commit timeout evidence even though the late submission itself is rejected.
     return command.type !== 'timeout' ? { error: fail('attempt_deadline_elapsed'), attempt: current } : { attempt: current, replay: false };
   }
-  if (command.type === 'episode_step') {
-    append('episode_step_recorded', { itemId: command.itemId, action: command.action });
-    const taken = stepsFor(record, command.itemId);
-    // After the item's last episode ends (each at a finish or the step limit),
-    // the Engine answers the item with its own record of the steps.
-    if (itemEnded(taken)) {
-      const responseText = actionsResponse(episodesOf(taken));
-      // A provenance-bound episode carries the receipt the Engine issues for it.
-      const evidence = current.form.provenanceProfile ? execution.episodeReceipt(current.form.provenance,
-        current.form.items.find((item) => item.id === command.itemId), current.attemptId, responseText, command.now) : null;
-      append('response_accepted', { itemId: command.itemId, responseDigest: sha256(responseText), ...(evidence ? { executionEvidence: evidence } : {}) });
-      record.responses.push({ itemId: command.itemId, response: responseText, responseDigest: sha256(responseText),
-        acceptedAt: command.now, seq: record.events.length });
-    }
-    current = snapshot(record);
-    const ended = record.responses.find((r) => r.itemId === command.itemId);
-    if (ended) ended.receipt = stateReceipt(current);
-  } else if (command.type === 'response') {
-    const responseDigest = sha256(command.response);
-    append('response_accepted', { itemId: command.itemId, responseDigest,
-      ...(command.executionEvidence ? { executionEvidence: command.executionEvidence } : {}) });
-    const response = { itemId: command.itemId, response: command.response, responseDigest,
-      acceptedAt: command.now, seq: record.events.length };
-    record.responses.push(response);
-    current = snapshot(record);
-    response.receipt = stateReceipt(current);
-  } else if (command.type === 'finalize') {
-    if (!current.responseCollectionComplete) throw fail('responses_incomplete');
-    if (command.formDigest !== current.formDigest || command.rubricDigest !== current.form.rubric.digest ||
-      command.responseSetDigest !== current.responseSetDigest) throw fail('result_binding_mismatch');
-    if (command.assessment !== undefined && !checkAssessment(command.assessment, current.form, command.result.passed))
-      throw fail('invalid_result', 400);
-    append('grade_recorded', { result: command.result, formDigest: command.formDigest,
-      rubricDigest: command.rubricDigest, responseSetDigest: command.responseSetDigest,
-      ...(command.assessment !== undefined ? { assessment: command.assessment } : {}) }, command.eventId);
-    append(command.result.passed ? 'attempt_completed' : 'agent_failed',
-      { reason: command.result.passed ? 'valid_passing_result' : 'valid_failing_result' }, `${command.eventId}:terminal`);
-    if (!command.result.passed) attachRemediation(record, command, `${command.eventId}:terminal`);
-    current = snapshot(record);
-  } else {
-    append('system_aborted', { reason: command.reason }, command.eventId || `abort:${current.attemptId}`);
+  if (command.type === 'episode_step') current = recordEpisodeStep(record, current, command, target);
+  else if (command.type === 'response') current = recordResponse(record, current, command);
+  else if (command.type === 'finalize') current = recordGrade(record, current, command);
+  else {
+    appendEvent(record, current, command, 'system_aborted', { reason: command.reason }, command.eventId || `abort:${current.attemptId}`);
     current = snapshot(record);
   }
   const receipt = stateReceipt(current);

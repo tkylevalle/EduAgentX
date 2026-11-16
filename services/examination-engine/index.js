@@ -17,7 +17,7 @@ const { createFallbackSelect, createFallbackScore } = require('./fallback-source
 const { createGovernance } = require('./governance');
 const { isDomainId } = require('../../packages/agent-sandbox/src/families');
 const { DEFAULT_RETRY_WINDOW_MS, createGradingRunner } = require('./grading');
-const { EPISODES_PER_ITEM, policyActions, stepEpisode } = require('./behaviour');
+const { normalizeAction, policyNextAction, recordedSteps, requireSeedKey, stepEpisode } = require('./behaviour');
 const { createGradeItems } = require('./grading-client');
 const { requireRemediation, registerRemediationRoutes } = require('./remediation-routes');
 const { createRemediationRelay } = require('./remediation-relay');
@@ -37,6 +37,8 @@ function createApp({ store, sources, internalKey = process.env.EXAMINATION_INTER
   gradingRetryWindowMs = DEFAULT_RETRY_WINDOW_MS, episodeSeedKey = process.env.EPISODE_SEED_KEY } = {}) {
   if (!store || !sources || !internalKey || !Number.isInteger(durationMinutes) || durationMinutes < 1 || durationMinutes > 1440)
     throw new Error('store, sources, internal key and valid duration required');
+  // Every behaviour item needs the key to show its world and to be graded.
+  requireSeedKey(episodeSeedKey);
   const app = express();
   app.use((req, res, next) => {
     req.correlationId = req.header('x-correlation-id') || randomUUID();
@@ -66,13 +68,17 @@ function createApp({ store, sources, internalKey = process.env.EXAMINATION_INTER
       throw error;
     }
   };
-  const load = async (req, owner) => {
-    const attempt = UUID.test(req.params.id) ? await store.get(req.params.id) : null;
+  const readAttempt = async (req, owner, reconciling) => {
+    const attempt = UUID.test(req.params.id) ? await store.get(req.params.id, reconciling) : null;
     if (!attempt) throw fail('attempt_not_found', 404);
     if (owner && attempt.agentLearnerKey !== req.header('x-actor-subject')) throw fail('identity_mismatch', 403);
     return attempt;
   };
+  const load = (req, owner) => readAttempt(req, owner);
   const reconcile = (attempt, req) => store.get(attempt.attemptId, { clock, correlationId: req.correlationId });
+  // load and reconcile in one store read. Reconciling before the owner check
+  // only records a timeout the deadline sweep would record anyway.
+  const loadReconciled = (req, owner) => readAttempt(req, owner, { clock, correlationId: req.correlationId });
   const trusted = (req, res, next) => {
     if (!gradingKey) return res.status(503).json({ error: 'grading_not_configured' });
     if (req.header('x-actor-role') !== 'examiner' || !matchesSecret(req.header('x-internal-grading-key'), gradingKey))
@@ -128,7 +134,7 @@ function createApp({ store, sources, internalKey = process.env.EXAMINATION_INTER
   // Reasons are validation-activation's selection vocabulary, not the Engine's
   // own abort REASONS.
   const FALLBACK_REASONS = ['standard_grading_unavailable', 'standard_generation_unavailable'];
-  const FALLBACK_FIELDS = ['idempotencyKey', 'agentLearnerKey', 'reason', 'causeAttemptId', 'trainingSessionId'];
+  const FALLBACK_FIELDS = ['idempotencyKey', 'agentLearnerKey', 'reason', 'causeAttemptId', 'trainingSessionId', 'domainId'];
   app.post('/internal/attempts/fallback', trusted, async (req, res) => {
     if (!selectFallback) return res.status(503).json({ apiVersion: 'v1', error: 'fallback_not_configured', correlationId: req.correlationId });
     try {
@@ -140,6 +146,7 @@ function createApp({ store, sources, internalKey = process.env.EXAMINATION_INTER
       if (!body || Array.isArray(body) || Object.keys(body).some((name) => !FALLBACK_FIELDS.includes(name)) ||
         typeof idempotencyKey !== 'string' || !KEY.test(idempotencyKey) ||
         typeof agentLearnerKey !== 'string' || !agentLearnerKey.trim() || !FALLBACK_REASONS.includes(reason) ||
+        (body.domainId !== undefined && !isDomainId(body.domainId)) ||
         (reason === 'standard_grading_unavailable' ? typeof causeAttemptId !== 'string' || !UUID.test(causeAttemptId)
           : causeAttemptId !== null)) throw fail('invalid_request', 400);
       // Replay before any dependency call, so a retry never selects a second bank.
@@ -163,8 +170,10 @@ function createApp({ store, sources, internalKey = process.env.EXAMINATION_INTER
         // derive() takes terminalReason from the system_aborted event's payload.reason.
         if (cause.terminalReason !== 'grading_unavailable') throw fail('fallback_cause_reason_mismatch');
       }
-      // A fallback for an aborted attempt stays on that attempt's package.
-      const pkg = await active(req.correlationId, cause ? { packageId: cause.package.id } : {});
+      // A fallback for an aborted attempt stays on that attempt's package; a
+      // named domain picks the Active package as the standard start does.
+      const pkg = await active(req.correlationId, { ...(cause ? { packageId: cause.package.id } : {}),
+        ...(body.domainId ? { domain: body.domainId } : {}) });
       const registration = await sources.registration(agentLearnerKey, req.correlationId);
       if (!registration?.configurationFingerprint) throw fail('registration_required');
       // A changed configuration is a different Agent Learner state; it never carries over.
@@ -283,17 +292,15 @@ function createApp({ store, sources, internalKey = process.env.EXAMINATION_INTER
   // attempt, run by the Engine in the world it builds; the item's response is
   // the Engine's own record of those steps, so the graded actions are the
   // actions the agent took (target design 4.2, behaviour observed by the platform).
-  const recordedSteps = (attempt, itemId) => attempt.events
-    .filter((event) => event.eventType === 'episode_step_recorded' && event.payload.itemId === itemId).map((event) => event.payload.action);
+  // An item is answered exactly when its last episode ends, so stepEpisode's
+  // own done result covers an answered item.
   const episodeView = (attempt, item) => {
-    const answered = attempt.responses.some((row) => row.itemId === item.id);
-    const taken = recordedSteps(attempt, item.id);
-    return answered ? { observation: null, done: true, episode: EPISODES_PER_ITEM, episodes: EPISODES_PER_ITEM, steps: taken.length }
-      : { ...stepEpisode(attempt.attemptId, item, taken, episodeSeedKey), steps: taken.length };
+    const taken = recordedSteps(attempt.events, item.id);
+    return { ...stepEpisode(attempt.attemptId, item, taken, episodeSeedKey), steps: taken.length };
   };
-  // The run's reference policy's actions in this attempt's world.
-  const referenceActions = (attempt, item) => policyActions(attempt.attemptId, item, episodeSeedKey,
-    execution.episodePolicy(attempt.form.provenance, item));
+  // The run's reference policy's next action in this attempt's world.
+  const referenceStep = (attempt, item, taken) => policyNextAction(attempt.attemptId, item, episodeSeedKey,
+    execution.episodePolicy(attempt.form.provenance, item), taken);
   const behaviourItem = (attempt, itemId) => {
     const item = attempt.form.items.find((value) => value.id === itemId && value.kind === 'behaviour');
     if (!item) throw fail('behaviour_item_not_found', 404);
@@ -302,7 +309,8 @@ function createApp({ store, sources, internalKey = process.env.EXAMINATION_INTER
   app.get('/internal/attempts/:id/episodes/:itemId', async (req, res) => {
     try {
       if (req.header('x-actor-role') !== 'agent') throw fail('forbidden', 403);
-      const attempt = await reconcile(await load(req, true), req);
+      // Polled once per step, so one store read: the reconciled attempt.
+      const attempt = await loadReconciled(req, true);
       if (attempt.status !== 'in_progress') throw fail('attempt_not_in_progress');
       res.json({ apiVersion: 'v1', ...episodeView(attempt, behaviourItem(attempt, req.params.itemId)), correlationId: req.correlationId });
     } catch (error) { sendError(req, res, error); }
@@ -312,16 +320,19 @@ function createApp({ store, sources, internalKey = process.env.EXAMINATION_INTER
       if (req.header('x-actor-role') !== 'agent') throw fail('forbidden', 403);
       if (!req.body || Array.isArray(req.body) || Object.keys(req.body).some((key) => !['idempotencyKey', 'expectedSequence', 'action'].includes(key)))
         throw fail('invalid_request', 400);
-      const command = { ...req.body, type: 'episode_step', itemId: req.params.itemId, now: clock(), correlationId: req.correlationId };
+      // Stored as exactly { tool, args } or { finish: { message } }: the
+      // recorded steps are immutable evidence and are compared with the
+      // reference policy's actions as values.
+      const action = normalizeAction(req.body.action);
+      if (!action) throw fail('invalid_request', 400);
+      const command = { ...req.body, action, type: 'episode_step', itemId: req.params.itemId, now: clock(), correlationId: req.correlationId };
       validateCommand(command);
       const attempt = await load(req, true);
       const item = behaviourItem(attempt, req.params.itemId);
-      // The world must be buildable before a step is recorded: no key, no step.
-      stepEpisode(attempt.attemptId, item, [], episodeSeedKey);
       // A provenance-bound attempt must play its source's reference policy step
       // for step; the store checks each step under the attempt's lock and
       // issues the item's receipt when the episode ends.
-      const result = await store.command(attempt.attemptId, command, { clock, referenceActions,
+      const result = await store.command(attempt.attemptId, command, { clock, referenceStep,
         guard: (current) => governance(current, req.correlationId) });
       res.json({ apiVersion: 'v1', outcome: result.replay ? 'replay' : 'accepted', attempt: lifecycleView(result.attempt),
         receipt: result.receipt, ...episodeView(result.attempt, item), correlationId: req.correlationId });
@@ -464,8 +475,10 @@ function sendError(req, res, error) {
   if (error instanceof DependencyError) return res.status(error.status).json({ apiVersion: 'v1',
     error: 'dependency_unavailable', dependency: error.source, correlationId: req.correlationId, ...extra });
   if (error instanceof GenerationError) return res.status(409).json({ apiVersion: 'v1', error: error.code, correlationId: req.correlationId });
+  // domain_required lists the Active domains, so the caller can name one.
+  const domains = Array.isArray(error.domains) ? { domains: error.domains } : {};
   if ([400,403,404,409,503].includes(error.status)) return res.status(error.status).json({ apiVersion: 'v1',
-    error: error.code || error.message, correlationId: req.correlationId, ...extra });
+    error: error.code || error.message, correlationId: req.correlationId, ...domains, ...extra });
   telemetry.log('examination-engine', 'request_failed', { correlationId: req.correlationId });
   return res.status(500).json({ apiVersion: 'v1', error: 'internal_error', correlationId: req.correlationId, ...extra });
 }
@@ -485,6 +498,8 @@ function startSweep(operation, sweep, intervalMs) {
   return timer;
 }
 async function start() {
+  // Before connecting to anything: without the key no behaviour item works.
+  requireSeedKey(process.env.EPISODE_SEED_KEY);
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
   pool.on('error', () => telemetry.log('examination-engine', 'postgres_connection_error'));
   await pool.query(fs.readFileSync(`${__dirname}/schema.sql`, 'utf8'));

@@ -31,6 +31,19 @@ const MAX_ACTION_CHARS = 4000;
 // the world-building code is public, so a seed anyone could compute would let
 // an agent build the world itself and read its hidden part.
 const MIN_SEED_KEY_LENGTH = 32;
+const validSeedKey = (seedKey) => typeof seedKey === 'string' && seedKey.length >= MIN_SEED_KEY_LENGTH;
+
+/**
+ * Checked when the Engine starts: without the key no behaviour item can be
+ * shown or graded, and finding out at grading time would leave a complete
+ * attempt retried forever by the sweep.
+ * @param {unknown} seedKey the configured EPISODE_SEED_KEY
+ * @throws {Error} when the key is missing or shorter than MIN_SEED_KEY_LENGTH
+ */
+function requireSeedKey(seedKey) {
+  if (!validSeedKey(seedKey)) throw Object.assign(new Error(`EPISODE_SEED_KEY must be set to at least ${MIN_SEED_KEY_LENGTH} characters`),
+    { code: 'episode_seed_key_not_configured' });
+}
 
 /**
  * @param {string} attemptId @param {string} itemId @param {string} seedKey the Engine's EPISODE_SEED_KEY
@@ -38,7 +51,7 @@ const MIN_SEED_KEY_LENGTH = 32;
  * @returns {string} the world seed for one episode of one item of one attempt
  */
 function episodeSeed(attemptId, itemId, seedKey, episode = 0) {
-  if (typeof seedKey !== 'string' || seedKey.length < MIN_SEED_KEY_LENGTH) throw Object.assign(new Error('episode_seed_key_not_configured'), { code: 'episode_seed_key_not_configured', status: 503 });
+  if (!validSeedKey(seedKey)) throw Object.assign(new Error('episode_seed_key_not_configured'), { code: 'episode_seed_key_not_configured', status: 503 });
   return createHmac('sha256', seedKey).update(`episode:${attemptId}:${itemId}:${episode}`).digest('hex').slice(0, SEED_HEX_CHARS);
 }
 /**
@@ -51,10 +64,43 @@ function worldFor(attemptId, item, seedKey, episode = 0) {
   return buildWorld(families[episode % families.length], episodeSeed(attemptId, item.id, seedKey, episode), EXAM_POOL);
 }
 
-/** @returns {boolean} whether value is one well-formed action */
-const isAction = (value) => Boolean(JSON.stringify(value ?? null).length <= MAX_ACTION_CHARS && ( value && typeof value === 'object' && !Array.isArray(value) && (
-  (typeof value.tool === 'string' && value.tool.length <= 64 && (value.args === undefined || (value.args && typeof value.args === 'object' && !Array.isArray(value.args)))) ||
-  (value.finish && typeof value.finish === 'object' && typeof value.finish.message === 'string'))));
+// A tool name names one of the world's tools; 64 characters is well above the
+// longest sandbox tool name and bounds what one step can store.
+const MAX_TOOL_NAME_CHARS = 64;
+const isPlainObject = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+const hasExactly = (value, keys) => isPlainObject(value) && Object.keys(value).length === keys.length &&
+  keys.every((key) => Object.hasOwn(value, key));
+/** @returns {boolean} whether value is exactly { tool, args } */
+const isToolAction = (value) => hasExactly(value, ['tool', 'args']) && typeof value.tool === 'string' && value.tool.length > 0 &&
+  value.tool.length <= MAX_TOOL_NAME_CHARS && isPlainObject(value.args);
+/** @returns {boolean} whether value is exactly { finish: { message } } */
+const isFinishAction = (value) => hasExactly(value, ['finish']) && hasExactly(value.finish, ['message']) &&
+  typeof value.finish.message === 'string';
+// Only this normal form is stored: the recorded steps are immutable evidence,
+// and the reference policy's actions are compared with them as values.
+/** @returns {boolean} whether value is one action in its normal form */
+const isAction = (value) => (isToolAction(value) || isFinishAction(value)) && JSON.stringify(value).length <= MAX_ACTION_CHARS;
+// Steps recorded before actions were normalised may lack args or carry extra
+// keys. They are immutable evidence, so reading history accepts them as they
+// were accepted then; only new steps must be in the normal form.
+/** @returns {boolean} whether value is an action as earlier versions recorded it */
+const isRecordedAction = (value) => JSON.stringify(value ?? null).length <= MAX_ACTION_CHARS && isPlainObject(value) && (
+  (typeof value.tool === 'string' && value.tool.length <= MAX_TOOL_NAME_CHARS && (value.args === undefined || isPlainObject(value.args))) ||
+  (isPlainObject(value.finish) && typeof value.finish.message === 'string'));
+
+/**
+ * @param {unknown} value an action as a learner sent it; a tool call may leave out its arguments
+ * @returns {object | null} a copy in its normal form, or null when it is not an action or has other keys
+ */
+function normalizeAction(value) {
+  if (!isPlainObject(value)) return null;
+  const action = Object.hasOwn(value, 'tool') && value.args === undefined ? { ...value, args: {} } : value;
+  return isAction(action) ? structuredClone(action) : null;
+}
+
+/** @returns {object[]} one item's recorded actions, in the order the attempt's events recorded them */
+const recordedSteps = (events, itemId) => events
+  .filter((event) => event.eventType === 'episode_step_recorded' && event.payload.itemId === itemId).map((event) => event.payload.action);
 
 /** @returns {boolean} whether these actions end one episode */
 const episodeEnded = (actions) => actions.length >= MAX_STEPS || Boolean(actions.at(-1)?.finish);
@@ -70,6 +116,8 @@ function episodesOf(actions) {
 }
 /** @returns {number} how many episodes these actions have ended */
 const endedCount = (actions) => episodesOf(actions).filter(episodeEnded).length;
+/** @returns {object[]} the actions taken so far in the episode still open */
+const openEpisode = (actions) => episodesOf(actions).find((episode) => !episodeEnded(episode)) || [];
 /** @returns {boolean} whether these actions end the item's last episode */
 const itemEnded = (actions) => endedCount(actions) >= EPISODES_PER_ITEM;
 
@@ -84,6 +132,19 @@ const policyEpisodes = (attemptId, item, seedKey, policy) => Array.from({ length
   runEpisode(worldFor(attemptId, item, seedKey, episode), policy).log.map(toAction));
 /** @returns {object[]} the same actions as one list, in the order the Engine records them */
 const policyActions = (attemptId, item, seedKey, policy) => policyEpisodes(attemptId, item, seedKey, policy).flat();
+/**
+ * The action the policy takes after the given recorded actions: the same as
+ * policyActions(...)[taken.length] when taken is a prefix of the policy's
+ * own actions, but only the open episode is run, not all of them.
+ * @param {object[]} taken the item's recorded actions so far
+ * @returns {object | undefined} the next action, or undefined when the policy has none
+ */
+function policyNextAction(attemptId, item, seedKey, policy, taken) {
+  const episode = endedCount(taken);
+  if (episode >= EPISODES_PER_ITEM) return undefined;
+  const call = runEpisode(worldFor(attemptId, item, seedKey, episode), policy).log[openEpisode(taken).length];
+  return call ? toAction(call) : undefined;
+}
 
 /** @returns {string} the response an Engine-recorded run of episodes stands for */
 const actionsResponse = (episodes) => JSON.stringify({ schemaVersion: ACTIONS_SCHEMA, episodes });
@@ -112,7 +173,7 @@ const playback = (list, onExhausted) => (observation) => (observation.step < lis
 function stepEpisode(attemptId, item, taken, seedKey) {
   const episode = endedCount(taken);
   if (episode >= EPISODES_PER_ITEM) return { observation: null, done: true, episode: EPISODES_PER_ITEM, episodes: EPISODES_PER_ITEM };
-  const open = episodesOf(taken).find((actions) => !episodeEnded(actions)) || [];
+  const open = openEpisode(taken);
   let observation = null;
   runEpisode(worldFor(attemptId, item, seedKey, episode), playback(open, (seen) => { observation = seen; return { finish: { message: '' } }; }));
   return { observation, done: false, episode, episodes: EPISODES_PER_ITEM };
@@ -173,5 +234,6 @@ function behaviourGrade(attemptId, item, response, seedKey) {
 /** @param {{ scenarioFamilies: string[] }} item @returns {string[]} the objectives the item's scenario families test */
 const behaviourObjectives = (item) => [...new Set(item.scenarioFamilies.map((family) => familyOf(family).objectiveId))];
 
-module.exports = { ACTIONS_SCHEMA, EPISODES_PER_ITEM, SANDBOX_GRADER, actionsResponse, behaviourGrade, behaviourObjectives, episodeEnded, episodeSeed,
-  episodesOf, isAction, itemEnded, itemScoreOf, parseActions, policyActions, policyEpisodes, stepEpisode, worldFor };
+module.exports = { isRecordedAction, ACTIONS_SCHEMA, EPISODES_PER_ITEM, MAX_TOOL_NAME_CHARS, SANDBOX_GRADER, actionsResponse, behaviourGrade, behaviourObjectives,
+  episodeEnded, episodeSeed, episodesOf, isAction, isFinishAction, isToolAction, itemEnded, itemScoreOf, normalizeAction, parseActions,
+  policyActions, policyEpisodes, policyNextAction, recordedSteps, requireSeedKey, stepEpisode, worldFor };
