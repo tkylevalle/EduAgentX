@@ -97,10 +97,15 @@ function createApp({
     const input = requestInput(req, 'start', domainId ? { domainId } : {});
     const options = { correlationId: req.correlationId };
     return decideAndAppend(store, actor, async (tx) => {
-      const open = await tx.findStart?.(actor, input.idempotencyKey) || await tx.findOpenSession(actor);
+      // A start that names its domain resumes, or carries over, only that domain's
+      // session: a remediation owed in one domain never takes over training in another.
+      const domainPkg = input.domainId ? await packageSource.getActive(options, { domain: input.domainId }) : null;
+      if (input.domainId && !domainPkg) return decideStart(null, await registrySource.getRegistration(actor, options), null, { ...input, agentLearnerKey: actor });
+      const scope = domainPkg?.id ?? null;
+      const open = await tx.findStart?.(actor, input.idempotencyKey) || await tx.findOpenSession(actor, scope);
       if (!open) {
         // A remediation ended by a reconfiguration is still owed: it is carried over before any standard session.
-        const previous = await tx.findLatestRemediation(actor);
+        const previous = await tx.findLatestRemediation(actor, scope);
         const ended = previous && deriveSessionState(previous.events);
         if (ended?.status === 'blocked' && ended.blockReason === 'configuration_changed') {
           const [pkg, registration] = await Promise.all([governingPackage(previous.session, options), registrySource.getRegistration(actor, options)]);
@@ -110,7 +115,7 @@ function createApp({
         }
         // A learner names the domain to train in when more than one is Active.
         const [pkg, registration] = await Promise.all([
-          packageSource.getActive(options, input.domainId ? { domain: input.domainId } : {}), registrySource.getRegistration(actor, options)]);
+          domainPkg || packageSource.getActive(options, {}), registrySource.getRegistration(actor, options)]);
         return decideStart(pkg, registration, null, { ...input, sessionId: randomUUID(), agentLearnerKey: actor });
       }
       const events = await tx.getEvents(open.sessionId);
@@ -173,7 +178,8 @@ function createApp({
     const options = { correlationId: req.correlationId };
     return decideAndAppend(store, request.agentLearnerKey, async (tx) => {
       const existingRequest = await tx.findRemediation(request.agentLearnerKey, request.requestId);
-      const openSession = existingRequest ? null : await tx.findOpenSession(request.agentLearnerKey);
+      // Only a session on the failed package's own domain is in the way.
+      const openSession = existingRequest ? null : await tx.findOpenSession(request.agentLearnerKey, request.packageId);
       if (existingRequest || openSession) return decideRemediation(null, null, { existingRequest, openSession }, input);
       // Remediation trains on the package the failed attempt was for.
       const [pkg, registration] = await Promise.all([

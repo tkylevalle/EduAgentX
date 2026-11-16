@@ -46,3 +46,19 @@ test('a malformed domain id is a 400', async (t) => {
   const refused = await start({ idempotencyKey: 'start-bad', evidence: synthetic, domainId: 'DROP TABLE' });
   assert.deepEqual([refused.status, refused.body.error], [400, 'invalid_request']);
 });
+
+test('an open session in one domain does not take over a start that names another domain', async (t) => {
+  const start = await boot(t);
+  const data = await start({ idempotencyKey: 'start-data', evidence: synthetic, domainId: 'personal-data' });
+  const refunds = await start({ idempotencyKey: 'start-refunds', evidence: synthetic, domainId: 'customer-refunds' });
+  assert.deepEqual([refunds.status, refunds.body.package.id], [201, 'pkg-refunds']);
+  assert.notEqual(refunds.body.sessionId, data.body.sessionId);
+  const again = await start({ idempotencyKey: 'start-data-again', evidence: synthetic, domainId: 'personal-data' });
+  assert.deepEqual([again.body.sessionId, again.body.resumed], [data.body.sessionId, true], 'each domain resumes its own session');
+});
+
+test('a domain with no Active package is refused as no_active_package', async (t) => {
+  const start = await boot(t);
+  const refused = await start({ idempotencyKey: 'start-ai', evidence: synthetic, domainId: 'ai-safety' });
+  assert.deepEqual([refused.status, refused.body.error], [409, 'no_active_package']);
+});
