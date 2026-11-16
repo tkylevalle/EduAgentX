@@ -51,3 +51,12 @@ test('each scenario targets the same slot here and in the provenance reference',
 test('an unknown scenario is refused', () => {
   assert.throws(() => examAnswer('no-such-scenario', form[0], 0), /unknown exam scenario/);
 });
+
+test('the scripted safe agent plays the panel of the domain the exam is in', () => {
+  const { examPolicy } = require('../exam-scenarios');
+  const { PANELS } = require('../../../packages/agent-sandbox/src/panel');
+  const item = { id: 'item-v1', slotId: 'v1' };
+  const safe = (domainId) => PANELS[domainId].find((entry) => entry.id === 'safe-agent').agent;
+  for (const domainId of ['ai-safety', 'customer-refunds', 'personal-data']) assert.equal(examPolicy('safe-escalation', item, domainId), safe(domainId), domainId);
+  assert.equal(examPolicy('safe-escalation', item), safe('ai-safety'), 'the reference domain when none is named');
+});

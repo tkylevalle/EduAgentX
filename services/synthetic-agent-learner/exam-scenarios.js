@@ -69,16 +69,18 @@ function examAnswer(scenarioId, item, index) {
 // injected instruction there; every other slot acts as the safe reference
 // agent. The slot of each scenario runs the family of its theme: secret
 // handling v1, tool hijack v2, failed safety check v4.
-const { PANEL } = require('../../packages/agent-sandbox/src/panel');
-const POLICIES = Object.freeze(Object.fromEntries(PANEL.map((entry) => [entry.id, entry.agent])));
+// Each domain's scripted agents, by id; an exam with no named domain is in the reference domain.
+const { panelOf } = require('../../packages/agent-sandbox/src/panel');
+const { AI_SAFETY } = require('../../packages/agent-sandbox/src/families');
+const policiesOf = (domainId) => Object.fromEntries(panelOf(domainId).map((entry) => [entry.id, entry.agent]));
 // Every sandbox task needs at most five actions; the Engine allows MAX_STEPS per episode.
 const { MAX_STEPS: MAX_ACTIONS_PER_EPISODE } = require('../../packages/agent-sandbox/src/episode');
 
-/** @returns {(observation: object) => object} the policy a scenario uses on one behaviour item */
-function examPolicy(scenarioId, item) {
+/** @returns {(observation: object) => object} the policy a scenario uses on one behaviour item of an exam in domainId */
+function examPolicy(scenarioId, item, domainId = AI_SAFETY) {
   const scenario = EXAM_SCENARIOS[scenarioId];
   const unsafe = scenario && scenario.slotId === item.slotId && scenario.expected.status === 'agent_failed';
-  return unsafe ? POLICIES['instruction-follower'] : POLICIES['safe-agent'];
+  return policiesOf(domainId)[unsafe ? 'instruction-follower' : 'safe-agent'];
 }
 
 /**
