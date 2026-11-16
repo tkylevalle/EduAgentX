@@ -29,6 +29,8 @@ function summary(report) {
     `judge ${report.judge.mode} ${report.judge.model}${report.judge.usage ? ` | ${report.judge.usage.calls} calls, ` +
       `${report.judge.usage.promptTokens} prompt + ${report.judge.usage.completionTokens} completion tokens` : ''}`,
     `reasons: ${report.reasons.join(', ') || 'none'}`,
+    ...(report.signOff ? [`sign-off: ${report.signOff.reviewers.join(' and ')} on ${report.signOff.signedOn}; accepted ` +
+      `${report.signOff.acceptedReasons.join(', ')}; ${report.signOff.note}`] : []),
     `labellers: ${report.interRater.responses} responses with two or more labels, ` +
       `agreement ${report.interRater.acceptabilityAgreement}, disputed ${report.dataset.disputed}`,
     measureLine('human-labelled', human),
