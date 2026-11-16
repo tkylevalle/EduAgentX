@@ -9,13 +9,13 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function registerContinuousAssuranceRoutes(app, {
   requireRole, proxyJson,
-  monitoringServiceUrl, monitoringInternalKey,
+  monitoringServiceUrl, monitoringGatewayKey,
   certificationServiceUrl, certificationInternalKey,
 }) {
   const unavailable = (req, res, error) => res.status(503).json({ apiVersion: 'v1', error, correlationId: req.correlationId });
-  const monitoring = (req) => ({ 'x-internal-service-key': monitoringInternalKey, 'x-actor-subject': req.auth.subject, 'x-actor-role': req.auth.role });
+  const monitoring = (req) => ({ 'x-internal-service-key': monitoringGatewayKey, 'x-actor-subject': req.auth.subject, 'x-actor-role': req.auth.role });
   const toMonitoring = (method, path) => async (req, res) => {
-    if (!monitoringServiceUrl || !monitoringInternalKey) return unavailable(req, res, 'monitoring_unavailable');
+    if (!monitoringServiceUrl || !monitoringGatewayKey) return unavailable(req, res, 'monitoring_unavailable');
     await proxyJson(req, res, `${monitoringServiceUrl}${path(req)}`, { method, ...(method === 'POST' ? { body: req.body } : {}), headers: monitoring(req) });
   };
 

@@ -101,6 +101,7 @@ app.post('/verify', (req, res) => {
 // Batch reads for Marketplace matching (assurance audit F6): one request for a
 // whole candidate list instead of one per credential. Same answers as the
 // single routes, in input order.
+// The size every Marketplace batch read uses (marketplace-service clients.js MAX_BATCH).
 const MAX_BATCH = 500;
 const batchOf = (value) => (Array.isArray(value) && value.length >= 1 && value.length <= MAX_BATCH && value.every((item) => typeof item === 'string' && item) ? value : null);
 app.post('/verify/batch', (req, res) => {

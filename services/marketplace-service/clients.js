@@ -187,6 +187,8 @@ async function requestJson(source, url, { method = 'GET', body, headers = {}, ac
 // --- batching (assurance audit F6)
 
 // The batch routes take at most this many keys; a longer queue is sent in chunks.
+// 500 bounds one request body to about a megabyte of compact JWS and one SQL
+// ANY() list, and is twice the largest match the e2e suite measures.
 const MAX_BATCH = 500;
 
 /**
@@ -202,8 +204,14 @@ function createBatcher(run) {
   const flush = () => {
     const queued = pending;
     pending = [];
-    for (let start = 0; start < queued.length; start += MAX_BATCH) {
-      const chunk = queued.slice(start, start + MAX_BATCH);
+    // One batch per caller's correlation id, so each request's reads stay traceable to it.
+    const groups = new Map();
+    for (const call of queued) {
+      const id = call.options.correlationId ?? '';
+      groups.set(id, [...(groups.get(id) || []), call]);
+    }
+    for (const group of groups.values()) for (let start = 0; start < group.length; start += MAX_BATCH) {
+      const chunk = group.slice(start, start + MAX_BATCH);
       run(chunk.map((call) => call.key), chunk[0].options)
         .then((answers) => chunk.forEach((call, index) => call.resolve(answers[index])))
         .catch((error) => chunk.forEach((call) => call.reject(error)));

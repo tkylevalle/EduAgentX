@@ -87,11 +87,12 @@ export default function App() {
   }, []);
 
   // Open critical incidents, shown on every page until someone resolves them (target design 7.3).
+  // null: the incident log could not be read, so the critical state is unknown and says so.
   const [critical, setCritical] = useState(0);
   useEffect(() => {
     let alive = true;
     const load = () => api('/api/incidents?status=open').then((data) => alive &&
-      setCritical(data.incidents.filter((incident) => incident.severity === 'critical').length)).catch(() => {});
+      setCritical(data.incidents.filter((incident) => incident.severity === 'critical').length)).catch(() => alive && setCritical(null));
     load();
     const timer = setInterval(load, CRITICAL_POLL_MS);
     return () => { alive = false; clearInterval(timer); };
@@ -143,6 +144,11 @@ export default function App() {
           </button>
           <span className="data faint hide-sm">{clock(now)}</span>
         </header>
+        {critical === null && (
+          <div className="notice warn" role="status" style={{ margin: '12px 24px 0' }}>
+            <BellRing size={14} /> Incident log unreachable: whether a critical incident is open is UNKNOWN.
+          </div>
+        )}
         {critical > 0 && page.id !== 'attention' && (
           <button className="notice bad" role="alert" style={{ margin: '12px 24px 0', textAlign: 'left', cursor: 'pointer' }}
             onClick={() => { window.location.hash = '/attention'; }}>

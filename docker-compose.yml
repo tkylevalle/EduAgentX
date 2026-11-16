@@ -447,8 +447,8 @@ services:
     container_name: eduagentx-api-gateway
     environment:
       PORT: 4000
-      # Incidents, the Runtime Monitor and the Release Gate (target design 7).
-      MONITORING_INTERNAL_KEY: ${MONITORING_INTERNAL_KEY:?Run node scripts/setup-dev.js}
+      # Incidents and the Runtime Monitor (target design 7): the only key monitoring trusts with a caller's role.
+      MONITORING_GATEWAY_KEY: ${MONITORING_GATEWAY_KEY:?Run node scripts/setup-dev.js}
       AGENT_REGISTRY_URL: http://agent-registry:4001
       CURRICULUM_ENGINE_URL: http://curriculum-engine:4002
       VALIDATION_ACTIVATION_URL: http://validation-activation:4010
@@ -824,7 +824,9 @@ services:
       SERVICE_NAME: monitoring-service
       # The one Assurance Incident log and the Runtime Monitor (audit E9; target design 7.2-7.3).
       DATABASE_URL: postgres://monitoring_owner:${MONITORING_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      # Services append incidents with the service key; only the Gateway's key may carry a role.
       MONITORING_INTERNAL_KEY: ${MONITORING_INTERNAL_KEY:?Run node scripts/setup-dev.js}
+      MONITORING_GATEWAY_KEY: ${MONITORING_GATEWAY_KEY:?Run node scripts/setup-dev.js}
       CREDENTIAL_VERIFICATION_URL: http://credential-verification:4030
       CREDENTIAL_INTERNAL_KEY: ${CREDENTIAL_INTERNAL_KEY:?Run node scripts/setup-dev.js}
     depends_on:

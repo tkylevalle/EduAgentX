@@ -17,6 +17,7 @@ function createMemoryStore({ now = () => new Date() } = {}) {
   const incidents = [];
   const updates = [];
   const manifests = [];
+  const reports = new Map();
   const view = (incident) => {
     const own = updates.filter((update) => update.incidentId === incident.incidentId);
     return structuredClone({ ...incident, status: statusOf(own), updates: own });
@@ -38,12 +39,20 @@ function createMemoryStore({ now = () => new Date() } = {}) {
     async addUpdate(incidentId, update) { updates.push({ incidentId, ...update, recordedAt: now().toISOString() }); },
     async addManifest(record) { manifests.push({ ...structuredClone(record), recordedAt: now().toISOString() }); },
     async manifestFor(credentialId) { return structuredClone([...manifests].reverse().find((value) => value.credentialId === credentialId) || null); },
+    async recordReport(credentialId, at) { reports.set(credentialId, at); },
+    // Each monitored credential's newest manifest, with when it last reported.
+    async monitored() {
+      const latest = new Map(manifests.map((value) => [value.credentialId, value]));
+      return [...latest.values()].map((value) => ({ credentialId: value.credentialId, agentId: value.agentId, registeredAt: value.recordedAt,
+        lastReportAt: reports.get(value.credentialId) || null }));
+    },
   };
 }
 
 function createPgStore(pool) {
   const toIncident = (row) => ({ incidentId: row.incident_id, source: row.source, sourceId: row.source_id, severity: row.severity, kind: row.kind,
-    summary: row.summary, subject: row.subject, detail: row.detail, occurredAt: row.occurred_at.toISOString(), recordedAt: row.recorded_at.toISOString(),
+    summary: row.summary, subject: row.subject, detail: row.detail, safeState: row.safe_state, requiredAction: row.required_action, owner: row.owner,
+    occurredAt: row.occurred_at.toISOString(), recordedAt: row.recorded_at.toISOString(),
     status: row.status || 'open', updates: row.updates || [] });
   const SELECT = `SELECT i.*, u.updates, u.updates->-1->>'status' AS status FROM monitoring_service.incidents i
     LEFT JOIN LATERAL (SELECT jsonb_agg(jsonb_build_object('status', status, 'note', note, 'actor', actor, 'recordedAt', recorded_at) ORDER BY update_id) AS updates
@@ -53,9 +62,10 @@ function createPgStore(pool) {
     async health() { await pool.query('SELECT 1'); },
     async append(incident) {
       const inserted = await pool.query(`INSERT INTO monitoring_service.incidents
-        (incident_id, source, source_id, severity, kind, summary, subject, detail, occurred_at)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (source, source_id) DO NOTHING RETURNING incident_id`,
-      [randomUUID(), incident.source, incident.sourceId, incident.severity, incident.kind, incident.summary, incident.subject, incident.detail, incident.occurredAt]);
+        (incident_id, source, source_id, severity, kind, summary, subject, detail, occurred_at, safe_state, required_action, owner)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT (source, source_id) DO NOTHING RETURNING incident_id`,
+      [randomUUID(), incident.source, incident.sourceId, incident.severity, incident.kind, incident.summary, incident.subject, incident.detail, incident.occurredAt,
+        incident.safeState ?? null, incident.requiredAction ?? null, incident.owner ?? null]);
       const row = (await pool.query(`${SELECT} WHERE i.source=$1 AND i.source_id=$2`, [incident.source, incident.sourceId])).rows[0];
       return { incident: toIncident(row), created: inserted.rowCount === 1 };
     },
@@ -83,6 +93,17 @@ function createPgStore(pool) {
         WHERE credential_id=$1 ORDER BY manifest_id DESC LIMIT 1`, [credentialId])).rows[0];
       return row ? { credentialId: row.credential_id, agentId: row.agent_id, manifest: row.manifest, registeredBy: row.registered_by,
         recordedAt: row.recorded_at.toISOString() } : null;
+    },
+    async recordReport(credentialId, at) {
+      await pool.query(`INSERT INTO monitoring_service.runtime_reports (credential_id, last_report_at) VALUES ($1, $2)
+        ON CONFLICT (credential_id) DO UPDATE SET last_report_at = GREATEST(runtime_reports.last_report_at, EXCLUDED.last_report_at)`, [credentialId, at]);
+    },
+    async monitored() {
+      const { rows } = await pool.query(`SELECT DISTINCT ON (m.credential_id) m.credential_id, m.agent_id, m.recorded_at, r.last_report_at
+        FROM monitoring_service.runtime_manifests m LEFT JOIN monitoring_service.runtime_reports r USING (credential_id)
+        ORDER BY m.credential_id, m.manifest_id DESC`);
+      return rows.map((row) => ({ credentialId: row.credential_id, agentId: row.agent_id, registeredAt: row.recorded_at.toISOString(),
+        lastReportAt: row.last_report_at ? row.last_report_at.toISOString() : null }));
     },
   };
 }

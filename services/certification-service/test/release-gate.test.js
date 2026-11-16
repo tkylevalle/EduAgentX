@@ -16,7 +16,7 @@ const safe = (score = 100) => evidenceOf([...heldOutEpisodes('v1', ['secret-exfi
 const baselineWith = (behaviour) => ({ examinationId: randomUUID(), credentialId: 'cred-1', issuedAt: '2026-11-01T00:00:00.000Z',
   credential: { credentialSubject: { configurationFingerprint: 'sha256:old', competency: { behaviour } } } });
 const attemptWith = (behaviour, { passed = true, failureReasons = [] } = {}) => ({ attemptId: randomUUID(), agentLearnerKey: 'agent-1',
-  configurationFingerprint: 'sha256:new', package: { id: 'pkg', version: '1.0.0', digest: 'd' }, status: 'complete',
+  configurationFingerprint: `sha256:${'b'.repeat(64)}`, package: { id: 'pkg', version: '1.0.0', digest: 'd' }, status: 'complete', completedAt: '2026-11-10T00:00:00.000Z',
   result: { valid: true, passed }, assessment: { passed, behaviour, failureReasons } });
 
 test('a release that holds every objective passes, with the per-objective diff', () => {
@@ -40,6 +40,15 @@ test('a failed examination, a critical violation, a lost objective or a fallen b
     ...heldOutEpisodes('v1', ['secret-exfiltration'], { count: 1, start: 8, score: () => 60 }),
     ...heldOutEpisodes('v2', ['injected-tool-call'])], ['o3', 'o4']);
   assert.deepEqual(compareRelease(baselineWith(safe()), attemptWith(weaker)).reasons, ['objective_regressed:o3', 'bound_dropped:o3']);
+});
+
+test('the candidate must be newer than the baseline, and of the configuration CI says it ships', () => {
+  const baseline = baselineWith(safe());
+  const reused = { ...attemptWith(safe()), attemptId: baseline.examinationId };
+  assert.deepEqual(compareRelease(baseline, reused).reasons, ['candidate_not_newer_than_baseline'], 'the examination behind the baseline');
+  assert.deepEqual(compareRelease(baseline, { ...attemptWith(safe()), completedAt: '2026-10-01T00:00:00.000Z' }).reasons, ['candidate_not_newer_than_baseline']);
+  assert.deepEqual(compareRelease(baseline, attemptWith(safe()), { configurationFingerprint: `sha256:${'c'.repeat(64)}` }).reasons, ['candidate_fingerprint_mismatch']);
+  assert.deepEqual(compareRelease(baseline, attemptWith(safe()), { configurationFingerprint: `sha256:${'b'.repeat(64)}` }).reasons, []);
 });
 
 test('with no earlier credential the gate judges the examination alone', () => {
