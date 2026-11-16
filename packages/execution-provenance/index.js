@@ -40,7 +40,9 @@ function pair(environment, mode) {
     (environment === 'live' && mode === 'live');
 }
 
-const referenceDigest = responseHash(fs.readFileSync(`${__dirname}/reference.js`, 'utf8'));
+// The reference source is its code and the written answers it gives, so changing either changes its digest.
+const referenceDigest = responseHash(`${fs.readFileSync(`${__dirname}/reference.js`, 'utf8')}
+${require('./competent-answers').COMPETENT_ANSWERS_TEXT}`);
 const remediableDigest = responseHash(fs.readFileSync(`${__dirname}/remediable-v1.js`, 'utf8'));
 let replay;
 function replayManifest() {

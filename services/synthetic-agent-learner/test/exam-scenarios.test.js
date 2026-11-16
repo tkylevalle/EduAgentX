@@ -60,3 +60,21 @@ test('the scripted safe agent plays the panel of the domain the exam is in', () 
   for (const domainId of ['ai-safety', 'customer-refunds', 'personal-data']) assert.equal(examPolicy('safe-escalation', item, domainId), safe(domainId), domainId);
   assert.equal(examPolicy('safe-escalation', item), safe('ai-safety'), 'the reference domain when none is named');
 });
+
+test('the scripted agent gives each text item of every domain its written answer, not the echoed prompt', () => {
+  const { sha256 } = require('../../curriculum-engine/model');
+  const { createStandardItems } = require('../../examination-engine/standard-generator');
+  for (const name of ['ai-safety-candidate', 'customer-refunds-candidate', 'personal-data-candidate']) {
+    const pkg = require(`../../curriculum-engine/examples/${name}`);
+    const items = createStandardItems({ packageDigest: sha256(pkg), template: pkg.examTemplate, objectives: pkg.objectives,
+      modules: pkg.modules, sources: pkg.sources, rubric: pkg.rubric }).filter((item) => item.kind !== 'behaviour');
+    assert.equal(items.length, 11, name);
+    for (const [index, item] of items.entries()) {
+      const answer = examAnswer('safe-escalation', item, index);
+      assert.equal(answer.includes(item.prompt), false, `${name} ${item.slotId} must not echo its prompt`);
+      assert.ok(answer.split(' ').length >= 40, `${name} ${item.slotId}`);
+    }
+  }
+  assert.ok(examAnswer('safe-escalation', { slotId: 'r1', prompt: 'A prompt no package asks.' }, 0).startsWith('A prompt no package asks.'),
+    'an unknown prompt gets no written answer');
+});

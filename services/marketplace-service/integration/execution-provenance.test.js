@@ -11,11 +11,13 @@ const p = require('../../../packages/execution-provenance');
 const { GatewayProtocolClient } = require('../../synthetic-agent-learner/gateway-client');
 const { createSyntheticAgentLearner } = require('../../synthetic-agent-learner/learner');
 const { createExamRunner } = require('../../synthetic-agent-learner/exam-runner');
-const { examAnswer } = require('../../synthetic-agent-learner/exam-scenarios');
+const { examAnswer, examPolicy } = require('../../synthetic-agent-learner/exam-scenarios');
 const { createLifecycleSource, toCandidate } = require('../clients');
 const config = process.env.MARKETPLACE_PROVENANCE_CONFIG;
 const stage = process.env.MARKETPLACE_PROVENANCE_STAGE || 'issue';
 const statePath = 'artifacts/marketplace-trust/provenance-real.json';
+// The capability request below is for AI agent safety, so every run is examined in that domain.
+const DOMAIN_ID = 'ai-safety';
 
 async function context() {
   const urls = JSON.parse(fs.readFileSync(config, 'utf8'));
@@ -63,11 +65,11 @@ test('real authoritative synthetic and replay lifecycles become Eligible; legacy
     // Replay stays unenrolled until replay.review.json records two reviewers.
     const modes = JSON.parse(c.env.EXECUTION_PRINCIPALS.replace(/^'|'$/g, '')).map((e) => e.evidenceMode);
     for (const mode of modes) await t.test(`${mode}: real authority, signing, verification, publication, origin and Eligible match`, async () => {
-      const training = await c.request(`${c.urls.syntheticUrl}/v1/execution-runs`, 'POST', { evidenceMode: mode, action: 'training' });
+      const training = await c.request(`${c.urls.syntheticUrl}/v1/execution-runs`, 'POST', { evidenceMode: mode, action: 'training', domainId: DOMAIN_ID });
       assert.equal(training.status, 200, JSON.stringify(training.body));
       assert.equal(training.body.outcome, 'completed'); assert.equal(training.body.provenance.evidenceMode, mode);
       const exam = await c.request(`${c.urls.syntheticUrl}/v1/execution-runs`, 'POST', {
-        evidenceMode: mode, action: 'examination', trainingSessionId: training.body.sessionId });
+        evidenceMode: mode, action: 'examination', trainingSessionId: training.body.sessionId, domainId: DOMAIN_ID });
       assert.equal(exam.status, 200, JSON.stringify(exam.body)); assert.equal(exam.body.outcome, 'complete');
       const issued = await c.driver.certify(exam.body.attempt.attemptId);
       assert.equal((await c.driver.verify(issued.compactJws)).overall, 'VALID');
@@ -97,9 +99,10 @@ test('real authoritative synthetic and replay lifecycles become Eligible; legacy
       const client = new GatewayProtocolClient({ gatewayUrl: c.urls.gatewayUrl,
         clientId: c.env.LIVE_AGENT_CLIENT_ID || 'live-agent-learner-dev', clientSecret: c.env.LIVE_AGENT_CLIENT_SECRET });
       const learner = createSyntheticAgentLearner({ gatewayClient: client });
-      const trained = await learner.train({ agentLearnerKey: client.clientId, evidenceMode: 'replay' });
+      const trained = await learner.train({ agentLearnerKey: client.clientId, evidenceMode: 'replay', domainId: DOMAIN_ID });
       assert.equal(trained.outcome, 'completed'); assert.equal(trained.provenance, undefined);
-      const exam = await createExamRunner({ gatewayClient: client }).examine({ answerFor: (item, index) => examAnswer('safe-escalation', item, index) });
+      const exam = await createExamRunner({ gatewayClient: client }).examine({ domainId: DOMAIN_ID,
+        answerFor: (item, index) => examAnswer('safe-escalation', item, index), actFor: (item) => examPolicy('safe-escalation', item, DOMAIN_ID) });
       assert.equal(exam.outcome, 'complete');
       const issued = await c.driver.certify(exam.attempt.attemptId);
       assert.equal((await c.driver.verify(issued.compactJws)).overall, 'VALID');
