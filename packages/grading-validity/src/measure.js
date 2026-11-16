@@ -16,6 +16,7 @@ const { gradeAttempt, gradeEntries } = require('./grade');
 const { PROBES, probeAnswers, probeHolds, withConclusiveness } = require('./probes');
 const { loadHumanLabels } = require('./labels');
 const { computeReport, isCurrent } = require('./report');
+const { applySignOff, loadSignOff } = require('./signoff');
 const { VERDICTS_FILE, liveJudge, loadVerdicts, replayJudge, saveVerdicts } = require('./verdicts');
 
 const DATASET = path.join(__dirname, '..', 'dataset', 'responses.v1.json');
@@ -67,8 +68,9 @@ async function measure({ record = false, env = process.env, file = VERDICTS_FILE
       humanLabels, probeResults, acceptPercents: exam.acceptPercents });
     if (record) saveVerdicts({ file, model: routes.judge.model, verdicts: routes.route.verdicts(),
       repeat: routes.repeatRoute.verdicts(), usage: { ...routes.usage }, recordedAt: new Date().toISOString() });
-    return { ...report, grader, judge: { mode: routes.mode, model: routes.judge.model, usage: routes.usage },
-      measuredAt: new Date().toISOString() };
+    // A two-person sign-off on this grader version may stand in for missing labels (src/signoff.js).
+    return applySignOff({ ...report, grader, judge: { mode: routes.mode, model: routes.judge.model, usage: routes.usage },
+      measuredAt: new Date().toISOString() }, loadSignOff());
   } finally {
     await Promise.all([routes.route.close(), routes.repeatRoute.close()]);
   }

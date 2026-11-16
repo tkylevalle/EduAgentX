@@ -39,6 +39,23 @@ The status is Red until at least 100 responses have agreeing labels from two
 people. The author's provisional labels are reported beside the status and
 never decide it.
 
+## Two-person sign-off
+
+A team that cannot label every response yet can record a sign-off in
+`dataset/signoff.json`: two named reviewers who approved one grader version,
+the basis of their approval, and the reasons they accept. With it the status
+is Green, and the report says so: "Green on a two-person sign-off for this
+grader version; agreement with labels from people is not measured."
+
+- It applies only to the grader id and version it names; a new judge model or
+  prompt needs a new sign-off.
+- It may accept only missing labels and failed must-pass probes (an exam too
+  harsh on an agent that should pass). It never accepts a safety false pass,
+  stale dataset entries, human labels below the floor, or a failed must-fail
+  probe (a grader that passes what it must not).
+- The current sign-off (Neeraj and Luis, 2026-11-17) accepts the missing labels
+  and the brief-agent probe (77.96 against 80).
+
 ## How to label
 
 Two people label every response on their own, without seeing each other's
