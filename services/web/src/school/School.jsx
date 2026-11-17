@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { BellRing, Check, X } from 'lucide-react';
+import { BellRing, BookMarked, Briefcase, Check, Coffee, School as SchoolIcon, Wrench, X } from 'lucide-react';
 import { pct } from '../lib.js';
 import { healthSummary } from '../status.js';
 import ModeSwitch from '../ModeSwitch.jsx';
@@ -19,6 +19,8 @@ import './school.css';
 const FIRST_ROOM = ROOMS[0].id;
 const VIEWS = [{ id: HUB, tab: 'Campus' }, ...ROOMS];
 const LIFECYCLE = ROOMS.filter((room) => room.floor === 0);
+// The lifecycle tabs carry their step number; the other tabs carry a picture.
+const TAB_ICON = { hub: SchoolIcon, library: BookMarked, staff: Coffee, workshop: Wrench, careers: Briefcase };
 
 // Development only: ?pose=cheer&cap shows one pose, to check the art.
 // A production build has no such switch; there the robot follows real runs only.
@@ -72,11 +74,13 @@ function Rail({ view, states, locked, onGo }) {
         {VIEWS.map((entry) => {
           const state = states[entry.id];
           const step = LIFECYCLE.indexOf(entry) + 1;
+          const Icon = TAB_ICON[entry.id];
           return (
             <button key={entry.id} type="button" className="brass rail-tab" data-view={entry.id} data-state={state} data-group={entry.id === HUB ? 'hub' : step ? 'life' : 'wing'}
               aria-current={entry.id === view ? 'page' : undefined} aria-disabled={(locked && entry.id !== view) || undefined}
               tabIndex={entry.id === view ? 0 : -1} onClick={() => !locked && onGo(entry.id)}>
               {step > 0 && <span className="rail-mark">{state === 'done' ? <Check size={12} strokeWidth={3.4} /> : state === 'failed' ? <X size={12} strokeWidth={3.4} /> : step}</span>}
+              {Icon && <Icon size={15} strokeWidth={2.4} />}
               {entry.tab}
             </button>
           );
@@ -153,7 +157,8 @@ export default function School({ place: hashPart, status, onSwitch }) {
 
   const inScene = scene?.place === quillRoom;
   const { up, total } = healthSummary(status.health);
-  const pose = ART_POSE || (inScene ? scene.pose : ambient(quillRoom, { critical: status.critical, up, total }));
+  // On the campus view, with no scene to play, the robot greets the visitor.
+  const pose = ART_POSE || (inScene ? scene.pose : room ? ambient(quillRoom, { critical: status.critical, up, total }) : 'wave');
   const shownLook = ART_POSE ? { ...look, cap: ART.has('cap') } : look;
   const facts = useMemo(() => stageFacts(seen, shownLook), [seen, shownLook.cap]);
   const tags = useMemo(() => doorTags(data, status), [data.overview, data.credentials, data.pkg, status.health, status.critical]);
@@ -172,7 +177,10 @@ export default function School({ place: hashPart, status, onSwitch }) {
       <Stage view={view} quillRoom={quillRoom} pose={pose} look={shownLook} facts={facts} data={data} health={status.health} tags={tags}
         locked={playing} onGo={setPicked} scope={scope}>
         {student && (
-          <div className="name-tag"><strong>{student.name}</strong><span data-live={student.live || undefined}>{studentKind(student, status.liveModel)}</span></div>
+          <div className="name-tag">
+            <strong>{student.name}</strong><span data-live={student.live || undefined}>{studentKind(student, status.liveModel)}</span>
+            {look.cap && <img className="name-star" src={art('ui/star.webp')} alt="Graduated" />}
+          </div>
         )}
         {ART_POSE && <div className="name-tag name-tag-art"><strong>Art check</strong><span>not a run</span></div>}
         <div className="caption-slot" aria-live="polite">
