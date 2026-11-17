@@ -5,7 +5,7 @@ import { driftPointer, useFrames, usePointer } from '../motion/motion.js';
 // How far the pointer moves each depth, in screen pixels at the edge of the
 // window. A nearer layer moves more. Measured by eye against the room plates:
 // above about 30 px the front furniture separates from its floor shadow.
-export const DEPTH = { backdrop: 8, world: 16, front: 9, props: 46 };
+export const DEPTH = { backdrop: 8, world: 16, props: 46 };
 // The stage scrolls this much slower than the page, so it reads as further away.
 const SCROLL_LAG = 0.16;
 // On arrival the camera starts this much further away and pushes in.

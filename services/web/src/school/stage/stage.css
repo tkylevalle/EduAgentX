@@ -8,7 +8,9 @@
   position: absolute; inset: -14px; z-index: -1; background: #120e0a url('/school/ui/backdrop.webp') center 64% / cover no-repeat;
   transform: translate3d(calc(var(--px, 0) * -8px), calc(var(--py, 0) * -4px), 0);
 }
-.world { position: absolute; left: 0; top: 0; transform-origin: 0 0; will-change: transform; --inv: 1; }
+/* No will-change here: with it the browser keeps the whole building (9485 x 2235 world pixels) as one
+   full-size texture, which is over the GPU's budget on a dense screen and makes the page flicker. */
+.world { position: absolute; left: 0; top: 0; transform-origin: 0 0; --inv: 1; }
 .world img { display: block; max-width: none; user-select: none; -webkit-user-drag: none; }
 
 .roof { position: absolute; transition: filter 600ms ease; }
@@ -19,7 +21,9 @@
 .plate { position: absolute; animation: plate-in 320ms ease-out backwards; }
 @keyframes plate-in { from { opacity: 0; } }
 .cell-desk { position: absolute; }
-.fronts { position: absolute; inset: 0; pointer-events: none; transform: translate3d(calc(var(--px, 0) * var(--inv) * -9px), calc(var(--py, 0) * var(--inv) * -3px), 0); }
+/* The near furniture moves a little more than its room. The shift is in world pixels, so it shrinks with
+   the building: 20 px is about 9 px on screen in a room view and under 3 px on the campus. */
+.fronts { position: absolute; inset: 0; pointer-events: none; transform: translate(calc(var(--px, 0) * -20px), calc(var(--py, 0) * -7px)); }
 
 /* The robot */
 .quill-at {
