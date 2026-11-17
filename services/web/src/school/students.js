@@ -23,4 +23,4 @@ export const studentOf = (scenarioId) => STUDENTS.find((student) => student.id =
 
 /** How the student is produced, said plainly: a script, or a named live model. */
 export const studentKind = (student, liveModel) =>
-  (student.live ? `Live model${liveModel?.model ? ` · ${liveModel.model}` : ''}` : 'Scripted');
+  (student.live ? `Live model${liveModel?.model ? ` ${liveModel.model}` : ''}` : 'Scripted');

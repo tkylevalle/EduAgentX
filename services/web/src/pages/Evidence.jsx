@@ -7,7 +7,7 @@ import { api, short, stamp } from '../lib.js';
 // service reports digests for. Each is labelled with the issue honestly
 // backing it right now; a section nobody backs yet says so instead of
 // pretending it was checked.
-const SECTIONS = [
+export const SECTIONS = [
   ['buildEnv', 'Build & environment', 'Service health and runtime, read live from this app'],
   ['packages', 'Packages', 'The active Domain Assurance Package (Issue #9)'],
   ['kpis', 'KPIs', 'Certification issuance KPIs (Issue #23)'],

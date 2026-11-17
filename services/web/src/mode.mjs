@@ -1,11 +1,14 @@
 // School shows the lifecycle as a story. Operator is the technical console.
 // The hash names the mode, so a link or a reload keeps it.
 
-import { PLACES } from './school/director.mjs';
+import { HUB, isView, roomOf } from './school/campus.mjs';
 
-/** The room that shows what an Operator page shows. Pages that are not listed have no room. */
-const PAGE_TO_PLACE = { overview: 'gate', lab: 'gate', curriculum: 'classroom', credentials: 'hall', verify: 'hall' };
 const FIRST_PAGE = 'overview';
+/** The room that shows what an Operator page shows. The overview is the whole campus. */
+const PAGE_TO_ROOM = {
+  overview: HUB, lab: 'gate', curriculum: 'classroom', credentials: 'hall', verify: 'hall', governance: 'library',
+  labelling: 'staff', attention: 'staff', system: 'workshop', evidence: 'workshop', marketplace: 'careers',
+};
 
 /**
  * @param {string} hash window.location.hash
@@ -27,10 +30,10 @@ export function parseHash(hash, stored = null) {
  */
 export function switchMode(route, last) {
   const inSchool = route.mode === 'school';
-  const place = PLACES.find((entry) => entry.id === route.part) || PLACES[0];
-  const from = inSchool ? place.id : route.part || FIRST_PAGE;
+  const view = isView(route.part) ? route.part : HUB;
+  const from = inSchool ? view : route.part || FIRST_PAGE;
   const cameFromThere = last?.mode === route.mode && last.here === from;
-  const mapped = inSchool ? place.operator : PAGE_TO_PLACE[from] || PLACES[0].id;
+  const mapped = inSchool ? roomOf(view)?.operator || FIRST_PAGE : PAGE_TO_ROOM[from] || HUB;
   const to = cameFromThere ? last.there : mapped;
   const mode = inSchool ? 'operator' : 'school';
   return { hash: inSchool ? `#/${to}` : `#/school/${to}`, last: { mode, here: to, there: from } };

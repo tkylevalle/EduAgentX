@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ArrowRight, OctagonX } from 'lucide-react';
+import { OctagonX } from 'lucide-react';
 import { ago, pct, RULE_COPY } from '../../lib.js';
 import { stepOf } from '../../run/reducer.mjs';
 import { studentOf } from '../students.js';
@@ -10,7 +10,7 @@ const STATUS_TONE = { active: 'ok', suspended: 'warn', revoked: 'bad' };
 
 function Wall({ credentials, chosen, runCredentialId, onPick }) {
   return (
-    <Card span={4} title="Graduates" aside={<code className="s-meta">{credentials.length}</code>}>
+    <Card span={4} title="Graduates" kind="manila" aside={<code className="s-meta">{credentials.length}</code>}>
       <ul className="s-files">
         {credentials.map((entry) => (
           <li key={entry.credentialId}><button type="button" aria-pressed={chosen === entry.credentialId} onClick={() => onPick(entry.credentialId)}>
@@ -39,7 +39,7 @@ function Drill({ detail }) {
 function Refused({ student, rules, onGo }) {
   return (
     <Card tone="bad" title={`No diploma for ${student || 'this student'}`}
-      aside={<button type="button" className="s-link" onClick={() => onGo('office')}>Report card <ArrowRight size={15} strokeWidth={2.6} /></button>}>
+      aside={<button type="button" className="s-link" onClick={() => onGo('office')}>Open the report card</button>}>
       {rules.length > 0 && (
         <ul className="s-rules">{rules.map((rule) => <li key={rule}><OctagonX size={16} /> {RULE_COPY[rule] || rule}</li>)}</ul>
       )}
@@ -75,7 +75,7 @@ export default function HallPanel({ seen, data, onGo }) {
         {!credential && chosenId && <Card><Wait rows={6} /></Card>}
         {!chosenId && !noDiploma && (
           <Card><p className="s-lead">No student has graduated yet</p>
-            <button type="button" className="s-link" onClick={() => onGo('gate')}>Enrol a student <ArrowRight size={15} strokeWidth={2.6} /></button></Card>
+            <button type="button" className="s-link" onClick={() => onGo('gate')}>Enrol a student</button></Card>
         )}
       </div>
       <Wall credentials={data.credentials} chosen={chosenId} runCredentialId={runCredentialId} onPick={setPicked} />

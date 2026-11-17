@@ -75,3 +75,16 @@ test('a run that could not start says why in plain words', async () => {
   assert.equal(now.caption, 'Stopped: another run is in progress');
   assert.equal(now.pose, 'confused');
 });
+
+test('with no scene the robot reacts to the real state of the room it is in', async () => {
+  const { ambient } = await load();
+  assert.equal(ambient('staff', { critical: 2 }), 'worried');
+  assert.equal(ambient('staff', { critical: 0 }), 'idle');
+  assert.equal(ambient('staff', { critical: null }), 'confused', 'the incident log could not be read');
+  assert.equal(ambient('workshop', { up: 14, total: 14 }), 'proud');
+  assert.equal(ambient('workshop', { up: 12, total: 14 }), 'worried');
+  assert.equal(ambient('workshop', { up: 0, total: 0 }), 'idle', 'health is not loaded yet');
+  assert.equal(ambient('library', {}), 'read');
+  assert.equal(ambient('careers', {}), 'wave');
+  assert.equal(ambient('gate', {}), 'idle');
+});

@@ -24,21 +24,38 @@ test('a switch lands on the page that shows the same thing', async () => {
   assert.equal(switchMode({ mode: 'operator', part: 'verify' }, null).hash, '#/school/hall');
 });
 
-test('a page with no room opens the school gate, and switching back returns to that page', async () => {
+test('every Operator page has a room, and the overview is the campus', async () => {
   const { switchMode } = await load();
-  const there = switchMode({ mode: 'operator', part: 'system' }, null);
-  assert.equal(there.hash, '#/school/gate');
-  assert.equal(switchMode({ mode: 'school', part: 'gate' }, there.last).hash, '#/system');
+  const room = (page) => switchMode({ mode: 'operator', part: page }, null).hash;
+  assert.equal(room('overview'), '#/school/hub');
+  assert.equal(room('lab'), '#/school/gate');
+  assert.equal(room('governance'), '#/school/library');
+  assert.equal(room('attention'), '#/school/staff');
+  assert.equal(room('labelling'), '#/school/staff');
+  assert.equal(room('system'), '#/school/workshop');
+  assert.equal(room('evidence'), '#/school/workshop');
+  assert.equal(room('marketplace'), '#/school/careers');
+});
+
+test('a room that two pages share returns to the page the visitor came from', async () => {
+  const { switchMode } = await load();
+  const there = switchMode({ mode: 'operator', part: 'evidence' }, null);
+  assert.equal(there.hash, '#/school/workshop');
+  assert.equal(switchMode({ mode: 'school', part: 'workshop' }, there.last).hash, '#/evidence');
+  assert.equal(switchMode({ mode: 'school', part: 'workshop' }, null).hash, '#/system');
 });
 
 test('after a move inside a mode, the switch follows the new position', async () => {
   const { switchMode } = await load();
   const there = switchMode({ mode: 'operator', part: 'system' }, null);
   assert.equal(switchMode({ mode: 'school', part: 'office' }, there.last).hash, '#/credentials');
+  assert.equal(switchMode({ mode: 'school', part: 'careers' }, there.last).hash, '#/marketplace');
 });
 
-test('an unknown room or an empty part is treated as the first one', async () => {
+test('an unknown room or an empty part is the campus, and the campus is the overview', async () => {
   const { switchMode } = await load();
-  assert.equal(switchMode({ mode: 'school', part: 'nowhere' }, null).hash, '#/lab');
-  assert.equal(switchMode({ mode: 'operator', part: '' }, null).hash, '#/school/gate');
+  assert.equal(switchMode({ mode: 'school', part: 'nowhere' }, null).hash, '#/overview');
+  assert.equal(switchMode({ mode: 'school', part: '' }, null).hash, '#/overview');
+  assert.equal(switchMode({ mode: 'operator', part: '' }, null).hash, '#/school/hub');
+  assert.equal(switchMode({ mode: 'operator', part: 'no-such-page' }, null).hash, '#/school/hub');
 });

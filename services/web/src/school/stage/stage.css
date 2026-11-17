@@ -1,0 +1,180 @@
+/* The stage: a camera on the school building. Sizes inside .world are world
+   pixels (one pixel of the 1920 x 1080 frame the rooms were rendered for);
+   the camera scales them. Chrome that must not scale is outside .world. */
+.scene {
+  position: relative; height: clamp(300px, 62vh, 720px); overflow: hidden; isolation: isolate; contain: layout paint;
+}
+.stage-backdrop {
+  position: absolute; inset: -14px; z-index: -1; background: #120e0a url('/school/ui/backdrop.webp') center 64% / cover no-repeat;
+  transform: translate3d(calc(var(--px, 0) * -8px), calc(var(--py, 0) * -4px), 0);
+}
+.world { position: absolute; left: 0; top: 0; transform-origin: 0 0; will-change: transform; --inv: 1; }
+.world img { display: block; max-width: none; user-select: none; -webkit-user-drag: none; }
+
+.roof { position: absolute; transition: filter 600ms ease; }
+.scene[data-view='room'] .roof { filter: brightness(0.38); }
+.roof > img { width: 100%; height: 100%; }
+.cell { position: absolute; }
+.cell-thumb { position: absolute; inset: 0; width: 100%; height: 100%; }
+.plate { position: absolute; animation: plate-in 320ms ease-out backwards; }
+@keyframes plate-in { from { opacity: 0; } }
+.cell-desk { position: absolute; }
+.fronts { position: absolute; inset: 0; pointer-events: none; transform: translate3d(calc(var(--px, 0) * var(--inv) * -9px), calc(var(--py, 0) * var(--inv) * -3px), 0); }
+
+/* The robot */
+.quill-at {
+  position: absolute; left: 0; top: 0; pointer-events: none; transition: transform var(--walk, 0ms) var(--ease-move), opacity 160ms linear;
+  filter: drop-shadow(0 10px 14px rgba(0, 0, 0, 0.35));
+}
+.quill-at[data-hidden] { opacity: 0; }
+.quill { position: relative; width: 100%; height: 100%; }
+.quill[data-flip] { transform: scaleX(-1); }
+.quill-sheet { position: absolute; inset: 0; background-repeat: no-repeat; }
+
+/* Doors: every room is a button. In a room view the rooms next door are dark. */
+.cell-door {
+  position: absolute; padding: 0; border: 0; background: rgba(10, 7, 4, 0); cursor: pointer; border-radius: 0;
+  transition: background 600ms ease;
+}
+.cell-door:disabled { cursor: default; }
+.scene[data-view='room'] .cell-door:not([data-lit]) { background: rgba(10, 7, 4, 0.66); }
+.scene[data-view='room'] .cell-door:not([data-lit]):not(:disabled):hover { background: rgba(10, 7, 4, 0.34); }
+.cell-door:focus-visible { outline: calc(4px * var(--inv)) solid var(--pencil); outline-offset: calc(-6px * var(--inv)); }
+.door-tag {
+  position: absolute; left: 50%; top: 0; display: flex; align-items: baseline; gap: 7px; padding: 4px 10px 5px; white-space: nowrap;
+  transform: translate(-50%, -38%) scale(var(--inv)); transform-origin: 50% 0; font-size: 12.5px; line-height: 1.1;
+  transition: opacity 300ms ease, translate 240ms var(--ease-spring);
+}
+.door-tag strong { font-weight: 800; font-stretch: 108%; }
+.door-tag em { font-style: normal; font-weight: 650; font-variant-numeric: tabular-nums; opacity: 0.86; }
+.scene[data-view='room'] .door-tag { opacity: 0; }
+.scene[data-view='hub'] .cell-door:not(:disabled):hover .door-tag, .scene[data-view='hub'] .cell-door:focus-visible .door-tag { translate: 0 -5px; }
+.scene[data-view='hub'] .cell-door:not(:disabled):hover { background: rgba(255, 214, 150, 0.1); box-shadow: inset 0 0 0 calc(3px * var(--inv)) var(--pencil); }
+
+/* Brass: door tags, the room plaque, the rail's tabs */
+.door-tag, .plaque, .brass {
+  border: 1px solid #5e4416; border-radius: 7px; color: #2b1d06; text-shadow: 0 1px 0 rgba(255, 238, 180, 0.55);
+  background: linear-gradient(180deg, #f3dc98 0%, #d3a74e 42%, #b98a35 58%, #96702b 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 250, 220, 0.7), inset 0 -2px 0 rgba(60, 38, 4, 0.35), 0 8px 16px -6px rgba(0, 0, 0, 0.75);
+}
+.plaque {
+  position: absolute; left: 50%; top: 12px; z-index: 4; margin: 0; padding: 8px 30px 9px; white-space: nowrap; max-width: calc(100% - 24px);
+  overflow: hidden; text-overflow: ellipsis; font-size: clamp(17px, 2vw, 23px); line-height: 1.1; font-weight: 850; font-stretch: 114%;
+  letter-spacing: -0.01em; transform: translateX(-50%); transform-origin: 50% -30px; animation: plaque-in 760ms var(--ease-spring) 240ms backwards;
+}
+/* Two screws */
+.plaque::before, .plaque::after {
+  content: ''; position: absolute; top: 50%; width: 7px; height: 7px; margin-top: -4px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #fff3c4, #8a6524 60%, #4f380d); box-shadow: 0 1px 0 rgba(255, 240, 190, 0.5);
+}
+.plaque::before { left: 10px; }
+.plaque::after { right: 10px; }
+@keyframes plaque-in {
+  from { opacity: 0; transform: translate(-50%, -70px) rotate(-7deg); }
+  55% { opacity: 1; transform: translate(-50%, 3px) rotate(2deg); }
+  78% { transform: translate(-50%, -1px) rotate(-0.8deg); }
+}
+
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+/* Light and air, over the building and under the plaque */
+.stage-light { position: absolute; inset: 0; z-index: 2; pointer-events: none;
+  background:
+    radial-gradient(70% 110% at 26% -18%, rgba(255, 208, 138, 0.2), rgba(255, 208, 138, 0) 68%),
+    radial-gradient(130% 100% at 50% 42%, rgba(8, 6, 4, 0) 52%, rgba(8, 6, 4, 0.78) 100%);
+}
+.stage-air { position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%; pointer-events: none; }
+
+/* ── What the rooms display ─────────────────────────── */
+.board { position: absolute; overflow: hidden; }
+.hands { position: absolute; overflow: visible; }
+.hand { fill: none; stroke: #2a211a; stroke-linecap: round; }
+.hand-hour { stroke-width: 5; }
+.hand-minute { stroke-width: 3.4; }
+.hand-second { stroke: var(--pen); stroke-width: 1.4; }
+.hands circle { fill: #2a211a; }
+.roof .hands .hand-second { display: none; }
+
+.chalk { padding: 22px 32px; color: var(--chalk); font-family: var(--font-hand); font-weight: 500; }
+.chalk-lessons { list-style: none; margin: 0; padding: 0; display: grid; gap: 9px; }
+.chalk-lessons li { display: grid; grid-template-columns: 34px minmax(0, 1fr); align-items: center; gap: 14px; font-size: 31px; line-height: 1.25; opacity: 0.92; }
+.chalk-lessons span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chalk-lessons svg { width: 34px; height: 34px; overflow: visible; }
+.chalk-box, .chalk-tick { fill: none; stroke: currentColor; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
+.chalk-tick { stroke: #ffd35c; stroke-width: 4.2; stroke-dasharray: 36; stroke-dashoffset: 36; transition: stroke-dashoffset 520ms ease-out calc(var(--i, 0) * 110ms); }
+.chalk-lessons li[data-done] .chalk-tick { stroke-dashoffset: 0; }
+.chalk-lessons li:nth-child(2) { --i: 1; }
+.chalk-lessons li:nth-child(3) { --i: 2; }
+.chalk-lessons li:nth-child(4) { --i: 3; }
+.chalk-lessons li:nth-child(5) { --i: 4; }
+.chalk-head { margin: 0 0 16px; font-size: 38px; line-height: 1; font-weight: 600; }
+.chalk-head[data-live] { color: #ffd35c; animation: chalk-pulse 1.6s ease-in-out infinite; }
+@keyframes chalk-pulse { 50% { opacity: 0.55; } }
+.chalk-slots { display: grid; gap: 16px; }
+.chalk-slots > div { display: flex; gap: 16px; }
+.chalk-slots i { width: 46px; height: 46px; border: 4px solid #8fc1ff; border-radius: 5px 7px 4px 8px; opacity: 0.9; }
+.chalk-slots [data-tier='applied'] i { border-color: #ffd35c; }
+.chalk-slots [data-tier='adversarial'] i { border-color: #ff8f84; }
+
+.board-notice { display: grid; place-items: center; }
+.notice-sheet {
+  position: relative; display: flex; flex-direction: column; gap: 4px; width: 78%; padding: 14px 16px 16px; rotate: -2deg; color: var(--paper-ink);
+  background: var(--paper); box-shadow: 0 4px 10px rgba(0, 0, 0, 0.35); font-size: 15px; line-height: 1.2;
+}
+.notice-sheet strong { font-size: 22px; font-weight: 850; font-stretch: 112%; }
+.notice-sheet code { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.notice-sheet .rubber { position: absolute; right: -8px; bottom: -12px; font-size: 17px; }
+
+.board-cards, .board-notes { display: flex; flex-wrap: wrap; align-content: center; justify-content: center; gap: 14px 16px; padding: 18px; }
+.mini-card, .mini-note {
+  position: relative; display: flex; flex-direction: column; gap: 3px; width: 112px; padding: 16px 9px 9px; rotate: var(--tilt, 0deg);
+  color: var(--paper-ink); background: var(--paper); box-shadow: 0 5px 9px rgba(0, 0, 0, 0.4); animation: pin-up 420ms var(--ease-spring) backwards;
+}
+.mini-card::before, .mini-note::before {
+  content: ''; position: absolute; left: 50%; top: 4px; width: 11px; height: 11px; margin-left: -5px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #ff9a8f, var(--pen) 55%, #7d1711); box-shadow: 0 2px 2px rgba(0, 0, 0, 0.4);
+}
+.mini-card strong { font-size: 27px; line-height: 1; font-weight: 850; font-stretch: 112%; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+.mini-card code { font-size: 10.5px; opacity: 0.7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mini-note { width: 132px; min-height: 84px; font-size: 15px; line-height: 1.15; font-weight: 700; background: #f6e58a; overflow-wrap: anywhere; }
+.mini-note[data-severity='critical'] { background: #f3a79c; }
+.mini-note[data-severity='high'] { background: #f7c873; }
+@keyframes pin-up { from { opacity: 0; transform: translateY(-26px) scale(1.12); } }
+
+.board-honours { display: grid; place-items: center; }
+.mini-diploma {
+  position: relative; display: flex; flex-direction: column; align-items: center; gap: 8px; width: 74%; padding: 20px 14px; color: var(--paper-ink);
+  background: var(--paper); outline: 3px double rgba(42, 36, 28, 0.55); outline-offset: -9px; box-shadow: 0 6px 14px rgba(0, 0, 0, 0.45);
+}
+.mini-diploma strong { font-size: 40px; line-height: 1; font-weight: 880; font-stretch: 118%; letter-spacing: -0.03em; }
+.mini-diploma span { font-size: 17px; font-weight: 650; }
+.mini-diploma[data-hold] { filter: saturate(0.4) brightness(0.9); }
+.mini-seals { display: flex; gap: 7px; }
+.mini-seals i { width: 20px; height: 20px; border-radius: 50%; background: rgba(42, 36, 28, 0.16); transition: background 300ms calc(var(--i) * 90ms), scale 300ms var(--ease-spring) calc(var(--i) * 90ms); }
+.mini-seals i[data-on] { background: var(--pass); scale: 1.15; }
+.mini-diploma .rubber { position: absolute; font-size: 24px; }
+
+.lamp-dot { position: absolute; border-radius: 50%; scale: 0.62; background: #2c2620; box-shadow: inset 0 3px 5px rgba(0, 0, 0, 0.6); transition: background 400ms, box-shadow 400ms; }
+.lamp-dot[data-state='ok'] { background: radial-gradient(circle at 40% 35%, #d9ffd0, #4fd66a 45%, #1f8d3a); box-shadow: 0 0 22px 6px rgba(88, 230, 120, 0.55); }
+.lamp-dot[data-state='bad'] { background: radial-gradient(circle at 40% 35%, #ffd9d2, #f0523f 45%, #9c1d10); box-shadow: 0 0 22px 6px rgba(240, 82, 63, 0.6); animation: lamp-alarm 900ms ease-in-out infinite; }
+@keyframes lamp-alarm { 50% { opacity: 0.45; } }
+
+/* A rubber stamp: ink with rough edges */
+.rubber {
+  display: inline-block; padding: 3px 10px 2px; border: 3px solid currentColor; border-radius: 5px; rotate: -8deg; color: var(--pen);
+  font-style: normal; font-weight: 880; font-stretch: 118%; line-height: 1.1; text-transform: uppercase; letter-spacing: 0.03em; white-space: nowrap;
+  filter: url(#rough-ink); mix-blend-mode: multiply;
+}
+.rubber[data-tone='ok'] { color: var(--pass); }
+.rubber[data-tone='warn'] { color: #9a6a00; }
+
+@media (max-width: 720px) {
+  .scene { height: min(50vh, 60vw + 84px); }
+  /* The building is too small for door tags here; the rail names every room. */
+  .door-tag { display: none; }
+  .plaque { top: 8px; padding: 6px 26px 7px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cell-door, .door-tag, .quill-at { transition: none !important; }
+  .plaque, .plate, .mini-card, .mini-note, .chalk-head[data-live], .lamp-dot { animation: none !important; }
+}

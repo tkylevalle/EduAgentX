@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { api } from '../lib.js';
 
 // What the school reads from the platform. Every value on screen comes from
@@ -24,14 +24,22 @@ export function useApi(path, refresh) {
   return state.path === path ? state : { data: null, error: null, loading: Boolean(path) };
 }
 
-/** The course, the graduates and the school's counters. `refresh` changes when a run ends. */
+/**
+ * The course, the graduates, the open incidents and the school's counters.
+ * `refresh` changes when a run ends or the number of safety alerts changes.
+ */
 export function useSchoolData(refresh) {
+  const [noted, setNoted] = useState(0);
   const course = useApi('/api/package');
   const graduates = useApi('/api/credentials', refresh);
   const overview = useApi('/api/overview', refresh);
+  const incidents = useApi('/api/incidents?status=open', `${refresh}:${noted}`);
   return {
     pkg: course.data?.package || null, pkgError: course.error,
     credentials: graduates.data?.credentials || null, credentialsError: graduates.error,
     overview: overview.data, overviewError: overview.error,
+    incidents: incidents.data?.incidents || null, incidentsError: incidents.error,
+    // Called after a note is added to an incident, so the staff room's board follows.
+    reloadIncidents: useCallback(() => setNoted((count) => count + 1), []),
   };
 }
