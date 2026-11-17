@@ -12,7 +12,7 @@ build it. The page loads only the packed files in `public/school/`.
 | `blender/` | Python scripts that build every 3D model, light it and render it. No `.blend` file is kept; the scripts are the source. |
 | `renders/` | Blender output. Not in git (120 MB); the scripts make it again. |
 | `pack.py` | Cuts, keys and compresses the renders and the sheets into `public/school/`, and writes `src/school/art/manifest.json`. |
-| `before/`, `after/` | Screenshots and a video of the frontend before and after this work. |
+| `before/`, `after/` | Screenshots and a video of the frontend before and after this work. The after video is 1920 x 1200 at 30 frames a second. |
 
 ## How a picture gets to the page
 
