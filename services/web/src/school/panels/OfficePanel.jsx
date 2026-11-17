@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowRight } from 'lucide-react';
 import { ago, pct } from '../../lib.js';
 import { stepOf } from '../../run/reducer.mjs';
 import { useApi } from '../data.js';
@@ -10,7 +9,7 @@ import ReportCard from './ReportCard.jsx';
 /** The report cards a visitor can open: this run's exam, then every exam that earned a diploma. */
 function Files({ runAttempt, credentials, error, chosen, onPick }) {
   return (
-    <Card span={4} title="On file">
+    <Card span={4} title="On file" kind="manila">
       {error && <Problem what="The list of past exams" error={error} />}
       {!credentials && !error && <Wait />}
       <ul className="s-files">
@@ -52,11 +51,11 @@ export default function OfficePanel({ seen, data, onGo }) {
         {record.data && !report && <Card><Problem what="The marks for this exam" error={attempt ? `status ${attempt.status}` : 'no record'} /></Card>}
         {!attemptId && !data.credentialsError && data.credentials && (
           <Card><p className="s-lead">No exam has been sat yet</p>
-            <button type="button" className="s-link" onClick={() => onGo('gate')}>Enrol a student <ArrowRight size={15} strokeWidth={2.6} /></button></Card>
+            <button type="button" className="s-link" onClick={() => onGo('gate')}>Enrol a student</button></Card>
         )}
         {report && <ReportCard attempt={attempt} report={report} />}
         {report && graduated && (
-          <button type="button" className="s-go" onClick={() => onGo('hall')}>See the diploma <ArrowRight size={20} strokeWidth={2.6} /></button>
+          <button type="button" className="s-go" onClick={() => onGo('hall')}>See the diploma</button>
         )}
       </div>
       <Files runAttempt={runAttempt} credentials={data.credentials} error={data.credentialsError} chosen={attemptId} onPick={setPicked} />

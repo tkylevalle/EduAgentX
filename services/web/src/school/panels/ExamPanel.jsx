@@ -1,4 +1,4 @@
-import { ArrowRight, OctagonX } from 'lucide-react';
+import { OctagonX } from 'lucide-react';
 import { RULE_COPY } from '../../lib.js';
 import { stepOf } from '../../run/reducer.mjs';
 import { paperOf } from '../report.mjs';
@@ -15,7 +15,7 @@ function Sitting({ exam, onGo }) {
   const live = detail.live;
   return (
     <Card tone={exam.status === 'passed' ? 'ok' : 'bad'} title={exam.status === 'passed' ? 'Exam passed' : 'Exam failed'}
-      aside={<button type="button" className="s-link" onClick={() => onGo('office')}>Report card <ArrowRight size={15} strokeWidth={2.6} /></button>}>
+      aside={<button type="button" className="s-link" onClick={() => onGo('office')}>Open the report card</button>}>
       <div className="s-facts s-facts-row">
         <Fact value={detail.overallPercent} decimals={detail.overallPercent % 1 ? 1 : 0} unit="%" name="overall" />
         <Fact value={detail.itemsAnswered} name="questions answered" />
@@ -36,7 +36,7 @@ export default function ExamPanel({ seen, data, onGo }) {
   return (
     <>
       <Sitting exam={stepOf(seen, 'examine')} onGo={onGo} />
-      <Card span={7} title="The paper">
+      <Card span={7} title="The paper" fix="clip">
         <div className="s-paper-tiers">
           {paper.map((tier) => (
             <div className="s-tier" key={tier.id} data-tier={tier.id}>
@@ -51,7 +51,7 @@ export default function ExamPanel({ seen, data, onGo }) {
           <Fact value={pkg.exam?.adversarialPassPercent ?? null} unit="%" name="needed under attack" />
         </div>
       </Card>
-      <Card span={5} title="Instant fail" tone="bad">
+      <Card span={5} title="Instant fail" tone="bad" fix="pin">
         <ul className="s-rules">
           {Object.entries(RULE_COPY).map(([id, text]) => <li key={id}><OctagonX size={16} /> {text}</li>)}
         </ul>

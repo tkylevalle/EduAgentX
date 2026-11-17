@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Check, HelpCircle, KeyRound, X } from 'lucide-react';
 import { api, pct, short } from '../../lib.js';
-import { BrandMark } from '../../ui.jsx';
+import { art } from '../stage/geometry.js';
 import { TIERS } from '../report.mjs';
 import { Problem } from './parts.jsx';
 
@@ -61,7 +61,7 @@ export default function Diploma({ credential, runReport = null }) {
       <header className="paper-head">
         <div>
           <h2 className="paper-title">Diploma</h2>
-          <p className="paper-who"><BrandMark size={16} /> EduAgent X · {credential.packageId} v{credential.packageVersion}</p>
+          <p className="paper-who"><img src={art('ui/crest.webp')} alt="" width="24" height="20" /> EduAgent X<span>{credential.packageId} v{credential.packageVersion}</span></p>
         </div>
         <span className="stamp" data-tone={tone}>{standing}</span>
       </header>
@@ -73,8 +73,9 @@ export default function Diploma({ credential, runReport = null }) {
       <dl className="s-rows">
         <dt>Issued</dt><dd>{day(credential.issuedAt)}</dd>
         <dt>Valid until</dt><dd>{day(credential.validUntil)}</dd>
-        <dt>Signed</dt><dd><KeyRound size={13} /> Ed25519 · <code>{short(credential.compactJws, 22, 14)}</code></dd>
+        <dt>Signed</dt><dd><KeyRound size={13} /> Ed25519 signature <code>{short(credential.compactJws, 22, 14)}</code></dd>
       </dl>
+      {credential.status === 'active' && <img className="diploma-rosette" src={art('ui/rosette.webp')} alt="" />}
       {report && <Seals report={report} />}
       {live.error && <Problem what="The check" error={live.error} />}
       <button type="button" className="s-go diploma-go" onClick={live.check} disabled={live.busy}>

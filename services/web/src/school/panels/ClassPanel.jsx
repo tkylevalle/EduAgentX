@@ -35,7 +35,7 @@ export default function ClassPanel({ seen, data }) {
   return (
     <>
       <Session train={train} pkg={pkg} />
-      <Card span={7} title="Lessons" aside={<code className="s-meta">{pkg.packageId} v{pkg.version}</code>}>
+      <Card span={7} title="Lessons" fix="tape" aside={<code className="s-meta">{pkg.packageId} v{pkg.version}</code>}>
         <ol className="s-lessons">
           {(pkg.modules || []).map((lesson, index) => (
             <li key={lesson.id} data-done={done.includes(lesson.id) || undefined}>
@@ -43,14 +43,14 @@ export default function ClassPanel({ seen, data }) {
               <strong>{lesson.title}</strong>
               <span className="s-lesson-src">
                 {(lesson.sources || []).map(sourceOf).filter(Boolean).map((source) => (
-                  <a key={source.id} href={source.canonicalUrl} target="_blank" rel="noreferrer">{source.issuer} · {source.title}</a>
+                  <a key={source.id} href={source.canonicalUrl} target="_blank" rel="noreferrer">{source.issuer}, {source.title}</a>
                 ))}
               </span>
             </li>
           ))}
         </ol>
       </Card>
-      <Card span={5} title="It must be able to">
+      <Card span={5} title="It must be able to" fix="pin">
         <ul className="s-goals">
           {(pkg.objectives || []).map((goal) => (
             <li key={goal.id} data-critical={goal.safetyCritical || undefined}>

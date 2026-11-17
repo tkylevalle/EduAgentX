@@ -29,24 +29,24 @@ const RUNNING = {
   examine: () => ['exam', 'exam', 'Sitting the exam'],
   certify: () => ['office', 'wait', 'Waiting for the decision'],
   verify: () => ['hall', 'present', 'Checking the diploma is genuine'],
-  status: () => ['hall', 'worried', 'Suspension drill · diploma on hold'],
+  status: () => ['hall', 'worried', 'Suspension drill: the diploma is on hold'],
   monitor: () => ['hall', 'wave', 'Joining the watch list'],
 };
 
 const PASSED = {
   package: (d) => ['gate', 'read', d.reused ? 'Course already approved by two reviewers' : 'Course approved', 'ok'],
   register: () => ['gate', 'cheer', 'Enrolled', 'ok'],
-  train: (d) => ['classroom', 'cheer', d.kind === 'remediation' ? `Catch-up class done · ${d.itemsDelivered} lessons` : `${d.itemsDelivered} lessons done`, 'ok'],
-  examine: (d) => ['office', 'report', `Scored ${percent(d.overallPercent)} · passed`, 'ok'],
-  certify: () => ['hall', 'graduate', 'Certified · diploma signed', 'ok'],
-  verify: (d) => ['hall', 'present', `Diploma is genuine · ${passedChecks(d)} of ${VERIFY_CHECKS.length} checks`, 'ok'],
+  train: (d) => ['classroom', 'cheer', d.kind === 'remediation' ? `Catch-up class done, ${d.itemsDelivered} lessons` : `${d.itemsDelivered} lessons done`, 'ok'],
+  examine: (d) => ['office', 'report', `Scored ${percent(d.overallPercent)} and passed`, 'ok'],
+  certify: () => ['hall', 'graduate', 'Certified, and the diploma is signed', 'ok'],
+  verify: (d) => ['hall', 'present', `The diploma is genuine: ${passedChecks(d)} of ${VERIFY_CHECKS.length} checks passed`, 'ok'],
   status: () => ['hall', 'cheer', 'Suspended, refused, then restored', 'ok'],
-  monitor: (d) => ['hall', 'wave', d.marketplaceListing?.listing?.discoverable ? 'Watched at work · listed for hire' : 'Watched at work', 'ok'],
+  monitor: (d) => ['hall', 'wave', d.marketplaceListing?.listing?.discoverable ? 'Watched at work and listed for hire' : 'Watched at work', 'ok'],
 };
 
 function examFailed(detail) {
   const critical = (detail.criticalViolationRuleIds || []).length > 0;
-  return ['office', 'glum', critical ? `Broke a safety rule · ${percent(detail.overallPercent)} · failed` : `Scored ${percent(detail.overallPercent)} · failed`, 'bad'];
+  return ['office', 'glum', critical ? `Broke a safety rule and failed with ${percent(detail.overallPercent)}` : `Scored ${percent(detail.overallPercent)} and failed`, 'bad'];
 }
 
 function fromStep(step) {
@@ -61,7 +61,7 @@ function fromDone(run) {
   if (run.outcome.status === 'passed') return ['hall', 'proud', 'Graduated', 'ok'];
   const failed = run.steps.find((entry) => entry.status === 'failed');
   if (failed?.id === 'examine' && failed.detail?.attemptId) {
-    return ['office', run.remediation?.trace ? 'resolve' : 'glum', run.remediation?.trace ? 'No diploma · catch-up class assigned' : 'No diploma', 'bad'];
+    return ['office', run.remediation?.trace ? 'resolve' : 'glum', run.remediation?.trace ? 'No diploma. A catch-up class is assigned' : 'No diploma', 'bad'];
   }
   const where = failed ? RUNNING[failed.id]()[0] : 'gate';
   return [where, 'confused', `Stopped: ${lower(stopReason(run.outcome.error))}`, 'bad'];
@@ -81,6 +81,21 @@ export function beat(run) {
   else scene = fromDone(run);
   const [place, pose, caption, tone = ''] = scene;
   return { place, pose, caption, tone };
+}
+
+/**
+ * The robot's pose in a room when no run has a scene there. It follows the
+ * real state the room shows: open safety alerts in the staff room, service
+ * health in the workshop. An unknown state is shown as unknown.
+ * @param {string} room
+ * @param {{ critical?: number|null, up?: number, total?: number }} state
+ */
+export function ambient(room, state) {
+  if (room === 'staff') return state.critical === null ? 'confused' : state.critical > 0 ? 'worried' : 'idle';
+  if (room === 'workshop') return !state.total ? 'idle' : state.up === state.total ? 'proud' : 'worried';
+  if (room === 'library') return 'read';
+  if (room === 'careers') return 'wave';
+  return 'idle';
 }
 
 /** What the robot carries, from what the run has really produced so far. */

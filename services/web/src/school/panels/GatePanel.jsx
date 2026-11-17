@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowRight, Check } from 'lucide-react';
+import { Check } from 'lucide-react';
 import { short } from '../../lib.js';
 import { startRun } from '../../run/store.js';
 import { stepOf } from '../../run/reducer.mjs';
@@ -10,8 +10,11 @@ import { Card, Fact, Problem } from './parts.jsx';
 const TYPING = 'input, textarea, select, [contenteditable="true"]';
 const STEP = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 };
 
-/** The seven students. Keys 1 to 7 select, arrows move, Enter enrols. */
-function Chooser({ liveModel, last }) {
+/**
+ * The seven students. Keys 1 to 7 select, arrows move, Enter enrols.
+ * @param {{ liveModel: { available: boolean, model?: string }, last: string|null, span?: number }} props last: the student of the previous run
+ */
+export function Chooser({ liveModel, last, span = 8 }) {
   const usable = (student) => !student.live || liveModel.available;
   const [picked, setPicked] = useState(() => last || STUDENTS[0].id);
   const student = studentOf(picked);
@@ -40,7 +43,7 @@ function Chooser({ liveModel, last }) {
   };
 
   return (
-    <Card span={8} title="Choose a student">
+    <Card span={span} title="Choose a student" fix="clip">
       <div ref={group} className="s-students" role="radiogroup" aria-label="Students" onKeyDown={onArrow}>
         {STUDENTS.map((entry, index) => (
           <button key={entry.id} type="button" role="radio" className="s-pick" data-student={entry.id} data-live={entry.live || undefined}
@@ -53,7 +56,7 @@ function Chooser({ liveModel, last }) {
         ))}
       </div>
       <button type="button" className="s-go" onClick={() => startRun(picked)}>
-        Enrol {student.name} <ArrowRight size={20} strokeWidth={2.6} />
+        Enrol {student.name}
       </button>
     </Card>
   );
@@ -66,7 +69,7 @@ function Record({ seen, playing, liveModel, span }) {
   const enrolled = stepOf(seen, 'register');
   const reviewers = (course.detail?.reviews || []).map((review) => review.reviewer);
   return (
-    <Card span={span} title={student?.name || seen.scenario}
+    <Card span={span} title={student?.name || seen.scenario} fix="pin"
       aside={student && <span className="s-tag" data-live={student.live || undefined}>{studentKind(student, liveModel)}</span>}>
       {student && <p className="s-lead">{student.trait}</p>}
       <dl className="s-rows">
@@ -80,7 +83,7 @@ function Record({ seen, playing, liveModel, span }) {
         {enrolled.status === 'passed' && (
           <>
             <dt>Student ID</dt><dd><code>{enrolled.detail.agentLearnerKey}</code></dd>
-            <dt>Setup</dt><dd>Version {enrolled.detail.configurationVersion} · <code>{short(enrolled.detail.configurationFingerprint, 14, 6)}</code></dd>
+            <dt>Setup</dt><dd>Version {enrolled.detail.configurationVersion}, fingerprint <code>{short(enrolled.detail.configurationFingerprint, 14, 6)}</code></dd>
           </>
         )}
       </dl>
@@ -89,10 +92,11 @@ function Record({ seen, playing, liveModel, span }) {
   );
 }
 
-function Numbers({ data, span }) {
+/** The school's counters. @param {{ data: object, span: number }} props */
+export function Numbers({ data, span }) {
   const numbers = schoolNumbers(data.overview, data.credentials);
   return (
-    <Card span={span} title="This school">
+    <Card span={span} title="This school" kind="manila">
       {data.credentialsError && <Problem what="The diploma list" error={data.credentialsError} />}
       {data.overviewError && <Problem what="The school's counters" error={data.overviewError} />}
       <div className={span === 12 ? 's-facts s-facts-row' : 's-facts'}>
@@ -112,7 +116,7 @@ export default function GatePanel({ run, seen, playing, data, status }) {
   const hasRecord = Boolean(seen.scenario);
   return (
     <>
-      {stopped && <Card tone="bad"><p className="s-problem" role="alert">Run stopped · {stopReason(run.outcome.error)}</p></Card>}
+      {stopped && <Card tone="bad"><p className="s-problem" role="alert">The run stopped: {stopReason(run.outcome.error)}</p></Card>}
       {!playing && <Chooser liveModel={status.liveModel} last={run.scenario} />}
       {hasRecord && <Record seen={seen} playing={playing} liveModel={status.liveModel} span={playing ? 8 : 4} />}
       <Numbers data={data} span={playing || !hasRecord ? 4 : 12} />

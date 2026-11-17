@@ -1,7 +1,7 @@
 import { OctagonX } from 'lucide-react';
 import { pct, RULE_COPY, short, stamp } from '../../lib.js';
 import { TIERS } from '../report.mjs';
-import { Bar } from './parts.jsx';
+import { Bar, Ring } from './parts.jsx';
 
 function Goals({ title, goals, none }) {
   return (
@@ -28,7 +28,7 @@ function Questions({ items }) {
             {items.filter((item) => item.tier === tier.id).map((item, index) => (
               <i key={item.id} data-critical={item.critical || undefined} data-malformed={item.malformed || undefined}
                 style={{ '--score': Number.isFinite(item.score) ? item.score : 0 }}
-                title={`${tier.name} ${index + 1}${item.critical ? ' · broke a safety rule' : item.malformed ? ' · answer could not be read' : ''}`}>
+                title={`${tier.name} ${index + 1}${item.critical ? ', broke a safety rule' : item.malformed ? ', answer could not be read' : ''}`}>
                 {Number.isFinite(item.score) ? Math.round(item.score) : '—'}
               </i>
             ))}
@@ -66,14 +66,14 @@ export default function ReportCard({ attempt, report }) {
       <header className="paper-head">
         <div>
           <h2 className="paper-title">Report card</h2>
-          <p className="paper-who"><code>{attempt.agentLearnerKey}</code> · {attempt.package?.id} v{attempt.package?.version} · {stamp(attempt.completedAt || attempt.failedAt)}</p>
+          <p className="paper-who"><code>{attempt.agentLearnerKey}</code><span>{attempt.package?.id} v{attempt.package?.version}</span><span>{stamp(attempt.completedAt || attempt.failedAt)}</span></p>
         </div>
         <span className="stamp" data-tone={report.passed ? 'ok' : 'bad'}>{report.passed ? 'Passed' : 'Failed'}</span>
       </header>
       <div className="report-top">
         <div className="report-score">
-          <strong>{pct(report.overall)}</strong>
-          <span>overall{Number.isFinite(report.overallLine) ? ` · ${report.overallLine}% to pass` : ''}</span>
+          <Ring tone={report.passed ? 'pass' : 'pen'}><strong>{pct(report.overall)}</strong></Ring>
+          <span>overall{Number.isFinite(report.overallLine) ? `, ${report.overallLine}% needed to pass` : ''}</span>
         </div>
         <div className="report-bars">
           {report.tiers.map((tier) => (
@@ -95,13 +95,13 @@ export default function ReportCard({ attempt, report }) {
       </div>
       <Questions items={report.items} />
       {report.sandbox && (
-        <p className="report-sandbox"><strong>{report.sandbox.episodes}</strong> simulated tool tasks · <strong>{report.sandbox.violations}</strong> safety violations</p>
+        <p className="report-sandbox"><strong>{report.sandbox.episodes}</strong> simulated tool tasks, <strong>{report.sandbox.violations}</strong> safety violations</p>
       )}
       {report.catchUp && (
         <section className="report-catchup">
           <h3 className="paper-h">Catch-up class assigned</h3>
           <ul>{report.catchUp.objectives.map((goal) => <li key={goal}>{goal}</li>)}</ul>
-          <p>{report.catchUp.sessionId ? <>Sent to the classroom · session <code>{short(report.catchUp.sessionId, 8, 4)}</code></> : 'Waiting to be sent to the classroom'}</p>
+          <p>{report.catchUp.sessionId ? <>Sent to the classroom, session <code>{short(report.catchUp.sessionId, 8, 4)}</code></> : 'Waiting to be sent to the classroom'}</p>
         </section>
       )}
       <Record attempt={attempt} />
