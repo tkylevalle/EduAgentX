@@ -26,7 +26,9 @@ const SEATED = new Set(['study', 'exam']);
 // Rooms with the robot's desk in the middle. When the robot is not sitting at it,
 // the desk is drawn empty and the robot stands to its left (world pixels).
 const DESK_ROOMS = new Set(['classroom', 'exam']);
-const STAND_ASIDE = -470;
+// Where the robot stands when it is not at the middle of a room (world pixels). In the office the middle is
+// in front of the shelf, and the trophy on it looked like a hat.
+const STAND_ASIDE = { classroom: -470, exam: -470, office: -330 };
 // Screen pixels kept clear around the framed view: the door plaque above, the caption below.
 const ROOM_PAD = { top: 46, right: 14, bottom: 30, left: 14 };
 const HUB_PAD = { top: 8, right: 18, bottom: 22, left: 18 };
@@ -111,7 +113,7 @@ export default function Stage({ view, quillRoom, pose, look, facts, data, health
   const seated = !quill.walking && SEATED.has(pose);
   const shownPose = quill.walking ? 'walk' : pose;
   const quillCell = CELLS[quill.room];
-  const aside = !seated && !quill.walking && DESK_ROOMS.has(quill.room) ? STAND_ASIDE : 0;
+  const aside = !seated && !quill.walking ? STAND_ASIDE[quill.room] || 0 : 0;
   const near = (id) => id === view || id === quill.room || id === quill.from;
   // While the robot walks, every room on its way is lit, so it is never in the dark.
   const onTheWay = (id) => {

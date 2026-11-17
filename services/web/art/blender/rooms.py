@@ -17,7 +17,7 @@ import bpy
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import kit  # noqa: E402
-from kit import ROBOT_Y, ROOM_D, ROOM_H, ROOM_W, box, empty  # noqa: E402
+from kit import ROBOT_Y, ROOM_D, ROOM_H, ROOM_W, area_light, box, empty, spot_light  # noqa: E402
 from mats import grain, project_ref, tree, wide_camera  # noqa: E402
 from props import GRAINS, mat, paint  # noqa: E402
 
@@ -30,8 +30,8 @@ RAFTERS = (1.6, 3.6)           # lamps hang from these
 DADO_H = 1.25                  # the wood panelling on the lower back wall
 REVIEW_SCALE, REVIEW_SAMPLES = 0.4, 40
 PLATE_SCALE, PLATE_SAMPLES = 1.25, 110     # 2400 x 1350, enough for a 2x display at laptop width
-# The stage lights at full strength are set for Quill in the open. In a box the walls bounce
-# that light back, so a room takes half of it and stays darker than the robot.
+# In a box the walls bounce the light back, so a room takes half of the rig's strength and
+# stays darker than the robot, which is lit in the open.
 ROOM_KEY = 0.5
 # Quill is a toy 2.5 units tall with a big head. Armchairs, shelves and tables grow by this much so they
 # do not look like doll furniture next to it; the pupils' desks stay the size of Quill's own desk.
@@ -118,6 +118,20 @@ def shell(room, wall, floor='oak', dado='oak_dark', backdrop=None):
     box('skirting', (ROOM_W, 0.07, 0.16), mat(dado or 'stone'), room.root, (0, BACK - 0.035, 0.08), bevel=0.012)
 
 
+def room_lights(strength):
+    """The light of a room. The robot's own rig has its key high on the left; in a box that key
+    shines over the top beam and past the side wall, and their shadows cut a hard diagonal edge
+    across the back wall. Here the key is a large panel low in front of the opening: it sees the
+    whole back wall under the beam, so the wall is lit evenly and shadows are soft. It still comes
+    from the left, as on the robot."""
+    focus = (0.0, 2.6, 2.2)
+    area_light('key', (-2.4, -9.6, 4.3), focus, 3000 * strength, (1.0, 0.86, 0.7), 8.0)
+    area_light('fill', (5.0, -8.0, 2.4), focus, 420 * strength, (0.72, 0.84, 1.0), 7.0)
+    # No rim light here: behind the robot's spot it is half a unit from the back wall and paints a bright wedge on it.
+    area_light('ceiling', (0, 2.4, ROOM_H - 0.35), (0, 2.4, 0), 520 * strength, (1.0, 0.9, 0.78), 5.0)
+    spot_light('pendant', (0, ROBOT_Y - 0.4, 4.5), (0, ROBOT_Y - 0.1, 0), 800 * strength, (1.0, 0.8, 0.55), 84, 0.9, 0.5)
+
+
 def _rect(anchor):
     """An anchor as {x, y, w, h} in reference plate pixels (the centre and the size)."""
     x, y, z, width, height = anchor
@@ -142,7 +156,7 @@ def _split(room, front_pass):
 def render_room(name, builder, final):
     scene = kit.reset_scene()
     room = builder()
-    kit.stage_lights((0, ROBOT_Y, 0), room.key)
+    room_lights(room.key)
     wide_camera(PLATE_SCALE if final else REVIEW_SCALE)
     scene.cycles.samples = PLATE_SAMPLES if final else REVIEW_SAMPLES
     anchors = {key: _rect(value) for key, value in room.anchors.items()}
