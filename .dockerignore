@@ -19,3 +19,6 @@ docs
 .aws
 .codex
 .local-context
+
+# Art sources for the school; the image only needs the packed files in public/.
+services/web/art
