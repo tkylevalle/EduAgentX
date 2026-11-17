@@ -1,2 +1,4 @@
 node_modules
 dist
+# Blender output between the scripts and art/pack.py; the scripts rebuild it.
+art/renders
