@@ -80,11 +80,18 @@ export function usePointer() {
 
 // The share of the remaining distance a drifting value covers in one frame.
 const DRIFT = 0.07;
+// Closer than this to the real pointer, the eased one stops, so an idle page does no work.
+const SETTLED = 0.0005;
+
+/** The eased pointer as the stage last moved it. The dust reads it; it must not read styles in a frame. */
+export const pointerNow = { x: 0, y: 0 };
 
 /** Moves the eased pointer one frame towards the real one. */
 export function driftPointer(pointer) {
   const p = pointer.current;
-  p.x += (p.tx - p.x) * DRIFT;
-  p.y += (p.ty - p.y) * DRIFT;
+  p.x = Math.abs(p.tx - p.x) < SETTLED ? p.tx : p.x + (p.tx - p.x) * DRIFT;
+  p.y = Math.abs(p.ty - p.y) < SETTLED ? p.ty : p.y + (p.ty - p.y) * DRIFT;
+  pointerNow.x = p.x;
+  pointerNow.y = p.y;
   return p;
 }

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { useFrames } from '../motion/motion.js';
+import { pointerNow, useFrames } from '../motion/motion.js';
 
 // The air of the stage: dust in the lamp light, and paper confetti when a
 // student graduates. One canvas over the room, drawn about 30 times a second.
@@ -86,9 +86,7 @@ export default function Dust({ party, reduced }) {
     const ctx = node.getContext('2d');
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
     ctx.clearRect(0, 0, w, h);
-    const style = getComputedStyle(node);
-    const shift = { x: Number(style.getPropertyValue('--px')) || 0, y: Number(style.getPropertyValue('--py')) || 0 };
-    drawMotes(ctx, motes.current, w, h, seconds, shift);
+    drawMotes(ctx, motes.current, w, h, seconds, pointerNow);
     if (now > confetti.current.until) confetti.current.pieces = [];
     else drawConfetti(ctx, confetti.current.pieces, w, h, seconds);
   }, !reduced);
