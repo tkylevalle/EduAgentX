@@ -175,7 +175,12 @@ def _lamp(root):
     f.banker_lamp(root, (0, 0, 0), power=6)
 
 
-PROPS = {'books': _books, 'pot': _pot, 'lamp': _lamp}
+def _globe(root):
+    f.globe(root, (0, 0, 0), 0.26)
+
+
+# The globe is here only to check its model alone; the page does not use it as a prop.
+PROPS = {'books': _books, 'pot': _pot, 'lamp': _lamp, 'globe': _globe}
 
 
 def render_prop(name, builder):
@@ -208,7 +213,7 @@ def main():
         with open(os.path.join(OUT, 'extras.json'), 'w', encoding='utf-8') as handle:
             json.dump({'roof': render_roof(), 'wing': render_wing()}, handle, indent=2)
         return
-    for name in args[1:] or list(PROPS):
+    for name in args[1:] or ['books', 'pot', 'lamp']:
         render_prop(name, PROPS[name])
 
 

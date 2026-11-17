@@ -5,7 +5,7 @@ piece has its origin on the floor, a wall piece has its origin on the wall.
 import math
 
 from kit import ball, box, cone, empty, material, plate, rounded_rect, tube
-from mats import point_light
+from mats import globe_map, point_light
 from props import mat
 
 BOOK_COLORS = ('red', 'navy', 'green', 'teal', 'manila', 'blue', 'oak_pale', 'cream')
@@ -180,18 +180,27 @@ def filing_cabinet(parent, loc, drawers=4, width=0.72, depth=0.62, height=1.5, c
     return root
 
 
+GLOBE_TILT = math.radians(23.5)   # the tilt of the Earth's axis, as on a real desk globe
+
+
 def globe(parent, loc, radius=0.2):
+    """A desk globe: a painted sphere on a tilted axis, held pole to pole by a brass meridian on a turned stand."""
     root = empty('globe', parent, loc)
-    cone('globe_foot', 0.12, 0.08, 0.04, mat('walnut'), root, (0, 0, 0.02), bevel=0.008)
-    tube('globe_post', [(0, 0, 0.04), (0, 0, 0.1)], 0.015, mat('brass'), root)
-    arc = [(radius * 1.12 * math.cos(math.radians(a)), 0, 0.12 + radius + radius * 1.12 * math.sin(math.radians(a))) for a in range(-90, 100, 15)]
-    tube('globe_arc', arc, 0.012, mat('brass'), root)
-    ball('globe_sea', radius, mat('blue'), root, (0, 0, 0.12 + radius), rot=(0, 0.4, 0))
-    numbers = rand(7)
-    for _ in range(7):
-        a, b = next(numbers) * 6.28, (next(numbers) - 0.5) * 1.8
-        point = (math.cos(a) * math.cos(b) * radius * 0.94, math.sin(a) * math.cos(b) * radius * 0.94, 0.12 + radius + math.sin(b) * radius * 0.94)
-        ball('globe_land', radius * (0.2 + 0.2 * next(numbers)), mat('leaf'), root, point)
+    stem = radius * 0.5
+    centre = stem + radius * 1.16
+    cone('globe_foot', radius * 0.72, radius * 0.6, radius * 0.14, mat('walnut'), root, (0, 0, radius * 0.07), bevel=0.01)
+    cone('globe_step', radius * 0.42, radius * 0.3, radius * 0.12, mat('walnut'), root, (0, 0, radius * 0.2), bevel=0.008)
+    tube('globe_stem', [(0, 0, radius * 0.26), (0, 0, stem)], radius * 0.07, mat('brass'), root)
+    ball('globe_knuckle', radius * 0.11, mat('brass'), root, (0, 0, stem))
+    # The meridian is a half ring from the south pole to the north pole, in the plane of the tilted axis.
+    ring = radius * 1.12
+    arc = [(ring * math.sin(math.radians(a) + GLOBE_TILT) * -1, 0, centre + ring * math.cos(math.radians(a) + GLOBE_TILT) * -1)
+           for a in range(0, 181, 10)]
+    tube('globe_meridian', arc, radius * 0.045, mat('brass'), root)
+    for pole in (arc[0], arc[-1]):
+        inner = (pole[0] * radius * 0.98 / ring, 0, centre + (pole[2] - centre) * radius * 0.98 / ring)
+        tube('globe_pin', [pole, inner], radius * 0.03, mat('brass'), root)
+    ball('globe_map', radius, globe_map(), root, (0, 0, centre), rot=(0, -GLOBE_TILT, 0.6))
     return root
 
 

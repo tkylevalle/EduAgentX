@@ -91,6 +91,36 @@ def bricks(name, brick, brick_alt, mortar, scale=2.6, rough=0.9):
     return mat
 
 
+def globe_map(name='globe_map'):
+    """The painted map of a desk globe: noise decides sea or land, a second ramp shades the sea by depth
+    and the land from green lowland to tan upland. The paint is glossy, like a varnished globe."""
+    found = bpy.data.materials.get(name)
+    if found:
+        return found
+    mat = bpy.data.materials.new(name)
+    mat.use_nodes = True
+    nodes, links = mat.node_tree.nodes, mat.node_tree.links
+    shader = nodes['Principled BSDF']
+    shader.inputs['Roughness'].default_value = 0.35
+    shader.inputs['Coat Weight'].default_value = 0.6
+    shader.inputs['Coat Roughness'].default_value = 0.1
+    noise = nodes.new('ShaderNodeTexNoise')
+    noise.inputs['Scale'].default_value = 1.0
+    noise.inputs['Detail'].default_value = 7.0
+    noise.inputs['Roughness'].default_value = 0.55
+    links.new(_object_coords(mat, (2.6, 2.6, 3.4)), noise.inputs['Vector'])
+    ramp = nodes.new('ShaderNodeValToRGB')
+    stops = [(0.0, '#1F4E8C'), (0.47, '#3F7FC4'), (0.515, '#7FB4DE'), (0.52, '#5E9A52'), (0.6, '#7DAE5B'), (0.72, '#C9B272')]
+    first, last = ramp.color_ramp.elements
+    first.position, first.color = stops[0][0], srgb(stops[0][1])
+    last.position, last.color = stops[-1][0], srgb(stops[-1][1])
+    for position, color in stops[1:-1]:
+        ramp.color_ramp.elements.new(position).color = srgb(color)
+    links.new(noise.outputs[0], ramp.inputs['Fac'])
+    links.new(ramp.outputs['Color'], shader.inputs['Base Color'])
+    return mat
+
+
 def sky(name, low, high, height, glow=0.75):
     """A painted backdrop: `low` at the bottom of the object, `high` at the top, lit from within so it stays even."""
     found = bpy.data.materials.get(name)
