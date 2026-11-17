@@ -80,7 +80,12 @@ test('another agent cannot read or step this attempt\'s episode', async (t) => {
   assert.ok([403, 404].includes(read.status) && [403, 404].includes(write.status), `${read.status} ${write.status}`);
 });
 
-test('the Engine refuses to start without a seed key long enough to keep worlds secret', () => {
+test('the Engine refuses to start without a seed key long enough to keep worlds secret', (t) => {
+  // An absent key falls back to the environment's. The Sprint 1 gate sets one, so the test removes it
+  // for its own duration; otherwise "absent" would mean the gate's valid key.
+  const ambient = process.env.EPISODE_SEED_KEY;
+  delete process.env.EPISODE_SEED_KEY;
+  t.after(() => { if (ambient !== undefined) process.env.EPISODE_SEED_KEY = ambient; });
   const minimal = { store: {}, sources: {}, internalKey: 'k' };
   for (const episodeSeedKey of [undefined, '', 'short']) {
     assert.throws(() => createApp({ ...minimal, episodeSeedKey }), /EPISODE_SEED_KEY/);
