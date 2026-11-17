@@ -18,6 +18,9 @@ HALF_PI = math.pi / 2
 FRONT_Y = 0.72          # the row of furniture between Quill and the camera
 BUNTING = ('red', 'yellow', 'navy', 'cream')
 LAMP_Z = ROOM_H - 0.2   # where a pendant lamp meets its rafter
+# A short cord keeps every shade up at the rafters. On a long cord the shades hung in front of the boards,
+# clocks and pennants on the back wall.
+LAMP_DROP = 0.5
 
 
 def arch(width, height, steps=12):
@@ -56,14 +59,28 @@ def _lamppost(root, loc):
     point_light('lantern_light', root, (x, y - 0.3, 3.4), 70)
 
 
-def _blossom_tree(root, loc):
+LEAVES = ('#4E8F55', '#3C7848', '#6BA765')   # three greens, so the crown reads as leaves and not as one lump
+CROWN = (0.95, 0.5, 0.85)                     # half the width, depth and height of the tree's crown
+
+
+def _tree(root, loc):
+    """A small tree in blossom: a trunk with three boughs, a crown of many small leaf clumps and a few flowers."""
     x, y, _ = loc
-    cone('trunk', 0.2, 0.11, 2.4, mat('walnut'), root, (x, y, 1.2), sides=14)
-    numbers = f.rand(11)
-    for k in range(12):
-        offset = ((next(numbers) - 0.5) * 1.7, (next(numbers) - 0.5) * 0.9, (next(numbers) - 0.5) * 1.3)
-        ball('blossom', 0.45 + 0.3 * next(numbers), mat('pink' if k % 3 else 'paper'), root,
-             (x + offset[0], y + offset[1], 3.2 + offset[2]))
+    top = 3.3
+    cone('trunk', 0.17, 0.09, 2.5, mat('walnut'), root, (x, y, 1.25), sides=14)
+    for dx, dz in ((-0.55, 0.45), (0.5, 0.55), (0.05, 0.75)):
+        tube('bough', [(x, y, 2.2), (x + dx * 0.6, y, 2.2 + dz * 0.7), (x + dx, y, 2.4 + dz)], 0.05, mat('walnut'), root)
+    greens = [material(f'leaf_{k}', color, rough=0.85) for k, color in enumerate(LEAVES)]
+    numbers = f.rand(23)
+    for k in range(64):
+        # A point inside the crown: the three numbers are pulled towards the middle, so the edge is ragged, not a ball.
+        px, py, pz = ((next(numbers) + next(numbers) - 1.0) for _ in range(3))
+        ball('leaves', 0.2 + 0.16 * next(numbers), greens[k % 3], root,
+             (x + px * CROWN[0], y + py * CROWN[1], top + pz * CROWN[2]))
+    for k in range(14):
+        px, pz = next(numbers) * 2 - 1, next(numbers) * 2 - 1
+        ball('flower', 0.075, mat('pink' if k % 4 else 'paper'), root,
+             (x + px * CROWN[0] * 0.8, y - CROWN[1] * 0.75 - 0.12, top + pz * CROWN[2] * 0.75))
 
 
 def gate():
@@ -91,7 +108,7 @@ def gate():
     box('path', (2.6, ROOM_D - 0.6, 0.036), mat('plaster'), r, (0.3, (ROOM_D - 0.6) / 2, 0.018), bevel=0)
     box('hedge', (1.6, 0.6, 0.85), mat('leaf'), r, (-3.95, 4.6, 0.42), bevel=0.2, segments=5)
     _lamppost(r, (-4.0, 3.5, 0))
-    _blossom_tree(r, (4.0, 3.9, 0))
+    _tree(r, (3.55, 3.9, 0))
     for sx in (-1, 1):
         post = box('gate_post', (0.55, 0.55, 1.9), mat('stone'), r, (sx * 4.2, 0.5, 0.95), bevel=0.03)
         cap = box('gate_cap', (0.7, 0.7, 0.14), mat('stone'), r, (sx * 4.2, 0.5, 1.97), bevel=0.03)
@@ -111,7 +128,7 @@ def classroom():
     room.anchor('clock', -3.7, 4.45, 0.69, 0.69, BACK - 0.1)
     room.put(f.plant, (4.25, 4.3, 0), 1.2)
     for x in (-2.3, 2.3):
-        room.wall(f.pendant_lamp, (x, RAFTERS[0], LAMP_Z), 1.1, 110, 'green', 0.42)
+        room.wall(f.pendant_lamp, (x, RAFTERS[0], LAMP_Z), LAMP_DROP, 110, 'green', 0.42)
         school_desk(room, x, 3.4, books=('navy', 'red') if x < 0 else ('green', 'manila', 'red'))
     school_desk(room, 0.0, 4.15)
     school_desk(room, -3.5, FRONT_Y, front=True, books=('teal', 'red'))
@@ -132,7 +149,7 @@ def exam():
     room.anchor('clock', 3.95, 4.2, 0.69, 0.69, BACK - 0.1)
     room.put(f.filing_cabinet, (-4.05, 4.5, 0), 3)
     room.put(f.plant, (-4.05, 4.5, 1.5), 0.7)
-    room.wall(f.pendant_lamp, (0, RAFTERS[0], LAMP_Z), 1.15, 60, 'green', 0.46)
+    room.wall(f.pendant_lamp, (0, RAFTERS[0], LAMP_Z), LAMP_DROP, 60, 'green', 0.46)
     for x in (-2.5, 0.0, 2.5):
         y = 3.5 if x else 4.2
         school_desk(room, x, y)
@@ -162,7 +179,7 @@ def office():
     room.put(f.armchair, (-3.2, 3.5, 0), 0.35)
     room.put(f.plant, (-4.35, 4.5, 0), 1.25)
     room.put(f.rug, (0, 2.0, 0), (4.4, 2.1))
-    room.wall(f.pendant_lamp, (0, RAFTERS[1], LAMP_Z), 0.9, 70, 'brass', 0.42)
+    room.wall(f.pendant_lamp, (-1.35, RAFTERS[1], LAMP_Z), LAMP_DROP, 70, 'brass', 0.42)   # clear of the pennant
     room.put(f.filing_cabinet, (4.15, FRONT_Y - 0.15, 0), 3, 0.7, 0.6, 1.1, '#7C6A4F', front=True)
     room.put(f.plant, (4.15, FRONT_Y - 0.15, 1.1), 0.8, front=True)
     return room
@@ -180,7 +197,7 @@ def hall():
     box('valance', (ROOM_W, 0.24, 0.55), mat('red'), r, (0, BACK - 0.2, ROOM_H - 0.5), bevel=0.08, segments=4)
     tube('valance_rod', [(-HALF, BACK - 0.34, ROOM_H - 0.78), (HALF, BACK - 0.34, ROOM_H - 0.78)], 0.03, mat('gold'), r)
     plate('banner', rounded_rect(3.0, 1.7, 0.05), 0.02, mat('manila'), r, (0, BACK - 0.05, 3.35))
-    plate('banner_trim', rounded_rect(3.16, 1.86, 0.08), 0.02, mat('gold'), r, (0, BACK - 0.03, 3.35))
+    plate('banner_trim', rounded_rect(3.2, 1.9, 0.08), 0.03, mat('walnut'), r, (0, BACK - 0.03, 3.35))   # a dark frame; gold read as a flat yellow slab
     room.anchor('board', 0, 3.35, 3.0, 1.7, BACK - 0.07)
     box('lectern', (0.9, 0.6, 1.5), mat('walnut'), r, (-2.4, ROOM_D - 1.2, stage + 0.75), bevel=0.03)
     box('lectern_top', (1.05, 0.72, 0.07), mat('oak'), r, (-2.4, ROOM_D - 1.25, stage + 1.56), rot=(0.3, 0, 0), bevel=0.015)
@@ -212,7 +229,7 @@ def library():
     room.put(f.side_chair, (2.7, 3.95, 0))
     room.put(f.armchair, (-3.3, 3.2, 0), 0.4, 'leather')
     room.put(f.rug, (0, 2.0, 0), (4.0, 2.0), 'green')
-    room.wall(f.pendant_lamp, (0, RAFTERS[0], LAMP_Z), 1.0, 70, 'brass', 0.42)
+    room.wall(f.pendant_lamp, (0, RAFTERS[0], LAMP_Z), LAMP_DROP, 70, 'brass', 0.42)
     room.put(f.table, (-3.6, FRONT_Y, 0), 1.3, 0.7, 0.6, front=True)
     room.put(p.book_stack, (-3.9, FRONT_Y, 0.6), ('red', 'navy', 'green', 'manila'), front=True)
     room.put(p.book_stack, (-3.25, FRONT_Y, 0.6), ('teal', 'red'), front=True)
@@ -239,7 +256,7 @@ def staff():
     room.put(f.plant, (4.35, 3.4, 0), 1.2)
     room.put(f.rug, (-0.6, 2.1, 0), (3.8, 1.8), 'navy')
     for x in (-2.4, 2.4):
-        room.wall(f.pendant_lamp, (x, RAFTERS[0], LAMP_Z), 1.1, 60, 'cream', 0.42)
+        room.wall(f.pendant_lamp, (x, RAFTERS[0], LAMP_Z), LAMP_DROP, 60, 'cream', 0.42)
     room.put(f.table, (3.7, FRONT_Y, 0), 1.1, 0.7, 0.62, front=True)
     room.put(p.book_stack, (3.6, FRONT_Y, 0.62), ('red', 'manila', 'navy'), front=True)
     room.put(f.mug, (4.1, FRONT_Y - 0.1, 0.62), 'yellow', front=True)
@@ -304,7 +321,7 @@ def workshop():
     box('vice', (0.4, 0.4, 0.3), mat('iron'), r, (-2.1, 4.05, 1.4), bevel=0.03)
     cone('bucket', 0.24, 0.3, 0.46, mat('steel'), r, (1.75, 4.3, 0.23), sides=24)
     tube('mop', [(1.85, 4.35, 0.1), (2.2, 4.85, 2.7)], 0.028, mat('oak_pale'), r)
-    room.wall(f.pendant_lamp, (0, RAFTERS[0], LAMP_Z), 1.1, 70, 'iron', 0.46)
+    room.wall(f.pendant_lamp, (0, RAFTERS[0], LAMP_Z), LAMP_DROP, 70, 'iron', 0.46)
     crate = box('crate', (1.2, 0.8, 0.8), mat('ply'), r, (-3.85, FRONT_Y - 0.1, 0.4), bevel=0.02)
     crate_top = box('crate_top', (0.8, 0.6, 0.5), mat('oak_pale'), r, (-3.95, FRONT_Y - 0.1, 1.05), bevel=0.02)
     room.front += [crate, crate_top]
@@ -337,7 +354,7 @@ def careers():
     room.put(f.plant, (4.4, 2.9, 0), 1.2)
     room.put(f.rug, (-0.4, 2.1, 0), (3.6, 1.8), 'teal')
     for x in (-2.4, 2.4):
-        room.wall(f.pendant_lamp, (x, RAFTERS[0], LAMP_Z), 1.1, 60, 'yellow', 0.42)
+        room.wall(f.pendant_lamp, (x, RAFTERS[0], LAMP_Z), LAMP_DROP, 60, 'yellow', 0.42)
     room.put(f.table, (-3.7, FRONT_Y, 0), 1.2, 0.7, 0.6, front=True)
     room.put(f.globe, (-3.7, FRONT_Y, 0.6), 0.26, front=True)
     return room
