@@ -20,6 +20,8 @@ const STAIRS_MS = 1500;
 const ZOOM_MS = 1150;
 // On the way to another floor the camera pulls back by this share.
 const STAIRS_LIFT = 0.22;
+// A run's moves are paced to be watched. When the visitor asks for a room, the same move takes this share of the time.
+const VISITOR_PACE = 0.6;
 // The robot is out of sight for this part of a move it cannot walk.
 const HIDE_MS = 180;
 const SEATED = new Set(['study', 'exam']);
@@ -35,35 +37,50 @@ const HUB_PAD = { top: 8, right: 18, bottom: 22, left: 18 };
 
 const walkMs = (from, to) => WALK_MS + (Math.abs(roomOf(to).col - roomOf(from).col) - 1) * WALK_EXTRA_MS;
 
-function moveOf(from, to) {
+function moveOf(from, to, pace) {
   const kind = moveKind(from, to);
-  if (kind === 'walk') return { ms: walkMs(from, to), lift: 0 };
-  if (kind === 'stairs') return { ms: STAIRS_MS, lift: STAIRS_LIFT };
-  return { ms: kind === 'zoom' ? ZOOM_MS : 0, lift: 0 };
+  if (kind === 'walk') return { ms: walkMs(from, to) * pace, lift: 0 };
+  if (kind === 'stairs') return { ms: STAIRS_MS * pace, lift: STAIRS_LIFT };
+  return { ms: kind === 'zoom' ? ZOOM_MS * pace : 0, lift: 0 };
 }
 
 /**
  * Where the robot stands. It walks to a room on the same floor; to another
  * floor it goes out of sight, and comes back in the new room.
  */
-function useQuillPlace(room, reduced) {
+function useQuillPlace(room, reduced, pace) {
   const [at, setAt] = useState({ room, from: room, facing: 1, walking: false, hidden: false, ms: 0 });
   useEffect(() => {
     if (at.room === room) return undefined;
     if (reduced) { setAt({ room, from: room, facing: 1, walking: false, hidden: false, ms: 0 }); return undefined; }
     if (moveKind(at.room, room) === 'walk') {
-      const ms = walkMs(at.room, room);
+      const ms = walkMs(at.room, room) * pace;
       setAt({ room, from: at.room, facing: roomOf(room).col > roomOf(at.room).col ? 1 : -1, walking: true, hidden: false, ms });
       const timer = setTimeout(() => setAt((now) => ({ ...now, from: room, walking: false })), ms);
       return () => clearTimeout(timer);
     }
     setAt((now) => ({ ...now, hidden: true, ms: 0 }));
     const jump = setTimeout(() => setAt({ room, from: room, facing: 1, walking: false, hidden: true, ms: 0 }), HIDE_MS);
-    const back = setTimeout(() => setAt((now) => ({ ...now, hidden: false })), STAIRS_MS * 0.6);
+    const back = setTimeout(() => setAt((now) => ({ ...now, hidden: false })), STAIRS_MS * pace * 0.6);
     return () => { clearTimeout(jump); clearTimeout(back); };
   }, [room, reduced]);
   return at;
 }
+
+// The pictures a room change needs: both plates of every room, and the two sheets the robot uses between rooms.
+const LATER_ART = [...ROOMS.flatMap((room) => [`rooms/${room.id}-back.webp`, `rooms/${room.id}-front.webp`]), 'quill/walk.webp', 'quill/walk-cap.webp'];
+
+const PRELOAD_AFTER_MS = 2500;
+
+/** Fetches the art of the other rooms once the first view is up, so a room opens without a wait. */
+function usePreloadedArt() {
+  useEffect(() => {
+    // After the first view has had time to load and paint: this art must not compete with it.
+    const timer = setTimeout(() => LATER_ART.forEach((path) => { const image = new Image(); image.decoding = 'async'; image.src = art(path); }), PRELOAD_AFTER_MS);
+    return () => clearTimeout(timer);
+  }, []);
+}
+
 
 function Roofs() {
   return (
@@ -103,13 +120,15 @@ export default function Stage({ view, quillRoom, pose, look, facts, data, health
   const size = useSize(stage);
   const reduced = useReducedMotion();
   const lastView = useRef(view);
-  const move = moveOf(lastView.current, view);
+  const pace = locked ? 1 : VISITOR_PACE;
+  const move = moveOf(lastView.current, view, pace);
   useEffect(() => { lastView.current = view; }, [view]);
 
   const target = useMemo(() => frame(view === HUB ? CAMPUS : CELLS[view], size, view === HUB ? HUB_PAD : ROOM_PAD), [view, size]);
   useCamera({ scope, world, target, size, move, reduced });
 
-  const quill = useQuillPlace(quillRoom, reduced);
+  const quill = useQuillPlace(quillRoom, reduced, pace);
+  usePreloadedArt();
   const seated = !quill.walking && SEATED.has(pose);
   const shownPose = quill.walking ? 'walk' : pose;
   const quillCell = CELLS[quill.room];

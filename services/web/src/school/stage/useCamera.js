@@ -8,6 +8,8 @@ import { driftPointer, useFrames, usePointer } from '../motion/motion.js';
 export const DEPTH = { backdrop: 8, world: 16, props: 46 };
 // The stage scrolls this much slower than the page, so it reads as further away.
 const SCROLL_LAG = 0.16;
+// How far the zoom may run ahead of the door tags' size during a move.
+const INV_STEP = 0.05;
 // On arrival the camera starts this much further away and pushes in.
 const ARRIVAL = { pull: 0.86, ms: 1500 };
 
@@ -28,6 +30,8 @@ export function useCamera({ scope, world, target, size, move, reduced }) {
   const cam = useRef(null);
   const flight = useRef(null);
   const sized = useRef(size);
+  // What the last frame wrote. A frame that would write the same values writes nothing.
+  const wrote = useRef({ transform: '', inv: '', px: '', py: '' });
 
   useEffect(() => {
     if (!size.w || !size.h) return;
@@ -65,9 +69,19 @@ export function useCamera({ scope, world, target, size, move, reduced }) {
     const p = reduced ? { x: 0, y: 0 } : driftPointer(pointer);
     const lag = reduced ? 0 : Math.min(window.scrollY, size.h) * SCROLL_LAG;
     const { x, y, scale } = cam.current;
-    node.style.transform = `translate3d(${(x - p.x * DEPTH.world).toFixed(2)}px, ${(y - p.y * DEPTH.world * 0.5 + lag).toFixed(2)}px, 0) scale(${scale.toFixed(5)})`;
-    node.style.setProperty('--inv', (1 / scale).toFixed(4));
-    scope.current?.style.setProperty('--px', p.x.toFixed(4));
-    scope.current?.style.setProperty('--py', p.y.toFixed(4));
+    const next = {
+      transform: `translate3d(${(x - p.x * DEPTH.world).toFixed(2)}px, ${(y - p.y * DEPTH.world * 0.5 + lag).toFixed(2)}px, 0) scale(${scale.toFixed(5)})`,
+      inv: (1 / scale).toFixed(4), px: p.x.toFixed(3), py: p.y.toFixed(3),
+    };
+    const last = wrote.current;
+    if (next.transform !== last.transform) node.style.transform = next.transform;
+    // --inv restyles every door tag. During a move it follows the zoom in steps of about 5%; at rest it is exact.
+    const drift = Math.abs(Number(next.inv) / Number(last.inv || 1) - 1);
+    if (next.inv !== last.inv && (!fly || drift > INV_STEP)) node.style.setProperty('--inv', next.inv);
+    else next.inv = last.inv;
+    // The pointer variables are on the page's root, so a write restyles the whole page: only when they change.
+    if (next.px !== last.px) scope.current?.style.setProperty('--px', next.px);
+    if (next.py !== last.py) scope.current?.style.setProperty('--py', next.py);
+    wrote.current = next;
   });
 }

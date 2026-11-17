@@ -38,7 +38,7 @@
 /* Doors: every room is a button. In a room view the rooms next door are dark. */
 .cell-door {
   position: absolute; padding: 0; border: 0; background: rgba(10, 7, 4, 0); cursor: pointer; border-radius: 0;
-  transition: background 600ms ease;
+  transition: background 360ms ease;
 }
 .cell-door:disabled { cursor: default; }
 .scene[data-view='room'] .cell-door:not([data-lit]) { background: rgba(10, 7, 4, 0.66); }
@@ -64,7 +64,7 @@
 .plaque {
   position: absolute; left: 50%; top: 12px; z-index: 4; margin: 0; padding: 8px 30px 9px; white-space: nowrap; max-width: calc(100% - 24px);
   overflow: hidden; text-overflow: ellipsis; font-size: clamp(17px, 2vw, 23px); line-height: 1.1; font-weight: 850; font-stretch: 114%;
-  letter-spacing: -0.01em; transform: translateX(-50%); transform-origin: 50% -30px; animation: plaque-in 760ms var(--ease-spring) 240ms backwards;
+  letter-spacing: -0.01em; transform: translateX(-50%); transform-origin: 50% -30px; animation: plaque-in 560ms var(--ease-spring) 120ms backwards;
 }
 /* Two screws */
 .plaque::before, .plaque::after {

@@ -10,7 +10,7 @@
   --pen: #c8352b; --pass: #2e7d5b; --brass: #c9993f; --chalk: #f3efe4;
   --font-hand: 'Shantell Sans Variable', 'Comic Sans MS', cursive;
   /* The camera, the robot's walk and the papers share these curves. */
-  --ease-move: cubic-bezier(0.65, 0, 0.35, 1); --ease-spring: cubic-bezier(0.34, 1.4, 0.5, 1);
+  --ease-move: cubic-bezier(0.65, 0, 0.35, 1); --ease-spring: cubic-bezier(0.34, 1.4, 0.5, 1); --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
   position: relative; min-height: 100vh; display: flex; flex-direction: column; background: var(--workshop); color: var(--chalk);
   font-stretch: 100%; overflow-x: clip;
 }
@@ -18,13 +18,15 @@
 .school ::selection { background: var(--pencil); color: var(--paper-ink); }
 
 /* Arriving in the school: the lights come up */
-.school::after { content: ''; position: fixed; inset: 0; z-index: 40; background: #0b0806; pointer-events: none; opacity: 0; animation: lights-up 900ms ease-out; }
-@keyframes lights-up { from { opacity: 1; } }
+.school::after { content: ''; position: fixed; inset: 0; z-index: 40; background: #0b0806; pointer-events: none; opacity: 0; visibility: hidden; animation: lights-up 480ms ease-out; }
+@keyframes lights-up { from { opacity: 1; visibility: visible; } to { opacity: 0; visibility: visible; } }
+/* The page's own scrollbar, in the workshop's wood */
+html:has(.school) { scrollbar-color: #7a5530 #17130f; }
 
 /* Top bar */
 .top {
   position: sticky; top: 0; z-index: 20; flex: none; height: 52px; display: flex; align-items: center; gap: 10px; padding: 0 16px;
-  background: linear-gradient(180deg, rgba(23, 19, 15, 0.96), rgba(23, 19, 15, 0.82)); backdrop-filter: blur(8px);
+  background: #17130f;
   border-bottom: 1px solid rgba(201, 153, 63, 0.28);
 }
 .top .spacer { flex: 1; }
@@ -87,14 +89,14 @@ button.top-tag:hover { background: rgba(243, 239, 228, 0.13); border-color: rgba
 .rail-tab {
   position: relative; flex: none; display: inline-flex; align-items: center; gap: 7px; height: 36px; padding: 0 14px; cursor: pointer;
   font-size: 14.5px; font-weight: 800; font-stretch: 108%; white-space: nowrap;
-  transition: translate 180ms var(--ease-spring), filter 160ms, box-shadow 200ms;
+  transition: translate 140ms var(--ease-out-expo), filter 120ms, box-shadow 160ms;
 }
 .rail-tab:hover:not([aria-disabled]) { translate: 0 -2px; filter: brightness(1.08); }
 .rail-tab:active:not([aria-disabled]) { translate: 0 1px; }
 .rail-tab[aria-disabled] { cursor: default; filter: saturate(0.5) brightness(0.72); }
 .rail-tab[aria-current] {
   filter: none; translate: 0 -2px;
-  box-shadow: inset 0 1px 0 rgba(255, 250, 220, 0.8), inset 0 -2px 0 rgba(60, 38, 4, 0.35), 0 0 0 2px var(--workshop), 0 0 0 4px var(--pencil), 0 0 22px 2px rgba(253, 174, 18, 0.55);
+  box-shadow: inset 0 1px 0 rgba(255, 250, 220, 0.8), inset 0 -2px 0 rgba(60, 38, 4, 0.35), 0 0 0 2px var(--workshop), 0 0 0 4px var(--pencil), 0 6px 10px -2px rgba(0, 0, 0, 0.7);
 }
 /* A gap between the campus, the lifecycle and the other rooms */
 .rail-tab[data-group='hub'] { margin-right: 12px; }

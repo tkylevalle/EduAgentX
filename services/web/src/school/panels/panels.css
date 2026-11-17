@@ -10,7 +10,7 @@
   position: relative; grid-column: span 12; min-width: 0; padding: 20px 22px 20px; color: var(--paper-ink); rotate: var(--tilt, 0deg);
   background: var(--paper) url('/school/ui/paper.webp') center / 560px; border-radius: 2px 4px 3px 5px;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35), inset 0 0 40px rgba(120, 90, 40, 0.12), 0 2px 2px rgba(0, 0, 0, 0.4), 0 22px 30px -16px rgba(0, 0, 0, 0.85);
-  animation: deal 640ms var(--ease-spring) backwards; animation-delay: calc(var(--n, 0) * 80ms + 120ms);
+  animation: deal 380ms var(--ease-out-expo) backwards; animation-delay: calc(var(--n, 0) * 45ms);
 }
 /* Papers are dealt onto the table one after another, each a little askew */
 .desk > :nth-child(1) { --n: 0; --tilt: -0.5deg; }
@@ -20,8 +20,8 @@
 .desk > :nth-child(5) { --n: 4; --tilt: -0.4deg; }
 .desk > :nth-child(n + 6) { --n: 5; --tilt: 0.25deg; }
 @keyframes deal {
-  from { opacity: 0; transform: translate3d(0, -46px, 0) rotate(-3.5deg) scale(1.05); box-shadow: 0 60px 60px -20px rgba(0, 0, 0, 0.5); }
-  70% { opacity: 1; }
+  from { opacity: 0; transform: translate3d(0, -30px, 0) rotate(-2.5deg) scale(1.04); }
+  50% { opacity: 1; }
 }
 .sheet[data-span='3'], .s-col[data-span='3'] { grid-column: span 3; }
 .sheet[data-span='4'], .s-col[data-span='4'] { grid-column: span 4; }
@@ -37,8 +37,12 @@
   padding: 13px 22px 15px; color: var(--chalk); background: #27302c url('/school/ui/chalkboard.webp') center / 420px; border-radius: 3px;
   box-shadow: 0 0 0 5px #6f4a26, 0 0 0 6px #3b2716, 0 22px 30px -16px rgba(0, 0, 0, 0.85);
 }
-.sheet[data-tone='ok'] { box-shadow: inset 5px 0 0 var(--pass), inset 0 0 40px rgba(120, 90, 40, 0.12), 0 2px 2px rgba(0, 0, 0, 0.4), 0 22px 30px -16px rgba(0, 0, 0, 0.85); }
-.sheet[data-tone='bad'] { box-shadow: inset 5px 0 0 var(--pen), inset 0 0 40px rgba(120, 90, 40, 0.12), 0 2px 2px rgba(0, 0, 0, 0.4), 0 22px 30px -16px rgba(0, 0, 0, 0.85); }
+/* A paper that reports a result has a strip of coloured tape across its corner */
+.sheet[data-tone='ok']::before, .sheet[data-tone='bad']::before {
+  content: ''; position: absolute; left: -24px; bottom: 14px; width: 78px; height: 22px; rotate: 40deg; background: var(--pass); opacity: 0.88;
+  box-shadow: 0 2px 3px rgba(0, 0, 0, 0.35); clip-path: polygon(3% 0, 97% 0, 100% 50%, 97% 100%, 3% 100%, 0 50%);
+}
+.sheet[data-tone='bad']::before { background: var(--pen); }
 .sheet code, .paper code { color: inherit; }
 
 /* What holds a paper down */
@@ -114,23 +118,25 @@
   width: 100%; padding: 8px 10px; border: 0; border-bottom: 2px solid var(--paper-ink); border-radius: 2px 2px 0 0; background: rgba(255, 255, 255, 0.42);
   color: var(--paper-ink); font: inherit; font-size: 14.5px;
 }
+.sheet input, .sheet textarea { caret-color: var(--pen); }
 .sheet input::placeholder, .sheet textarea::placeholder { color: #8a7c66; }
 .sheet label { display: block; font-size: 12.5px; font-weight: 750; color: var(--paper-dim); }
 .sheet label > input, .sheet label > select { margin-top: 4px; }
 .s-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 14px; }
 .s-form > .wide { grid-column: 1 / -1; }
 
-/* Facts: one number, one name */
-.s-facts { display: flex; flex-direction: column; }
-.s-facts-row { flex-direction: row; flex-wrap: wrap; gap: 0 34px; }
-.s-fact { display: flex; align-items: baseline; gap: 10px; min-width: 0; padding: 7px 0; border-top: 1px dashed var(--line-strong); }
-.s-facts > .s-fact:first-child, .s-facts-row > .s-fact { border-top: 0; }
-.s-facts:not(.s-facts-row) > .s-fact:first-child { padding-top: 0; }
-.s-fact-value { flex: none; min-width: 2.4ch; font-size: 30px; line-height: 1; font-weight: 880; font-stretch: 114%; letter-spacing: -0.035em; font-variant-numeric: tabular-nums; }
-.s-fact-value small { margin-left: 2px; font-size: 14px; font-weight: 750; letter-spacing: 0; color: var(--paper-dim); }
-.s-fact-name { color: var(--paper-dim); font-size: 13.5px; line-height: 1.25; }
+/* Counts are kept as a register: the name, a ruled line, the number at the end of it */
+.s-facts { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0 30px; }
+.s-facts-row { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.s-fact { display: flex; flex-direction: row-reverse; align-items: baseline; gap: 12px; min-width: 0; padding: 8px 0 7px; border-bottom: 1px dashed var(--line-strong); }
+.s-fact-value { flex: none; font-size: 21px; line-height: 1; font-weight: 850; font-stretch: 108%; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.s-fact-value small { margin-left: 3px; font-size: 13px; font-weight: 750; letter-spacing: 0; color: var(--paper-dim); }
+.s-fact-name { flex: 1; color: var(--paper-ink); font-size: 14px; line-height: 1.25; }
+.s-fact-name::first-letter { text-transform: uppercase; }
 .sheet > .s-facts + .s-list, .s-paper-tiers + .s-facts { margin-top: 12px; }
-.sheet[data-kind='slate'] .s-fact-name, .sheet[data-kind='slate'] .s-fact-value small { color: rgba(243, 239, 228, 0.72); }
+.sheet[data-kind='slate'] .s-fact-name { color: var(--chalk); }
+.sheet[data-kind='slate'] .s-fact-value small { color: rgba(243, 239, 228, 0.72); }
+.sheet[data-kind='slate'] .s-fact { border-bottom-color: rgba(243, 239, 228, 0.3); }
 
 .s-rows { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px 16px; margin: 0; align-items: baseline; }
 .s-rows dt { color: var(--paper-dim); font-size: 12.5px; font-weight: 700; }
@@ -167,7 +173,7 @@
 }
 .s-lessons li[data-done] .s-lesson-mark { background: var(--pass); border-color: var(--pass); color: #fff; }
 .s-lesson-src { display: flex; flex-direction: column; align-items: flex-end; font-size: 12px; }
-.s-lesson-src a { color: var(--paper-dim); text-decoration: underline rgba(42, 36, 28, 0.25); }
+.s-lesson-src a { color: var(--paper-dim); text-decoration: underline rgba(42, 36, 28, 0.3); text-underline-offset: 3px; }
 .s-lesson-src a:hover { color: #1d5f96; }
 .s-goals li { padding: 9px 0; border-top: 1px dashed var(--line-strong); font-size: 14px; line-height: 1.35; }
 .s-goals li:first-child { border-top: 0; }
@@ -190,7 +196,7 @@
 .s-weights strong { color: var(--paper-ink); font-size: 20px; line-height: 1; font-weight: 880; font-stretch: 112%; }
 
 /* Lists of records: a drawer of file cards */
-.s-files { display: flex; flex-direction: column; gap: 3px; max-height: 540px; overflow: auto; margin: 0 -6px; scrollbar-color: rgba(42, 36, 28, 0.35) transparent; }
+.s-files { display: flex; flex-direction: column; gap: 3px; max-height: 540px; overflow: auto; margin: 0 -6px; scrollbar-color: rgba(42, 36, 28, 0.35) transparent; overscroll-behavior: contain; }
 .s-files button {
   display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 9px; width: 100%; padding: 8px 9px; border: 0; color: var(--paper-ink);
   border-radius: 3px; background: none; text-align: left; cursor: pointer; transition: background 120ms, translate 160ms var(--ease-spring);
@@ -211,7 +217,7 @@
 .s-bar-name { font-weight: 780; font-size: 13.5px; }
 .s-bar-track { position: relative; height: 14px; border-radius: 2px; background: rgba(42, 36, 28, 0.12); }
 .s-bar-fill {
-  position: absolute; inset: 0 auto 0 0; border-radius: 2px; transform-origin: left; animation: bar-grow 900ms var(--ease-move) 500ms backwards;
+  position: absolute; inset: 0 auto 0 0; border-radius: 2px; transform-origin: left; animation: bar-grow 700ms var(--ease-out-expo) 260ms backwards;
   background: repeating-linear-gradient(-58deg, var(--paper-ink) 0 3px, rgba(42, 36, 28, 0.72) 3px 5px);
 }
 .s-bar-row[data-bad] .s-bar-fill { background: repeating-linear-gradient(-58deg, var(--pen) 0 3px, rgba(200, 53, 43, 0.7) 3px 5px); }
@@ -222,7 +228,7 @@
 /* An examiner's ring in red pen */
 .ring { position: relative; display: inline-block; padding: 0.1em 0.3em; }
 .ring svg { position: absolute; inset: -14% -8%; width: 116%; height: 128%; overflow: visible; pointer-events: none; }
-.ring path { fill: none; stroke: var(--pen); stroke-width: 3; stroke-linecap: round; vector-effect: non-scaling-stroke; stroke-dasharray: 620; stroke-dashoffset: 620; animation: ring-draw 900ms var(--ease-move) 900ms forwards; }
+.ring path { fill: none; stroke: var(--pen); stroke-width: 3; stroke-linecap: round; vector-effect: non-scaling-stroke; stroke-dasharray: 620; stroke-dashoffset: 620; animation: ring-draw 700ms var(--ease-move) 420ms forwards; }
 .ring[data-tone='pass'] path { stroke: var(--pass); }
 @keyframes ring-draw { to { stroke-dashoffset: 0; } }
 
@@ -244,16 +250,16 @@
 .stamp {
   flex: none; padding: 7px 14px 5px; border: 4px solid currentColor; border-radius: 6px; rotate: -7deg; color: #8d5f00; mix-blend-mode: multiply; filter: url(#rough-ink);
   font-size: clamp(18px, 2.3vw, 28px); line-height: 1; font-weight: 880; font-stretch: 122%; text-transform: uppercase; letter-spacing: 0.03em;
-  animation: stamp-slam 420ms cubic-bezier(0.6, 0, 0.9, 0.4) 1100ms backwards;
+  animation: stamp-slam 360ms cubic-bezier(0.6, 0, 0.9, 0.4) 700ms backwards;
 }
 .stamp[data-tone='ok'] { color: var(--pass); }
 .stamp[data-tone='bad'] { color: var(--pen); }
 @keyframes stamp-slam { from { opacity: 0; scale: 2.6; rotate: -22deg; } 70% { opacity: 1; scale: 0.94; } }
-.paper:has(.stamp) { animation: deal 640ms var(--ease-spring) backwards, paper-hit 260ms ease-out 1480ms; }
+.paper:has(.stamp) { animation: deal 380ms var(--ease-out-expo) backwards, paper-hit 240ms ease-out 1040ms; }
 @keyframes paper-hit { 30% { translate: 0 3px; rotate: calc(var(--tilt) - 0.35deg); } }
 
 .report-top { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 34px; padding: 22px 0 20px; }
-.report-score strong { display: block; font-size: clamp(56px, 8vw, 104px); line-height: 0.9; font-weight: 880; font-stretch: 118%; letter-spacing: -0.045em; font-variant-numeric: tabular-nums; }
+.report-score strong { display: block; font-size: clamp(56px, 8vw, 104px); line-height: 0.9; font-weight: 880; font-stretch: 118%; letter-spacing: -0.04em; font-variant-numeric: tabular-nums; }
 .report[data-passed='false'] .report-score strong { color: var(--pen); }
 .report-score > span:not(.ring) { display: block; margin-top: 12px; color: var(--paper-dim); font-size: 13px; font-weight: 700; }
 .report-bars { display: flex; flex-direction: column; gap: 12px; }
@@ -314,7 +320,7 @@
 .hub-lessons li { padding: 7px 0 7px 4px; border-bottom: 1px dashed var(--line-strong); font-size: 14.5px; font-weight: 700; line-height: 1.25; }
 .hub-lessons li::marker { font-weight: 880; font-variant-numeric: tabular-nums; }
 .hub-score { margin: 6px 0 16px; }
-.hub-score strong { font-size: clamp(44px, 4.6vw, 60px); line-height: 1; font-weight: 880; font-stretch: 114%; letter-spacing: -0.045em; font-variant-numeric: tabular-nums; }
+.hub-score strong { font-size: clamp(44px, 4.6vw, 60px); line-height: 1; font-weight: 880; font-stretch: 114%; letter-spacing: -0.04em; font-variant-numeric: tabular-nums; }
 
 /* Library */
 .lib-gates { list-style: none; margin: 14px 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 14px; }

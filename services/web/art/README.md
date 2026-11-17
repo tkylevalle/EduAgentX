@@ -93,7 +93,9 @@ safety alerts, service health) when no run is playing.
 - At 390 x 844: campus, exam hall, graduation hall. No horizontal scroll.
 - Reduced motion: the camera cuts, the robot holds one frame, papers do not
   animate.
-- Camera moves at 1440 x 900: at most 3 frames longer than 25 ms in a move.
+- Speed, in a headless Chrome at 1440 x 900 and a pixel ratio of 2: first contentful paint at 0.3 s; a
+  room change has about 3 frames longer than 20 ms (worst 28 ms) and 42 ms of style work. A visitor's own
+  move takes 0.6 of the time of a move that follows a run.
 - Operator Mode: no School style reaches an Operator component (class names
   compared by script); the overview page was checked by eye.
 
