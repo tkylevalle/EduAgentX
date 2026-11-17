@@ -107,7 +107,10 @@ export default function LibraryPanel({ data }) {
   const versions = useApi('/api/governance/packages');
   const list = versions.data?.packages || null;
   const [picked, setPicked] = useState(null);
-  const chosen = list?.find((entry) => versionKey(entry) === picked) || list?.find((entry) => entry.state === 'Active') || list?.[0] || null;
+  // The library opens on the course the school teaches now; the visitor can pick another version.
+  const taught = data.pkg ? versionKey(data.pkg) : null;
+  const chosen = list?.find((entry) => versionKey(entry) === picked) || list?.find((entry) => versionKey(entry) === taught)
+    || list?.find((entry) => entry.state === 'Active') || list?.[0] || null;
   const detail = useApi(chosen ? versionPath(chosen) : null);
   if (data.pkgError) return <Card><Problem what="The course" error={data.pkgError} /></Card>;
   if (!data.pkg) return <Card><Wait rows={6} /></Card>;

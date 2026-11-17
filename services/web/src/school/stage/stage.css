@@ -78,7 +78,9 @@
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
 /* Light and air, over the building and under the plaque */
-.stage-light { position: absolute; inset: 0; z-index: 2; pointer-events: none;
+/* The lamp breathes a little, so the set is never quite still */
+@keyframes lamp-breathe { 50% { opacity: 0.86; } }
+.stage-light { position: absolute; inset: 0; z-index: 2; pointer-events: none; animation: lamp-breathe 7s ease-in-out infinite;
   background:
     radial-gradient(70% 110% at 26% -18%, rgba(255, 208, 138, 0.2), rgba(255, 208, 138, 0) 68%),
     radial-gradient(130% 100% at 50% 42%, rgba(8, 6, 4, 0) 52%, rgba(8, 6, 4, 0.78) 100%);
@@ -176,5 +178,5 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .cell-door, .door-tag, .quill-at { transition: none !important; }
-  .plaque, .plate, .mini-card, .mini-note, .chalk-head[data-live], .lamp-dot { animation: none !important; }
+  .plaque, .plate, .mini-card, .mini-note, .chalk-head[data-live], .lamp-dot, .stage-light { animation: none !important; }
 }

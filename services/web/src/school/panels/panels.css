@@ -89,7 +89,7 @@
   clip-path: polygon(0 0, calc(100% - 46px) 0, 100% 50%, calc(100% - 46px) 100%, 0 100%);
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.34) 0 18%, rgba(255, 255, 255, 0) 18% 70%, rgba(80, 40, 0, 0.26) 70%),
-    linear-gradient(90deg, var(--eraser) 0 26px, #e8cf8e 26px 30px, #a8823a 30px 40px, #e8cf8e 40px 44px, var(--pencil) 44px calc(100% - 46px), #e7c79a calc(100% - 46px) calc(100% - 15px), #2a241c calc(100% - 15px));
+    linear-gradient(90deg, var(--eraser) 0 26px, #e8cf8e 26px 30px, #a8823a 30px 40px, #e8cf8e 40px 44px, var(--pencil) 44px calc(100% - 46px), #e7c79a calc(100% - 46px) calc(100% - 17px), #2a241c calc(100% - 17px));
   transition: filter 140ms, translate 160ms var(--ease-spring);
 }
 .s-go:hover:not(:disabled) { filter: brightness(1.07) saturate(1.1); translate: 4px 0; }

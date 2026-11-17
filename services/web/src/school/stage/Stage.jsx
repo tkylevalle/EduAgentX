@@ -113,8 +113,12 @@ export default function Stage({ view, quillRoom, pose, look, facts, data, health
   const quillCell = CELLS[quill.room];
   const aside = !seated && !quill.walking && DESK_ROOMS.has(quill.room) ? STAND_ASIDE : 0;
   const near = (id) => id === view || id === quill.room || id === quill.from;
-  // The room the robot walks out of stays lit until it has left.
-  const lit = (id) => id === view || (quill.walking && id === quill.from);
+  // While the robot walks, every room on its way is lit, so it is never in the dark.
+  const onTheWay = (id) => {
+    const [here, from, to] = [roomOf(id), roomOf(quill.from), roomOf(quill.room)];
+    return here.floor === to.floor && here.col >= Math.min(from.col, to.col) && here.col <= Math.max(from.col, to.col);
+  };
+  const lit = (id) => id === view || (quill.walking && onTheWay(id));
   const room = roomOf(view);
 
   return (

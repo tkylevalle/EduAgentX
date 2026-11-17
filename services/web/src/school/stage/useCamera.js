@@ -8,6 +8,8 @@ import { driftPointer, useFrames, usePointer } from '../motion/motion.js';
 export const DEPTH = { backdrop: 8, world: 16, front: 9, props: 46 };
 // The stage scrolls this much slower than the page, so it reads as further away.
 const SCROLL_LAG = 0.16;
+// On arrival the camera starts this much further away and pushes in.
+const ARRIVAL = { pull: 0.86, ms: 1500 };
 
 /**
  * Drives the world's transform from one frame loop: the camera move to a new
@@ -28,9 +30,21 @@ export function useCamera({ scope, world, target, size, move, reduced }) {
   const sized = useRef(size);
 
   useEffect(() => {
-    // The first frame, a resize and reduced motion go straight to the view.
+    if (!size.w || !size.h) return;
+    // A resize and reduced motion go straight to the view.
     const resized = sized.current.w !== size.w || sized.current.h !== size.h;
     sized.current = size;
+    if (!cam.current && !reduced) {
+      const scale = target.scale * ARRIVAL.pull;
+      cam.current = { scale, x: size.w / 2 - ((size.w / 2 - target.x) / target.scale) * scale, y: size.h / 2 - ((size.h / 2 - target.y) / target.scale) * scale };
+      flight.current = { from: cam.current, to: target, start: performance.now(), ms: ARRIVAL.ms, lift: 0 };
+      return;
+    }
+    // A resize in the middle of a move (a scrollbar appears) keeps the move and changes where it ends.
+    if (resized && flight.current && !reduced) {
+      flight.current = { ...flight.current, to: target };
+      return;
+    }
     if (!cam.current || resized || reduced || move.ms === 0) {
       cam.current = target;
       flight.current = null;
