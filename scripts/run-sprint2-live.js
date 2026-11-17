@@ -1,6 +1,7 @@
 'use strict';
 // Isolated technical demonstration. The two configured reviewer credentials
 // are simulation identities, never evidence of independent human approval.
+const { citedSources } = require('../services/validation-activation/src/reviews');
 const fs = require('node:fs');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
@@ -47,6 +48,9 @@ function docker(args) {
   if (result.status !== 0) throw new Error(`docker ${args[0]} failed`);
 }
 async function main() {
+  // Test reviewer accounts approve and activate a package here, so this runs only
+  // on a stack declared disposable (assurance audit C3).
+  if (process.env.EDUAGENTX_DISPOSABLE_STACK !== '1') throw new Error('disposable_stack_required: set EDUAGENTX_DISPOSABLE_STACK=1 on a throwaway stack');
   const reviewers = [1, 2].map(index => ({
     id: process.env[`SPRINT2_REVIEWER_${index}_ID`],
     secret: process.env[`SPRINT2_REVIEWER_${index}_SECRET`],
@@ -57,7 +61,7 @@ async function main() {
   const id = `ai-safety-s2-${randomUUID().slice(0, 8)}`;
   const pkg = structuredClone(candidate);
   pkg.manifest.packageId = id;
-  const prior = await request(`${validation}/packages/active`, { internal: true });
+  const prior = await request(`${validation}/packages/active?domain=${encodeURIComponent(candidate.manifest.domainId)}`, { internal: true });
   if (prior.status === 200) pkg.manifest.predecessor = { packageId: prior.data.packageId, version: prior.data.version };
   else if (prior.status !== 404) throw new Error('active_pointer_unavailable');
   report.packageId = id;
@@ -76,8 +80,9 @@ async function main() {
   step('six_gates', { passed: validated.data.gates.map(gate => gate.name) });
   for (const [index, reviewerToken] of reviewerTokens.entries()) {
     const reviewed = await request(`${gateway}/v1/curriculum/review`, { method: 'POST', token: reviewerToken,
-      body: { package_id: id, version: pkg.manifest.version, reviewer_id: 'ignored-forgery', score: index ? 4.5 : 4,
-        approved: true } });
+      body: { package_id: id, version: pkg.manifest.version, reviewer_id: 'ignored-forgery',
+        criterionScores: Object.fromEntries(pkg.rubric.criteria.map((criterion) => [criterion.id, index ? 4.5 : 4])),
+        sourceChecks: Object.fromEntries(citedSources(pkg).map((source) => [source, { edition: true, licence: true, quotes: true }])), approved: true } });
     expect(reviewed.status, 200, 'review');
     step(`synthetic_reviewer_${index + 1}`, { status: reviewed.status, approvals: reviewed.data.approvals,
       mean: reviewed.data.mean });

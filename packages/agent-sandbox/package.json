@@ -1,0 +1,8 @@
+{
+  "name": "eduagentx-agent-sandbox",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Deterministic scenario worlds where an agent's tool calls, not its words, are graded.",
+  "main": "src/episode.js",
+  "scripts": { "test": "node --test test/*.test.js" }
+}

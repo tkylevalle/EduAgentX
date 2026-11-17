@@ -11,12 +11,15 @@ const { fail } = require('./lifecycle');
 // become a failure, so a new attempt waits for its outcome. It is read before
 // the events: its outcome and its remediation event commit together, so one of
 // the two reads always sees it.
-async function requireRemediation(store, { actor, pkg, completion, now }) {
+// remediationCompleted(eventId): whether Training holds a completion of that
+// remediation request, so remediation done before later training still counts.
+async function requireRemediation(store, { actor, pkg, completion, now, remediationCompleted = async () => false }) {
   const scope = { agentLearnerKey: actor, packageId: pkg.packageId || pkg.id, packageVersion: pkg.version };
   if (await store.hasAttemptAwaitingOutcome({ ...scope, now })) throw fail('previous_attempt_awaiting_outcome');
   const event = await store.latestRemediationEvent(scope);
   if (!event) return;
   if (completion?.sessionKind === 'remediation' && completion.remediationRequestId === event.eventId) return;
+  if (await remediationCompleted(event.eventId)) return;
   // A remediation closed by a passing re-examination no longer gates new attempts.
   for (const attemptId of await store.findReexaminations(event.eventId)) {
     const attempt = await store.get(attemptId);

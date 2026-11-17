@@ -17,7 +17,7 @@ const { checkEligibility } = require('./eligibility');
 const { POLICY_VERSION, matchCandidates } = require('./matching');
 const { createPgStore, withRetry, isUniqueViolation } = require('./store');
 const { askSource, createRegistrySource, createPackageSource, createVerificationSource,
-  createLifecycleSource } = require('./clients');
+  createLifecycleSource, withCurrentCandidate } = require('./clients');
 const { DEFAULT_STREAM, createCredentialConsumer, createRedisClient } = require('./stream-consumer');
 const { DEFAULT_CONCURRENCY, concurrency, createAuthorityDispatch } = require('./authority-dispatch');
 
@@ -241,7 +241,7 @@ function createApp({
     const state = deriveRequestState(found.events);
     if (state.status !== 'open') throw new HttpError(409, 'request_not_open');
     const version = found.versions.find((v) => v.version === state.openVersion);
-    const records = await store.listProjection();
+    const records = (await store.listProjection()).map(withCurrentCandidate);
 
     // 2. Ask the owning services with no transaction or lock held, so slow
     // sources never block a close, a new version or another check.
@@ -294,7 +294,7 @@ function createApp({
     if (!version) throw new HttpError(409, 'request_version_changed');
     // A corrupted/unsupported stored request must never widen matching.
     const valid = validateRequestVersion(version.content);
-    const records = valid.ok ? await store.listProjection() : [];
+    const records = valid.ok ? (await store.listProjection()).map(withCurrentCandidate) : [];
     const answers = await dispatchAuthorities(records, (record) => gatherAnswers(record, req.correlationId));
     return withRetry(store, `request:${id}`, async (tx) => {
       const again = await tx.findMatchByKey(req.actor, idempotencyKey);
@@ -439,13 +439,14 @@ function start(env = process.env) {
   // Idle clients emit 'error' when Postgres restarts; an unhandled event would stop the process.
   pool?.on('error', () => telemetry.log(SERVICE_NAME, 'postgres_connection_error'));
   const store = pool ? createPgStore(pool) : unavailableStore();
+  // batch: reads made together share one request per source (assurance audit F6).
   const sources = {
     registry: createRegistrySource({ baseUrl: env.AGENT_REGISTRY_URL || 'http://agent-registry:4001' }),
     package: createPackageSource({ baseUrl: env.VALIDATION_ACTIVATION_URL || 'http://validation-activation:4010',
-      internalKey: env.CURRICULUM_INTERNAL_KEY }),
-    verification: createVerificationSource({ baseUrl: env.CREDENTIAL_VERIFICATION_URL || 'http://credential-verification:4030' }),
+      internalKey: env.CURRICULUM_INTERNAL_KEY, batch: true }),
+    verification: createVerificationSource({ baseUrl: env.CREDENTIAL_VERIFICATION_URL || 'http://credential-verification:4030', batch: true }),
     lifecycle: createLifecycleSource({ baseUrl: env.CERTIFICATION_SERVICE_URL || 'http://certification-service:4011',
-      internalKey: env.MARKETPLACE_INTERNAL_KEY }),
+      internalKey: env.MARKETPLACE_INTERNAL_KEY, batch: true }),
   };
   const server = createApp({ store, sources, internalKey: env.MARKETPLACE_INTERNAL_KEY,
     // Invalid configuration leaves readiness closed; the fallback is never used

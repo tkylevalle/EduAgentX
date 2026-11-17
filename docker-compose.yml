@@ -26,6 +26,7 @@ services:
       CERTIFICATION_DB_PASSWORD: ${CERTIFICATION_DB_PASSWORD:?Run node scripts/setup-dev.js}
       MARKETPLACE_DB_PASSWORD: ${MARKETPLACE_DB_PASSWORD:?Run node scripts/setup-dev.js}
       SKILL_GAP_DB_PASSWORD: ${SKILL_GAP_DB_PASSWORD:?Run node scripts/setup-dev.js}
+      MONITORING_DB_PASSWORD: ${MONITORING_DB_PASSWORD:?Run node scripts/setup-dev.js}
     ports:
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
@@ -121,6 +122,23 @@ services:
     networks:
       - eduagentx-net
 
+  monitoring-db-init:
+    image: postgres:16-alpine
+    environment:
+      PGHOST: postgres
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_DB: ${POSTGRES_DB}
+      MONITORING_DB_PASSWORD: ${MONITORING_DB_PASSWORD:?Run node scripts/setup-dev.js}
+    volumes:
+      - ./db/init/009_monitoring_role.sh:/tmp/009_monitoring_role.sh:ro
+    command: ["sh", "/tmp/009_monitoring_role.sh"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - eduagentx-net
+
   skill-gap-service:
     build:
       context: .
@@ -180,6 +198,9 @@ services:
     container_name: eduagentx-agent-registry
     environment:
       PORT: 4001
+      # Forwards this service's incidents to the one Assurance Incident log (audit E9).
+      MONITORING_SERVICE_URL: http://monitoring-service:4040
+      MONITORING_INTERNAL_KEY: ${MONITORING_INTERNAL_KEY:?Run node scripts/setup-dev.js}
       DATABASE_URL: postgres://registry_owner:${REGISTRY_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://redis:6379
       SERVICE_NAME: agent-registry
@@ -296,6 +317,9 @@ services:
     container_name: eduagentx-training-service
     environment:
       PORT: 4004
+      # Forwards this service's incidents to the one Assurance Incident log (audit E9).
+      MONITORING_SERVICE_URL: http://monitoring-service:4040
+      MONITORING_INTERNAL_KEY: ${MONITORING_INTERNAL_KEY:?Run node scripts/setup-dev.js}
       DATABASE_URL: postgres://training_owner:${TRAINING_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
       EXECUTION_PRINCIPALS: ${EXECUTION_PRINCIPALS:-[]}
       TRAINING_INTERNAL_KEY: ${TRAINING_INTERNAL_KEY:?Run node scripts/setup-dev.js}
@@ -381,6 +405,7 @@ services:
       DATABASE_URL: postgres://examination_owner:${EXAMINATION_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
       EXAMINATION_INTERNAL_KEY: ${EXAMINATION_INTERNAL_KEY:?Run node scripts/setup-dev.js}
       EXAMINATION_GRADING_KEY: ${EXAMINATION_GRADING_KEY:?Run node scripts/setup-dev.js}
+      EPISODE_SEED_KEY: ${EPISODE_SEED_KEY:?Run node scripts/setup-dev.js}
       CURRICULUM_INTERNAL_KEY: ${CURRICULUM_INTERNAL_KEY:?Run node scripts/setup-dev.js}
       TRAINING_INTERNAL_KEY: ${TRAINING_INTERNAL_KEY:?Run node scripts/setup-dev.js}
       EXAM_DURATION_MINUTES: ${EXAM_DURATION_MINUTES:-60}
@@ -422,10 +447,13 @@ services:
     container_name: eduagentx-api-gateway
     environment:
       PORT: 4000
+      # Incidents and the Runtime Monitor (target design 7): the only key monitoring trusts with a caller's role.
+      MONITORING_GATEWAY_KEY: ${MONITORING_GATEWAY_KEY:?Run node scripts/setup-dev.js}
       AGENT_REGISTRY_URL: http://agent-registry:4001
       CURRICULUM_ENGINE_URL: http://curriculum-engine:4002
       VALIDATION_ACTIVATION_URL: http://validation-activation:4010
       CURRICULUM_INTERNAL_KEY: ${CURRICULUM_INTERNAL_KEY:?Run node scripts/setup-dev.js}
+      CURRICULUM_INDEX_URL: http://curriculum-index:4003
       TRAINING_SERVICE_URL: http://training-service:4004
       TRAINING_INTERNAL_KEY: ${TRAINING_INTERNAL_KEY:?Run node scripts/setup-dev.js}
       EXAMINATION_ENGINE_URL: http://examination-engine:4005
@@ -509,6 +537,8 @@ services:
     container_name: eduagentx-certification-service
     environment:
       PORT: 4011
+      # A blocked release is recorded in the Assurance Incident log (target design 7.1).
+      MONITORING_INTERNAL_KEY: ${MONITORING_INTERNAL_KEY:?Run node scripts/setup-dev.js}
       DATABASE_URL: postgres://certification_owner:${CERTIFICATION_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
       CERTIFICATION_INTERNAL_KEY: ${CERTIFICATION_INTERNAL_KEY:?Run node scripts/setup-dev.js}
       CERTIFICATION_ENVIRONMENT: ${CERTIFICATION_ENVIRONMENT:-simulation}
@@ -518,6 +548,10 @@ services:
       CERTIFICATION_PRIVATE_KEY_PATH: ${CERTIFICATION_PRIVATE_KEY_PATH:-/app/keys/certification-test-ed25519-private.pem}
       CERTIFICATION_ISSUER: ${CERTIFICATION_ISSUER:-https://eduagentx.example/issuers/eduagentx-test}
       CREDENTIAL_BASE_URL: ${CREDENTIAL_BASE_URL:-https://eduagentx.example/credentials}
+      # Only the live learner: the platform runs its model and prompts itself. The synthetic learner registers any configuration a caller sends, so it is not observed (assurance audit D1).
+      CERTIFICATION_PLATFORM_SUBJECTS: ${LIVE_AGENT_CLIENT_ID:-live-agent-learner-dev}
+      # Where credentials point for their status (credential-verification's STATUS_LIST_BASE_URL).
+      CERTIFICATION_STATUS_LIST_BASE: ${STATUS_LIST_BASE_URL:-http://localhost:4000/status-lists}
       CERTIFICATION_SWEEP_INTERVAL_MS: ${CERTIFICATION_SWEEP_INTERVAL_MS:-1000}
       EXAMINATION_ENGINE_URL: http://examination-engine:4005
       EXAMINATION_INTERNAL_KEY: ${EXAMINATION_INTERNAL_KEY:?Run node scripts/setup-dev.js}
@@ -614,10 +648,7 @@ services:
       # Server-side only: the browser never receives these.
       ADMIN_CLIENT_ID: ${ADMIN_CLIENT_ID}
       ADMIN_CLIENT_SECRET: ${ADMIN_CLIENT_SECRET}
-      REVIEWER_1_CLIENT_ID: ${REVIEWER_1_CLIENT_ID:-}
-      REVIEWER_1_CLIENT_SECRET: ${REVIEWER_1_CLIENT_SECRET:-}
-      REVIEWER_2_CLIENT_ID: ${REVIEWER_2_CLIENT_ID:-}
-      REVIEWER_2_CLIENT_SECRET: ${REVIEWER_2_CLIENT_SECRET:-}
+      # No reviewer credentials: a reviewer signs their own review in Governance (assurance audit C3).
       CURRICULUM_INTERNAL_KEY: ${CURRICULUM_INTERNAL_KEY:?Run node scripts/setup-dev.js}
     ports:
       - "127.0.0.1:${WEB_PORT:-4300}:4300"
@@ -687,6 +718,8 @@ services:
       SERVICE_NAME: validation-activation
       DATABASE_URL: postgres://curriculum_owner:${CURRICULUM_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
       CURRICULUM_INTERNAL_KEY: ${CURRICULUM_INTERNAL_KEY:?Run node scripts/setup-dev.js}
+      # Fetches every Active package's sources and compares them with the pins (audit C5); daily by default, 0 turns it off.
+      FRESHNESS_JOB_INTERVAL_MS: ${FRESHNESS_JOB_INTERVAL_MS:-86400000}
     ports:
       - "127.0.0.1:${VALIDATION_ACTIVATION_PORT:-4010}:4010"
     depends_on:
@@ -719,6 +752,13 @@ services:
       PORT: 4020
       SERVICE_NAME: grading-service
       GRADING_SERVICE_KEY: ${GRADING_SERVICE_KEY:?Run node scripts/setup-dev.js}
+      # Rubric judge. The key is optional so the stack starts: without one,
+      # every text item whose verdict is not cached fails closed (503) and the
+      # Examination Engine aborts the attempt as grading_unavailable.
+      JUDGE_API_KEY: ${JUDGE_API_KEY:-}
+      OPENCODE_API_KEY: ${OPENCODE_API_KEY:-}
+      JUDGE_MODEL: ${JUDGE_MODEL:-deepseek-v4.1-flash}
+      JUDGE_MODEL_URL: ${JUDGE_MODEL_URL:-https://opencode.ai/inference/go/openai/v1/chat/completions}
     ports:
       - "127.0.0.1:${GRADING_SERVICE_PORT:-4020}:4020"
     networks:
@@ -751,6 +791,12 @@ services:
       CREDENTIAL_PUBLIC_KEY_PATH: /keys/certification-ed25519-public.pem
       CREDENTIAL_TEST_PUBLIC_KEY_PATH: /keys/certification-test-ed25519-public.pem
       CREDENTIAL_INTERNAL_KEY: ${CREDENTIAL_INTERNAL_KEY:?Run node scripts/setup-dev.js}
+      # Signed Bitstring Status Lists (assurance audit D2), served at /status-lists/{revocation,suspension}.
+      STATUS_LIST_PRIVATE_KEY_PATH: /keys/status-list-ed25519-private.pem
+      STATUS_LIST_PUBLIC_KEY_PATH: /keys/status-list-ed25519-public.pem
+      STATUS_LIST_KEY_ID: ${CERTIFICATION_ISSUER:-https://eduagentx.example/issuers/eduagentx-test}#status-ed25519-1
+      STATUS_LIST_ISSUER: ${CERTIFICATION_ISSUER:-https://eduagentx.example/issuers/eduagentx-test}
+      STATUS_LIST_BASE_URL: ${STATUS_LIST_BASE_URL:-http://localhost:4000/status-lists}
       CREDENTIAL_STATUS_PATH: /data/credential-status.json
       MONITORING_URL: http://monitoring-service:4040
     volumes:
@@ -777,11 +823,22 @@ services:
 
   monitoring-service:
     build:
-      context: ./services/monitoring-service
+      context: .
+      dockerfile: services/monitoring-service/Dockerfile
     container_name: eduagentx-monitoring-service
     environment:
       PORT: 4040
       SERVICE_NAME: monitoring-service
+      # The one Assurance Incident log and the Runtime Monitor (audit E9; target design 7.2-7.3).
+      DATABASE_URL: postgres://monitoring_owner:${MONITORING_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      # Services append incidents with the service key; only the Gateway's key may carry a role.
+      MONITORING_INTERNAL_KEY: ${MONITORING_INTERNAL_KEY:?Run node scripts/setup-dev.js}
+      MONITORING_GATEWAY_KEY: ${MONITORING_GATEWAY_KEY:?Run node scripts/setup-dev.js}
+      CREDENTIAL_VERIFICATION_URL: http://credential-verification:4030
+      CREDENTIAL_INTERNAL_KEY: ${CREDENTIAL_INTERNAL_KEY:?Run node scripts/setup-dev.js}
+    depends_on:
+      monitoring-db-init:
+        condition: service_completed_successfully
     ports:
       - "127.0.0.1:4040:4040"
     networks:

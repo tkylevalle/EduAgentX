@@ -1,61 +1,41 @@
 'use strict';
-const express = require('express');
-const { ingestEvent, getSnapshot, getServiceHealth, getAgentAssurance, getAllKPIs, getAttention, updateServiceHealth } = require('./projections');
 
-const app = express();
-app.use(express.json({ limit: '64kb' }));
+// Starts the monitoring service. With DATABASE_URL the incident log and
+// runtime manifests are durable; without it (a bare local run) they live in
+// memory and the startup log says so. Both keys are required: without them no
+// service could append an incident and no person could read one.
 
-app.get('/health', (_req, res) => {
-  res.json({ status: 'ok', service: 'monitoring-service' });
-});
+const { Pool } = require('pg');
+const telemetry = require('../../../packages/telemetry');
+const { createApp, createCredentialStatusClient } = require('./app');
+const { createMemoryStore, createPgStore } = require('./incidents');
 
-// GET /snapshot — full read-only projection snapshot
-app.get('/snapshot', (_req, res) => {
-  res.json(getSnapshot());
-});
+// The silence sweep runs every five minutes; an incident appears within that of the window closing.
+const SILENCE_SWEEP_MS = 5 * 60 * 1000;
 
-// GET /health/services — operational health per service
-app.get('/health/services', (_req, res) => {
-  const snapshot = getSnapshot();
-  res.json(snapshot.operationalHealth);
-});
+// An idle client that loses its connection (a Postgres restart) emits 'error'
+// on the pool; unheard, that event ends the process. The pool replaces the
+// client on the next query, so logging is enough.
+function createPool(connectionString) {
+  const pool = new Pool({ connectionString });
+  pool.on('error', (error) => telemetry.log('monitoring-service', 'postgres_connection_error', { outcome: String(error.code || error.name) }));
+  return pool;
+}
 
-// GET /health/services/:serviceId
-app.get('/health/services/:serviceId', (req, res) => {
-  res.json(getServiceHealth(req.params.serviceId));
-});
+async function main() {
+  for (const name of ['MONITORING_INTERNAL_KEY', 'MONITORING_GATEWAY_KEY']) {
+    if (!process.env[name]) throw new Error(`${name} is required: run node scripts/setup-dev.js`);
+  }
+  const store = process.env.DATABASE_URL ? createPgStore(createPool(process.env.DATABASE_URL)) : createMemoryStore();
+  if (store.init) await store.init();
+  const credentialStatus = process.env.CREDENTIAL_VERIFICATION_URL && process.env.CREDENTIAL_INTERNAL_KEY
+    ? createCredentialStatusClient({ url: process.env.CREDENTIAL_VERIFICATION_URL, key: process.env.CREDENTIAL_INTERNAL_KEY }) : undefined;
+  const app = createApp({ store, credentialStatus, internalKey: process.env.MONITORING_INTERNAL_KEY, gatewayKey: process.env.MONITORING_GATEWAY_KEY,
+    silenceMs: Number(process.env.RUNTIME_SILENCE_MS) || undefined });
+  const port = process.env.PORT || 4040;
+  app.listen(port, () => console.log(`[monitoring-service] listening on ${port}; incident log ${process.env.DATABASE_URL ? 'durable' : 'in memory'}`));
+  setInterval(() => app.locals.sweepSilence().catch((error) =>
+    telemetry.log('monitoring-service', 'silence_sweep_failed', { outcome: String(error.code || error.name) })), SILENCE_SWEEP_MS).unref();
+}
 
-// GET /assurance/:agentId — assurance posture for one agent
-app.get('/assurance/:agentId', (req, res) => {
-  res.json(getAgentAssurance(req.params.agentId));
-});
-
-// GET /kpis — all KPI evidence
-app.get('/kpis', (_req, res) => {
-  res.json(getAllKPIs());
-});
-
-// GET /attention — deduplicated attention records
-app.get('/attention', (_req, res) => {
-  res.json(getAttention());
-});
-
-// POST /events — ingest a domain event (read-only projection, never writes authoritative data)
-app.post('/events', (req, res) => {
-  const event = req.body;
-  if (!event || !event.type) return res.status(400).json({ error: 'missing_event_type' });
-  ingestEvent(event);
-  res.status(202).json({ accepted: true, type: event.type });
-});
-
-// POST /heartbeat — services ping their health here
-app.post('/heartbeat', (req, res) => {
-  const { serviceId, status, metrics } = req.body || {};
-  if (!serviceId) return res.status(400).json({ error: 'missing_serviceId' });
-  updateServiceHealth(serviceId, status || 'ok', metrics || {});
-  res.json({ recorded: true, serviceId });
-});
-
-const PORT = process.env.PORT || 4040;
-app.listen(PORT, () => console.log(`[monitoring-service] listening on ${PORT}`));
-module.exports = { app };
+main().catch((error) => { console.error(`[monitoring-service] failed to start: ${error.message}`); process.exit(1); });

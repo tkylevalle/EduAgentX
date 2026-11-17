@@ -8,7 +8,11 @@
 const { DependencyError } = require('./sources');
 
 const SOURCE = 'grading-service';
-const TIMEOUT_MS = 10000;
+// grading-service judges each text item with a model: at most 5 calls at once
+// (JUDGE_CONCURRENCY), each allowed 60 s (JUDGE_TIMEOUT_MS), so a full form of
+// 15 items takes at most 3 rounds, 180 s. 20 s more covers the request itself.
+// grading-contract.test.js checks this against the service's constants.
+const TIMEOUT_MS = 200_000;
 
 function createGradeItems({ url = process.env.GRADING_SERVICE_URL, key = process.env.GRADING_SERVICE_KEY,
   timeoutMs = TIMEOUT_MS } = {}) {
@@ -27,4 +31,4 @@ function createGradeItems({ url = process.env.GRADING_SERVICE_URL, key = process
   };
 }
 
-module.exports = { createGradeItems };
+module.exports = { TIMEOUT_MS, createGradeItems };

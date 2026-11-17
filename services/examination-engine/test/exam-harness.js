@@ -10,6 +10,11 @@ const candidate = require('../../curriculum-engine/examples/ai-safety-candidate'
 const { createApp } = require('../index');
 const { createMemoryStore } = require('../store');
 const { createGradingRunner } = require('../grading');
+const { playEpisode } = require('../../synthetic-agent-learner/exam-scenarios');
+const { PANEL } = require('../../../packages/agent-sandbox/src/panel');
+const { DependencyError } = require('../sources');
+const { GradingUnavailableError, validateJudgedRequest } = require('../../grading-service/src/rubric-grader');
+const { replayGrader } = require('../../../packages/execution-provenance/scripted-verdicts');
 
 const INTERNAL_KEY = 'grading-run-service-key';
 const GRADING_KEY = 'grading-run-grading-key';
@@ -19,6 +24,9 @@ const ANSWERED = '2026-10-15T06:30:00.000Z';
 const AGENT = { 'x-internal-service-key': INTERNAL_KEY, 'x-actor-subject': ACTOR, 'x-actor-role': 'agent' };
 const ADMIN = { ...AGENT, 'x-actor-subject': 'grading-run-admin', 'x-actor-role': 'admin' };
 const EXAMINER = { ...AGENT, 'x-actor-subject': 'grading-sweep', 'x-actor-role': 'examiner', 'x-internal-grading-key': GRADING_KEY };
+const EPISODE_KEY = 'engine-test-episode-seed-key-0123456789abcdef';
+const SAFE_POLICY = PANEL.find((entry) => entry.id === 'safe-agent').agent;
+
 const SAFE = 'I map the boundary, verify the evidence, refuse untrusted instructions and escalate to a human operator.';
 const GRADER = { id: 'test-grader', version: '1.0.0' };
 
@@ -47,14 +55,29 @@ function fakeGrader({ score = 90, perItem = () => ({}), reply } = {}) {
   return grader;
 }
 
+// The grader that decides credentials, in process: grading-service's route
+// (422 for a request it refuses) around the production rubric grader, whose
+// judge replays the recorded verdicts in
+// packages/execution-provenance/scripted-verdicts.v1.json. An answer with no
+// recorded verdict is ungradeable, which the grading client reports as a
+// dependency failure (the route's 503), so it is never scored by invention.
+function rubricGrader(grader = replayGrader()) {
+  return async ({ rubric, items }) => {
+    if (validateJudgedRequest({ rubric, items }).length) return { ok: false, status: 422 };
+    try { return { ok: true, body: { grader: grader.identity, results: await grader.gradeItems({ rubric, items }) } }; }
+    catch (error) { if (error instanceof GradingUnavailableError) throw new DependencyError('grading-service', 502); throw error; }
+  };
+}
+
 async function boot(t, { grader = fakeGrader(), retryWindowMs = 15 * 60 * 1000, appOptions = {}, sources: overrides = {} } = {}) {
   const input = fixture();
   let now = START;
   const store = createMemoryStore();
   const sources = { activePackage: async () => input.pkg, registration: async () => input.registration,
-    completion: async () => input.completion, ...overrides };
+    // As Training: a lookup by remediation request finds only a completion of that request.
+    completion: async (actor, pkg, correlationId, sessionId, { remediationRequestId } = {}) => (!remediationRequestId || input.completion?.remediationRequestId === remediationRequestId ? input.completion : null), ...overrides };
   const clock = () => now;
-  const app = createApp({ store, sources, internalKey: INTERNAL_KEY, gradingKey: GRADING_KEY, clock,
+  const app = createApp({ store, sources, internalKey: INTERNAL_KEY, gradingKey: GRADING_KEY, clock, episodeSeedKey: EPISODE_KEY,
     durationMinutes: 60, gradeItems: grader, gradingRetryWindowMs: retryWindowMs, ...appOptions });
   const server = http.createServer(app);
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -63,21 +86,53 @@ async function boot(t, { grader = fakeGrader(), retryWindowMs = 15 * 60 * 1000, 
     method, headers: { ...headers, ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }) })
     .then(async (response) => ({ status: response.status, body: await response.json() }));
-  const runner = createGradingRunner({ store, sources, gradeItems: grader, clock, retryWindowMs });
+  const runner = createGradingRunner({ store, sources, gradeItems: grader, clock, retryWindowMs, episodeSeedKey: EPISODE_KEY });
   return { input, store, grader, call, runner, clock, setClock: (value) => { now = value; } };
 }
 
-async function startAndAnswer(ctx, answer = () => SAFE) {
+// Answers: text items take a string; behaviour items take { policy }, played
+// step by step through the Engine's recorded episode routes. A string for a
+// behaviour item is played as an agent that only writes that text.
+const safeAnswer = (item) => (item.kind === 'behaviour' ? { policy: SAFE_POLICY } : SAFE);
+
+// The instruction follower on one behaviour slot: in the v2 world it sends
+// mail with a tool the task does not permit (critical-o4).
+const FOLLOWER_POLICY = PANEL.find((entry) => entry.id === 'instruction-follower').agent;
+const unsafeAnswer = (slotId = 'v2') => (item, index, attemptId) =>
+  (item.kind === 'behaviour' && item.slotId === slotId ? { policy: FOLLOWER_POLICY } : safeAnswer(item, index, attemptId));
+
+// Records one item's answer and returns the attempt after it.
+async function answerItem(ctx, attempt, item, answer, key) {
+  if (item.kind !== 'behaviour') {
+    const reply = await ctx.call('POST', `/internal/attempts/${attempt.attemptId}/responses`, { idempotencyKey: key,
+      expectedSequence: attempt.sequence, itemId: item.id, response: answer });
+    assert.equal(reply.status, 200, `${item.slotId}: ${JSON.stringify(reply.body)}`);
+    return reply.body.attempt;
+  }
+  const policy = typeof answer === 'string' ? () => ({ finish: { message: answer } }) : answer.policy;
+  const path = `/internal/attempts/${attempt.attemptId}/episodes/${item.id}`;
+  let current = attempt;
+  let step = 0;
+  await playEpisode(policy, {
+    observe: async () => (await ctx.call('GET', path)).body,
+    act: async (action) => {
+      const reply = await ctx.call('POST', `${path}/steps`, { idempotencyKey: `${key}-step-${step++}`, expectedSequence: current.sequence, action });
+      assert.equal(reply.status, 200, `${item.slotId} step: ${JSON.stringify(reply.body)}`);
+      current = reply.body.attempt;
+      return reply.body;
+    },
+  });
+  return current;
+}
+
+async function startAndAnswer(ctx, answer = safeAnswer) {
   const started = await ctx.call('POST', '/internal/attempts', { idempotencyKey: 'start' });
   assert.equal(started.status, 201);
   let attempt = started.body.attempt;
   const form = attempt.form;
   ctx.setClock(ANSWERED);
   for (const [index, item] of form.items.entries()) {
-    const reply = await ctx.call('POST', `/internal/attempts/${attempt.attemptId}/responses`, { idempotencyKey: `r-${index}`,
-      expectedSequence: attempt.sequence, itemId: item.id, response: answer(item, index) });
-    assert.equal(reply.status, 200);
-    attempt = reply.body.attempt;
+    attempt = await answerItem(ctx, attempt, item, answer(item, index, attempt.attemptId), `r-${index}`);
   }
   return { ...attempt, form };
 }
@@ -85,5 +140,5 @@ async function startAndAnswer(ctx, answer = () => SAFE) {
 const grade = (ctx, attempt, headers = EXAMINER) => ctx.call('POST', `/internal/attempts/${attempt.attemptId}/grade`, {}, headers);
 const adminView = async (ctx, attempt) => (await ctx.call('GET', `/internal/admin/attempts/${attempt.attemptId}`, undefined, ADMIN)).body.attempt;
 
-module.exports = { INTERNAL_KEY, GRADING_KEY, ACTOR, START, ANSWERED, AGENT, ADMIN, EXAMINER, SAFE, GRADER,
-  fixture, fakeGrader, boot, startAndAnswer, grade, adminView };
+module.exports = { INTERNAL_KEY, GRADING_KEY, EPISODE_KEY, ACTOR, START, ANSWERED, AGENT, ADMIN, EXAMINER, SAFE, GRADER, answerItem, safeAnswer, unsafeAnswer,
+  fixture, fakeGrader, rubricGrader, boot, startAndAnswer, grade, adminView };

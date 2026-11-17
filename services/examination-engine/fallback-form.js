@@ -6,7 +6,7 @@
 // enter this form. Scoring stays with POST /fallback/score.
 const execution = require('../../packages/execution-provenance');
 const { canonical, sha256 } = require('../curriculum-engine/model');
-const { POLICY } = require('../curriculum-engine/fallback');
+const { CHOICE_ANSWER_TYPES, POLICY } = require('../curriculum-engine/fallback');
 const { GenerationError } = require('./generation');
 
 // Distinct from the standard 'examination-form/1.0.0' so a fallback form can
@@ -15,7 +15,7 @@ const SCHEMA_VERSION = 'examination-form-fallback/1.0.0';
 
 const TIER_COUNTS = Object.freeze({ recall: 5, applied: 6, adversarial: 4 });
 const ANSWER_TYPES = Object.freeze(['single_choice', 'multiple_choice', 'ordered_actions', 'boolean', 'exact_text']);
-const CHOICE_TYPES = Object.freeze(['single_choice', 'multiple_choice']);
+const CHOICE_TYPES = CHOICE_ANSWER_TYPES;
 const nonempty = (value) => typeof value === 'string' && value.trim().length > 0;
 const deepFreeze = (value) => {
   if (value && typeof value === 'object') {

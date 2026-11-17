@@ -325,3 +325,78 @@ test('metrics count started, completed, remediated, resumed and aborted sessions
   const list = (await ctx.call('GET', '/internal/sessions')).body.sessions;
   assert.equal(list.find((s) => s.sessionId === done).resumeCount, 1);
 });
+
+// The memory store answers as the Postgres one: the newest remediation by
+// start time, including one this transaction has just written.
+test('the memory store finds the latest remediation by start time, staged sessions included', async () => {
+  const store = createMemoryStore();
+  const remediation = (sessionId, startedAt, requestId) => ({ sessionId, agentLearnerKey: LEARNER, packageId: 'pkg-a', startedAt,
+    kind: 'remediation', remediation: { requestId } });
+  await store.transaction(LEARNER, (tx) => tx.insertSession(remediation('later', '2026-10-06T11:00:00.000Z', 'req-2')));
+  await store.transaction(LEARNER, (tx) => tx.insertSession(remediation('earlier', '2026-10-06T09:00:00.000Z', 'req-1')));
+  assert.equal((await store.transaction(LEARNER, (tx) => tx.findLatestRemediation(LEARNER))).session.sessionId, 'later');
+  const staged = await store.transaction(LEARNER, async (tx) => {
+    await tx.insertSession(remediation('newest', '2026-10-06T12:00:00.000Z', 'req-3'));
+    return tx.findLatestRemediation(LEARNER, 'pkg-a');
+  });
+  assert.equal(staged.session.sessionId, 'newest');
+  await assert.rejects(store.transaction(LEARNER, (tx) => tx.insertSession(remediation('again', '2026-10-06T13:00:00.000Z', 'req-3'))),
+    { code: '23505' }, 'one assigned session per request');
+});
+
+test('a start whose ended remediation cannot be carried over reads the registration once and starts a standard session', async (t) => {
+  const ctx = await boot(t);
+  await ctx.call('POST', '/internal/remediations', remediationBody(), OPERATOR);
+  ctx.registry.setFingerprint(LEARNER, 'sha256:config-2');
+  assert.equal((await ctx.start('after-change-1')).body.reason, 'configuration_changed');
+  // A silent edit of the package: the remediation's pinned scope is gone, so it is not carried over.
+  ctx.packages.setDigest('pkg-a', 'digest-2');
+  let reads = 0;
+  const read = ctx.registry.getRegistration;
+  ctx.registry.getRegistration = (...args) => { reads += 1; return read(...args); };
+  const started = await ctx.start('after-edit');
+  assert.deepEqual([started.status, started.body.kind], [201, 'standard']);
+  assert.equal(reads, 1);
+});
+
+test('a remediation ended by a reconfiguration is carried over to the new configuration, never skipped', async (t) => {
+  const ctx = await boot(t);
+  const assigned = await ctx.call('POST', '/internal/remediations', remediationBody(), OPERATOR);
+  ctx.registry.setFingerprint(LEARNER, 'sha256:config-2');
+
+  const ended = await ctx.start('after-change-1');
+  assert.deepEqual([ended.status, ended.body.error, ended.body.reason, ended.body.sessionId],
+    [409, 'training_blocked', 'configuration_changed', assigned.body.sessionId]);
+  const carried = await ctx.start('after-change-2');
+  assert.deepEqual([carried.status, carried.body.kind, carried.body.remediation.requestId], [201, 'remediation', 'req-1']);
+  assert.notEqual(carried.body.sessionId, assigned.body.sessionId);
+  const done = await finish(ctx, carried.body.sessionId, 'carried');
+  assert.equal(done.body.status, 'completed');
+
+  const detail = (await ctx.call('GET', `/internal/sessions/${carried.body.sessionId}`)).body;
+  assert.deepEqual([detail.session.configurationFingerprint, detail.session.remediation.carriedFromSessionId],
+    ['sha256:config-2', assigned.body.sessionId]);
+  const next = await ctx.start('after-remediation');
+  assert.deepEqual([next.status, next.body.kind], [201, 'standard'], 'a completed carried remediation is not carried again');
+  const replay = await ctx.call('POST', '/internal/remediations', remediationBody(), OPERATOR);
+  assert.deepEqual([replay.body.outcome, replay.body.sessionId], ['replay', assigned.body.sessionId], 'the request still names its assigned session');
+});
+
+test('the completion lookup finds a completed remediation by its request, after later standard training', async (t) => {
+  const ctx = await boot(t);
+  const assigned = await ctx.call('POST', '/internal/remediations', remediationBody(), OPERATOR);
+  await ctx.start('rem-start');
+  await finish(ctx, assigned.body.sessionId, 'rem');
+  const standard = (await ctx.start('std-after')).body.sessionId;
+  await finish(ctx, standard, 'std');
+  const query = new URLSearchParams({ agentLearnerKey: LEARNER, packageId: 'pkg-a', packageVersion: '1.0.0', packageDigest: 'digest-1' });
+  assert.equal((await ctx.call('GET', `/internal/completions/latest?${query}`)).body.completion.sessionKind, 'standard');
+  query.set('remediationRequestId', 'req-1');
+  const remediation = await ctx.call('GET', `/internal/completions/latest?${query}`);
+  assert.deepEqual([remediation.status, remediation.body.completion.sessionId, remediation.body.completion.remediationRequestId],
+    [200, assigned.body.sessionId, 'req-1']);
+  query.set('remediationRequestId', 'req-never');
+  assert.equal((await ctx.call('GET', `/internal/completions/latest?${query}`)).status, 404);
+  query.set('remediationRequestId', 'bad id with spaces');
+  assert.equal((await ctx.call('GET', `/internal/completions/latest?${query}`)).status, 400);
+});

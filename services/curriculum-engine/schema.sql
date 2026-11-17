@@ -86,6 +86,27 @@ CREATE TABLE IF NOT EXISTS curriculum_engine.package_reviews (
   FOREIGN KEY (package_id, version) REFERENCES curriculum_engine.packages(package_id, version)
 );
 
+-- Each review scores every rubric criterion; the score column is their weighted mean.
+ALTER TABLE curriculum_engine.package_reviews ADD COLUMN IF NOT EXISTS criterion_scores jsonb NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE curriculum_engine.package_reviews ADD COLUMN IF NOT EXISTS review_comment text NOT NULL DEFAULT '';
+-- Each reviewer's check of every cited source: edition, licence, quotes (assurance audit C2).
+ALTER TABLE curriculum_engine.package_reviews ADD COLUMN IF NOT EXISTS source_checks jsonb NOT NULL DEFAULT '{}'::jsonb;
+
+-- How two reviewers' disagreement on a criterion was resolved, recorded once by a person.
+CREATE TABLE IF NOT EXISTS curriculum_engine.package_review_resolutions (
+  package_id text NOT NULL,
+  version text NOT NULL,
+  criterion_id text NOT NULL,
+  resolved_by text NOT NULL,
+  resolution text NOT NULL CHECK (length(resolution) BETWEEN 1 AND 2000),
+  recorded_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (package_id, version, criterion_id),
+  FOREIGN KEY (package_id, version) REFERENCES curriculum_engine.packages(package_id, version)
+);
+DROP TRIGGER IF EXISTS package_review_resolutions_immutable ON curriculum_engine.package_review_resolutions;
+CREATE TRIGGER package_review_resolutions_immutable BEFORE UPDATE OR DELETE ON curriculum_engine.package_review_resolutions
+FOR EACH ROW EXECUTE FUNCTION curriculum_engine.forbid_evidence_change();
+
 DROP TRIGGER IF EXISTS package_reviews_immutable ON curriculum_engine.package_reviews;
 CREATE TRIGGER package_reviews_immutable BEFORE UPDATE OR DELETE ON curriculum_engine.package_reviews
 FOR EACH ROW EXECUTE FUNCTION curriculum_engine.forbid_evidence_change();

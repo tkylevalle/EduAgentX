@@ -285,7 +285,8 @@ function renderTrainingMetrics(metrics) {
   const rate = metrics.completionRate === null ? 'not measured (no session started)'
     : `${(metrics.completionRate * 100).toFixed(1)}%`;
   const counts = METRIC_LABELS.map(([key, label]) => `<dt>${label}</dt><dd>${escapeHtml(metrics.counts[key])}</dd>`);
-  return `<h3>Metrics</h3><dl class="metrics">${counts.join('')}<dt>Completion rate</dt><dd>${escapeHtml(rate)}</dd></dl>`;
+  // Completion means every item was delivered and answered, not that anything was learned (audit B5).
+  return `<h3>Metrics</h3><dl class="metrics">${counts.join('')}<dt>Delivery completion rate</dt><dd>${escapeHtml(rate)}</dd></dl>`;
 }
 
 function renderTrainingSessions(training) {

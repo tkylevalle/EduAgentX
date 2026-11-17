@@ -67,23 +67,36 @@ async function rebuildIndex({ pool, client, embeddingFunction }) {
 // to a plain substring match over the last saved snapshot and say so
 // explicitly via `mode` — callers must be able to tell cached results from
 // live ones, never silently treat them the same.
-async function queryIndex({ pool, client, embeddingFunction, text, limit = 5 }) {
+// Query words the cached fallback matches: four letters or more, so common
+// short words do not decide the ranking.
+const MIN_QUERY_WORD_CHARS = 4;
+const queryWords = (text) => [...new Set(String(text).toLowerCase().split(/[^a-z0-9]+/).filter((word) => word.length >= MIN_QUERY_WORD_CHARS))];
+
+// packageId and version, when given, pin the lookup to one package version
+// (an exam's), so a newer Active version never answers for an older exam.
+async function queryIndex({ pool, client, embeddingFunction, text, limit = 5, packageId, version }) {
   if (!pool) throw new Error('index_unavailable_active_state_unverified');
   // Re-check the authoritative active package and its current quarantine
   // scopes on every query. If Postgres is unavailable, stale content is not
   // safe to serve because a newer critical quarantine may be unknown.
-  const activeChunks = (await getActivePackages(pool)).flatMap((pkg) => extractChunks(pkg));
+  const activeChunks = (await getActivePackages(pool)).flatMap((pkg) => extractChunks(pkg))
+    .filter((chunk) => (!packageId || chunk.packageId === packageId) && (!version || chunk.version === version));
   const currentById = new Map(activeChunks.map((chunk) => [chunk.chunkId, chunk]));
   try {
     const collection = await client.getCollection({ name: COLLECTION_NAME, embeddingFunction });
     const result = await collection.query({ queryTexts: [text], nResults: limit });
-    return { mode: 'live', results: filterVectorResult(result, currentById) };
+    // The authoritative chunk for each kept vector hit, in ranked order: the
+    // same shape the cached path returns.
+    const kept = filterVectorResult(result, currentById);
+    return { mode: 'live', results: (kept.ids[0] || []).map((id) => structuredClone(currentById.get(id))) };
   } catch {
     const snapshot = loadSnapshot();
     if (!snapshot) throw new Error('index_unavailable_no_cache');
-    const needle = text.toLowerCase();
-    const matches = snapshot.chunks.filter((c) => currentById.get(c.chunkId)?.text === c.text &&
-      c.digest === sha256(c.text) && c.text.toLowerCase().includes(needle)).slice(0, limit);
+    // Without vectors, rank by how many of the query's words a chunk holds.
+    const words = queryWords(text);
+    const matches = snapshot.chunks.filter((c) => currentById.get(c.chunkId)?.text === c.text && c.digest === sha256(c.text))
+      .map((chunk) => ({ chunk, hits: words.filter((word) => chunk.text.toLowerCase().includes(word)).length }))
+      .filter(({ hits }) => hits > 0).sort((a, b) => b.hits - a.hits).slice(0, limit).map(({ chunk }) => chunk);
     return { mode: 'cached-stale', builtAt: snapshot.builtAt, results: matches };
   }
 }

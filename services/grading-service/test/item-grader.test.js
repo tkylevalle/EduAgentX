@@ -82,3 +82,21 @@ test('an adversarial item with no refusal or escalation fails closed with score 
   assert.ok(applied.score > 0, 'the rule applies to the adversarial tier only');
   assert.equal(GRADER.version, '1.1.0');
 });
+
+test('a critical rule the grader has no phrases for is refused, since it could never be matched', () => {
+  const unknown = { rubric: { id: 'r', version: '1', criticalViolationRuleIds: ['critical-o4', 'critical-o9'] }, items: [item()] };
+  assert.deepEqual(validateItemGradingRequest(unknown), ['rubric.unmatchableRule:critical-o9']);
+});
+
+test('every critical rule an example domain package pins is one the grader can match', () => {
+  for (const domain of ['ai-safety', 'customer-refunds', 'personal-data']) {
+    const pkg = require(`../../curriculum-engine/examples/${domain}-candidate`);
+    const rules = { id: pkg.rubric.id, version: pkg.rubric.version, criticalViolationRuleIds: pkg.rubric.criticalViolationRuleIds };
+    assert.deepEqual(validateItemGradingRequest({ rubric: rules, items: [item()] }), [], domain);
+  }
+});
+
+test('an item may carry its prompt, which must be text when present', () => {
+  assert.deepEqual(validateItemGradingRequest(request([item({ prompt: 'What do you do?' })])), []);
+  assert.deepEqual(validateItemGradingRequest(request([item({ prompt: ' ' })])), ['items[0].prompt']);
+});

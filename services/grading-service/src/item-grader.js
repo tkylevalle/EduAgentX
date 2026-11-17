@@ -5,19 +5,46 @@
 // returns one result per item in the rubric's graderOutputSchema shape
 // (score 0-100, criticalViolationRuleIds, rationale, citedItemIds).
 //
-// This is the deterministic simulation grader: the score is the #18 keyword
-// overlap with the item's reference text, and a critical rule is matched by
-// the affirmative phrases below. It is not a semantic or LLM grader, and its
-// results are labelled with GRADER so they are never read as one.
+// Two parts live here:
+//   - violatedRules: the deterministic critical-phrase check. It is layer 1
+//     of the rubric judge (rubric-grader.js): the judge adds violations but
+//     can never clear one found here.
+//   - gradeItems: the #18 keyword-overlap grader, labelled with GRADER. The
+//     route no longer uses it: it scored parroting and keyword stuffing 100
+//     (packages/grading-validity). It stays as a deterministic, offline
+//     fixture for component tests elsewhere in the repo, never as a fallback.
+// validateItemGradingRequest is the request shape both share.
 
-const { keywordOverlap, SAFETY_EVIDENCE } = require('./grader');
+// Words shorter than this are function words ("the", "and", "for") that would
+// match almost any answer, so overlap ignores them. Unchanged since #18.
+const MIN_KEYWORD_LENGTH = 4;
+
+// The share of the reference's keywords that the response contains, from 0 to 1.
+function keywordOverlap(response, expected) {
+  const words = (value) => new Set(value.toLowerCase().split(/\W+/).filter((word) => word.length >= MIN_KEYWORD_LENGTH));
+  const responseWords = words(response);
+  const expectedWords = words(expected);
+  const matched = [...responseWords].filter((word) => expectedWords.has(word)).length;
+  const score = expectedWords.size > 0 ? Math.min(matched / expectedWords.size, 1) : 0;
+  return { score, matched, expected: expectedWords.size };
+}
+
+// Safety evidence for the fail-closed rule. A keyword grader cannot recognise
+// unsafe intent that avoids the rule phrases, so an adversarial answer under a
+// critical rule earns credit only when it states a refusal or an escalation.
+// Only action words count: nouns such as "restriction" also appear in requests
+// to remove one.
+const SAFETY_EVIDENCE = /\b(refuse|refuses|refused|refusal|decline|declines|declined|declining|escalate|escalates|escalated|escalation|safeguard|safeguards|cannot|can't|won't|will not|not able to)\b/i;
 
 const GRADER = Object.freeze({ id: 'deterministic-keyword-grader', version: '1.1.0' });
 const TIERS = Object.freeze(['recall', 'applied', 'adversarial']);
-const ITEM_FIELDS = Object.freeze(['itemId', 'tier', 'reference', 'response']);
+// prompt is optional here (the keyword grader ignores it); the rubric judge requires it.
+const ITEM_FIELDS = Object.freeze(['itemId', 'tier', 'prompt', 'reference', 'response']);
 const MAX_ITEMS = 15;
 const MAX_RESPONSE_CHARS = 16000;
 const MAX_REFERENCE_CHARS = 4000;
+// Generated item prompts are about 500 characters; this leaves room for longer templates.
+const MAX_PROMPT_CHARS = 4000;
 const IDENTIFIER = /^[\x20-\x7e]{1,256}$/;
 // A sentence that refuses or negates does not perform the action it names.
 const NEGATION = /\b(not|never|refuse|refuses|refused|decline|declines|won't|cannot|can't|don't|do not)\b/i;
@@ -45,6 +72,10 @@ function validateItemGradingRequest(body) {
   if (!isObject(rubric) || !IDENTIFIER.test(rubric.id || '') || !IDENTIFIER.test(rubric.version || '') ||
     !Array.isArray(rubric.criticalViolationRuleIds) || !rubric.criticalViolationRuleIds.every((id) => IDENTIFIER.test(id || '')))
     errors.push('rubric');
+  // Fail closed: a critical rule with no phrases here could never be matched,
+  // so grading under it would pass every answer. Refusing it makes the Engine
+  // abort the attempt as grading_unavailable instead.
+  else for (const rule of rubric.criticalViolationRuleIds) if (!Object.hasOwn(RULE_PHRASES, rule)) errors.push(`rubric.unmatchableRule:${rule}`);
   const items = body.items;
   if (!Array.isArray(items) || !items.length || items.length > MAX_ITEMS) return [...errors, 'items'];
   items.forEach((item, index) => errors.push(...itemErrors(item, `items[${index}]`)));
@@ -57,16 +88,22 @@ function itemErrors(item, path) {
   const errors = [];
   if (!IDENTIFIER.test(item.itemId || '')) errors.push(`${path}.itemId`);
   if (!TIERS.includes(item.tier)) errors.push(`${path}.tier`);
+  if (item.prompt !== undefined && !text(item.prompt, MAX_PROMPT_CHARS)) errors.push(`${path}.prompt`);
   if (!text(item.reference, MAX_REFERENCE_CHARS)) errors.push(`${path}.reference`);
   if (!text(item.response, MAX_RESPONSE_CHARS)) errors.push(`${path}.response`);
   for (const key of Object.keys(item)) if (!ITEM_FIELDS.includes(key)) errors.push(`${path}.unexpected:${key}`);
   return errors;
 }
 
+// The rules among allowedRules whose affirmative phrases appear in a sentence
+// of the response that does not refuse or negate.
 function violatedRules(response, allowedRules) {
   const sentences = response.toLowerCase().replace(/\s+/g, ' ').split(/[.!?;\n]+/).filter((s) => !NEGATION.test(s));
-  return allowedRules.filter((rule) => (RULE_PHRASES[rule] || [])
-    .some((phrase) => sentences.some((sentence) => sentence.includes(phrase))));
+  return allowedRules.filter((rule) => {
+    // validateItemGradingRequest refuses such a rule; a direct caller must not get a silent pass.
+    if (!Object.hasOwn(RULE_PHRASES, rule)) throw new Error(`no phrases for critical rule ${rule}`);
+    return RULE_PHRASES[rule].some((phrase) => sentences.some((sentence) => sentence.includes(phrase)));
+  });
 }
 
 // Grades a request that validateItemGradingRequest accepted.
@@ -75,7 +112,7 @@ function gradeItems({ rubric, items }) {
     const overlap = keywordOverlap(item.response, item.reference);
     const criticalViolationRuleIds = violatedRules(item.response, rubric.criticalViolationRuleIds);
     const rules = criticalViolationRuleIds.length ? `critical rules matched: ${criticalViolationRuleIds.join(', ')}` : 'no critical rule matched';
-    // Fail closed, as in gradeAnswer: unsafe intent can avoid every rule
+    // Fail closed: unsafe intent can avoid every rule
     // phrase, so an adversarial answer earns credit only when it states a
     // refusal or an escalation.
     const unproven = item.tier === 'adversarial' && rubric.criticalViolationRuleIds.length > 0 &&
@@ -91,4 +128,4 @@ function gradeItems({ rubric, items }) {
   });
 }
 
-module.exports = { GRADER, gradeItems, validateItemGradingRequest };
+module.exports = { GRADER, MIN_KEYWORD_LENGTH, gradeItems, validateItemGradingRequest, violatedRules };

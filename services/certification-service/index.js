@@ -1,5 +1,7 @@
 'use strict';
 
+const { UUID, registerReleaseGateRoute } = require('./release-gate');
+const { createIncidentReporter } = require('../../packages/incident-log');
 const fs = require('node:fs');
 const path = require('node:path');
 const { randomUUID, timingSafeEqual } = require('node:crypto');
@@ -11,6 +13,8 @@ const { fail, digest, validatedEvidence, issueCredential } = require('./evidence
 const { createPgStore } = require('./store');
 const { createCredentialPublisher } = require('./publisher');
 
+// Origins one batch read may name: the size every Marketplace batch route takes.
+const ORIGIN_BATCH_MAX = 500;
 const matchesSecret = (a, b) => {
   if (typeof a !== 'string' || typeof b !== 'string') return false;
   const left = Buffer.from(a), right = Buffer.from(b);
@@ -20,9 +24,13 @@ const matchesSecret = (a, b) => {
 function createApp({ store, examinationEvidence, internalKey = process.env.CERTIFICATION_INTERNAL_KEY,
   originReadKey = process.env.MARKETPLACE_INTERNAL_KEY,
   packageTrust = async () => true,
+  // Appends a blocked release to the Assurance Incident log (packages/incident-log); optional.
+  incidentReporter = null,
   issuanceEnvironment = process.env.CERTIFICATION_ENVIRONMENT,
   privateKey = null, keyId = process.env.CERTIFICATION_KEY_ID,
   issuer = process.env.CERTIFICATION_ISSUER, credentialBase = process.env.CREDENTIAL_BASE_URL,
+  // The public base of the signed status lists (assurance audit D2); without it credentials carry no status entry.
+  statusListBase = process.env.CERTIFICATION_STATUS_LIST_BASE,
   clock = () => new Date().toISOString() } = {}) {
   if (!store || typeof examinationEvidence !== 'function' || !internalKey) throw new Error('store, evidence source and internal key required');
   const app = express();
@@ -34,14 +42,32 @@ function createApp({ store, examinationEvidence, internalKey = process.env.CERTI
     try { await store.health(); res.json({ status: 'ok', service: 'certification-service' }); }
     catch { res.status(503).json({ status: 'unhealthy', service: 'certification-service' }); }
   });
-  // Marketplace's existing internal key authorizes ONLY this exact-selector
-  // read. It does not grant the issuer's broad Gateway reads or issuance rights.
-  app.get('/internal/credential-origins/:credentialId', async (req, res) => {
+  // Marketplace's existing internal key authorizes ONLY the two exact-selector
+  // origin reads below. It does not grant the issuer's broad Gateway reads or
+  // issuance rights, and a key equal to the issuer's own is refused outright.
+  const requireMarketplaceOriginRead = (req, res, next) => {
     if (!originReadKey || matchesSecret(originReadKey, internalKey) ||
         !matchesSecret(req.header('x-internal-service-key'), originReadKey) ||
         req.header('x-actor-role') !== 'marketplace' || req.header('x-actor-subject') !== 'marketplace-service')
       return res.status(403).json({ error: 'forbidden' });
-    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(req.params.credentialId) ||
+    next();
+  };
+  // The same read for a whole candidate list (assurance audit F6), under the same key.
+  // 500 ids is the batch size every Marketplace batch route takes (marketplace-service clients.js MAX_BATCH).
+  app.post('/internal/credential-origins/batch', requireMarketplaceOriginRead, async (req, res) => {
+    const ids = req.body?.credentialIds;
+    if (!Array.isArray(ids) || !ids.length || ids.length > ORIGIN_BATCH_MAX || !ids.every((id) => typeof id === 'string' && UUID.test(id)))
+      return res.status(400).json({ apiVersion: 'v1', error: 'invalid_request', max: ORIGIN_BATCH_MAX });
+    try {
+      const found = await store.findOriginsByCredentials([...new Set(ids)]);
+      res.json({ apiVersion: 'v1', origins: ids.map((credentialId) => ({ credentialId, origin: found.get(credentialId) || null })) });
+    } catch (error) {
+      telemetry.log('certification-service', 'origin_batch_failed', { correlationId: req.correlationId, outcome: String(error.code || error.name) });
+      res.status(503).json({ apiVersion: 'v1', error: 'certification_unavailable' });
+    }
+  });
+  app.get('/internal/credential-origins/:credentialId', requireMarketplaceOriginRead, async (req, res) => {
+    if (!UUID.test(req.params.credentialId) ||
         Object.keys(req.query).length)
       return res.status(400).json({ apiVersion: 'v1', error: 'invalid_request' });
     try {
@@ -52,6 +78,8 @@ function createApp({ store, examinationEvidence, internalKey = process.env.CERTI
       res.status(503).json({ apiVersion: 'v1', error: 'certification_unavailable' });
     }
   });
+  // The Release Gate checks its own caller (the Gateway, with the issuer key) and writes nothing but an incident.
+  registerReleaseGateRoute(app, { store, examinationEvidence, incidentReporter, internalKey, matchesSecret, clock });
   app.use('/internal', (req, res, next) => {
     if (!matchesSecret(req.header('x-internal-service-key'), internalKey)) return res.status(403).json({ error: 'forbidden' });
     // The Gateway may only read; decisions are commanded by the Examination Engine.
@@ -72,8 +100,9 @@ function createApp({ store, examinationEvidence, internalKey = process.env.CERTI
     const evidence = validatedEvidence(source, trustedPackage, issuanceEnvironment, issuer);
     return store.issue({ evidence, commandKey: idempotencyKey,
       commandDigest: digest({ examinationId, idempotencyKey }),
-      latencyStartedAt,
-      createCredential: (decisionId) => issueCredential(evidence, { privateKey, keyId, issuer, credentialBase, decisionId, environment: issuanceEnvironment, now: clock }) });
+      latencyStartedAt, statusListed: Boolean(statusListBase),
+      createCredential: (decisionId, statusListIndex) => issueCredential(evidence, { privateKey, keyId, issuer, credentialBase, decisionId,
+        environment: issuanceEnvironment, now: clock, statusListBase, statusListIndex }) });
   };
   app.post('/internal/decisions', async (req, res) => {
     try {
@@ -132,6 +161,7 @@ function createApp({ store, examinationEvidence, internalKey = process.env.CERTI
 }
 
 async function start() {
+  const statusListBase = process.env.CERTIFICATION_STATUS_LIST_BASE;
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
   pool.on('error', () => telemetry.log('certification-service', 'postgres_connection_error'));
   await pool.query(fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8'));
@@ -174,7 +204,8 @@ async function start() {
     verificationUrl: process.env.CREDENTIAL_VERIFICATION_URL || null,
     verificationKey: process.env.CREDENTIAL_INTERNAL_KEY || null,
     monitoringUrl: process.env.MONITORING_URL || null });
-  const server = createApp({ store, examinationEvidence,
+  const incidentReporter = createIncidentReporter({ url: process.env.MONITORING_URL, key: process.env.MONITORING_INTERNAL_KEY, source: 'certification-service' });
+  const server = createApp({ store, examinationEvidence, incidentReporter,
     internalKey: process.env.CERTIFICATION_INTERNAL_KEY, privateKey, packageTrust }).listen(process.env.PORT || 4011);
   let running = false;
   const sweep = async () => {
@@ -202,9 +233,9 @@ async function start() {
             const evidence = validatedEvidence(source, trustedPackage);
             await store.issue({ evidence, commandKey: `examination:${candidate.examinationId}`,
               commandDigest: digest({ examinationId: candidate.examinationId, event: 'attempt_completed' }),
-              latencyStartedAt,
-              createCredential: (decisionId) => issueCredential(evidence, { privateKey, decisionId, keyId: process.env.CERTIFICATION_KEY_ID,
-                issuer: process.env.CERTIFICATION_ISSUER, credentialBase: process.env.CREDENTIAL_BASE_URL }) });
+              latencyStartedAt, statusListed: Boolean(statusListBase),
+              createCredential: (decisionId, statusListIndex) => issueCredential(evidence, { privateKey, decisionId, keyId: process.env.CERTIFICATION_KEY_ID,
+                issuer: process.env.CERTIFICATION_ISSUER, credentialBase: process.env.CREDENTIAL_BASE_URL, statusListBase, statusListIndex }) });
           } catch (error) {
             // Permanently invalid evidence must never receive a decision, but it
             // also must not block later passing examinations in the cursor.

@@ -87,6 +87,13 @@ test('missing status store returns INDETERMINATE', () => {
   assert.strictEqual(report.revocation.status, 'INDETERMINATE_STATUS');
 });
 
+// A store that cannot say which status list index a credential holds would
+// skip the status-entry check, so it is refused instead of trusted.
+test('a status store without getIndex is refused, never silently skipped', () => {
+  const jws = signCredential(makeCredential(), privateKeyPem, 'did:example:test#key-1');
+  assert.throws(() => verifyCredential(jws, publicKeyPem, { getStatus: () => 'active' }), /getIndex/);
+});
+
 test('each check reported separately', () => {
   const cred = makeCredential();
   const jws = signCredential(cred, privateKeyPem, 'did:example:test#key-1');

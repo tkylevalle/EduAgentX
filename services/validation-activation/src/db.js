@@ -5,6 +5,7 @@
  */
 const { Pool } = require('pg');
 const { sha256 } = require('../../curriculum-engine/model');
+const { REQUIRED_APPROVALS, REVIEW_FLOOR } = require('./reviews');
 
 const pool = process.env.DATABASE_URL
   ? new Pool({ connectionString: process.env.DATABASE_URL })
@@ -18,7 +19,7 @@ const _freshness = new Map();
 const _scopeEvents = new Map();
 const _reviews = new Map();
 const _fallbackScores = new Set();
-let _activePointer = null;
+const _resolutions = new Map();
 let activationQueue = Promise.resolve();
 const keyOf = (id, version) => `${id}@${version}`;
 
@@ -44,14 +45,15 @@ const db = {
   async listPackages() {
     if (!pool) return Array.from(_packages.values());
     const r = await pool.query(
-      `SELECT p.package_id AS id, p.version, p.digest, latest.state
+      `SELECT p.package_id AS id, p.version, p.digest, latest.state, p.payload->'manifest'->>'domainId' AS domain_id
        FROM curriculum_engine.packages p
        LEFT JOIN LATERAL (
          SELECT state FROM curriculum_engine.package_lifecycle_events e
          WHERE e.package_id=p.package_id AND e.version=p.version ORDER BY e.event_id DESC LIMIT 1
        ) latest ON true
        ORDER BY p.created_at DESC`);
-    return r.rows;
+    // Only the manifest's domain id is read from the payload, in the shape the memory store has.
+    return r.rows.map(({ domain_id: domainId, ...row }) => ({ ...row, manifest: { domainId } }));
   },
 
   async setPackageState(id, state, version) {
@@ -69,11 +71,10 @@ const db = {
       [id, state, `State set to ${state} by validation-activation`, version || null]);
   },
 
-  async getActivePackage() {
-    if (!pool) {
-      if (!_activePointer) return null;
-      return _packages.get(_activePointer) || null;
-    }
+  // Every Active package, newest first: activation keeps one per domain, so
+  // this is at most one row per domain.
+  async getActivePackages() {
+    if (!pool) return [..._packages.values()].filter((pkg) => pkg.state === 'Active').reverse();
     const r = await pool.query(
       `SELECT p.package_id AS id, p.version, p.domain, p.payload, p.digest
        FROM curriculum_engine.packages p
@@ -81,16 +82,10 @@ const db = {
          SELECT state FROM curriculum_engine.package_lifecycle_events e
          WHERE e.package_id=p.package_id AND e.version=p.version ORDER BY e.event_id DESC LIMIT 1
        ) e ON e.state='Active'
-       ORDER BY p.created_at DESC LIMIT 1`);
-    if (!r.rows[0]) return null;
-    const row = r.rows[0];
-    return { ...row.payload, id: row.id, version: row.version, digest: row.digest, state: 'Active' };
+       ORDER BY p.created_at DESC`);
+    return r.rows.map((row) => ({ ...row.payload, id: row.id, version: row.version, digest: row.digest, state: 'Active' }));
   },
 
-  async setActivePointer(id, version) {
-    if (!pool) { _activePointer = keyOf(id, version || (await this.getPackage(id))?.version); return; }
-    // State already written by setPackageState — nothing extra needed
-  },
 
   async appendEvidence(package_id, entry, version) {
     if (!pool) {
@@ -175,7 +170,8 @@ const db = {
     const id = pkg.id || pkg.manifest?.packageId;
     if (!id) throw new Error('seedPackage: no id or manifest.packageId');
     const version = pkg.version || pkg.manifest?.version || '0.0.0';
-    const domain = pkg.domain || pkg.manifest?.domain || 'unknown';
+    // Activation keeps one Active package per domain, keyed by the sandbox domain id when the package names one.
+    const domain = pkg.manifest?.domainId || pkg.domain || pkg.manifest?.domain || 'unknown';
     const payload = { ...pkg };
     delete payload.digest;
     delete payload.state;
@@ -209,16 +205,39 @@ const db = {
       reviews.push({ ...review, digest }); _reviews.set(key, reviews); return true;
     }
     const inserted = await pool.query(
-      `INSERT INTO curriculum_engine.package_reviews (package_id,version,digest,reviewer_id,score,approved)
-       VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING RETURNING reviewer_id`,
-      [id, version, digest, review.reviewer_id, review.score, review.approved]);
+      `INSERT INTO curriculum_engine.package_reviews (package_id,version,digest,reviewer_id,score,approved,criterion_scores,source_checks,review_comment)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT DO NOTHING RETURNING reviewer_id`,
+      [id, version, digest, review.reviewer_id, review.score, review.approved, review.criterionScores || {}, review.sourceChecks || {}, review.comment || '']);
     return inserted.rowCount === 1;
+  },
+
+  // A disagreement is resolved once per criterion; a second resolution is refused.
+  async addResolution(id, version, resolution) {
+    const key = keyOf(id, version);
+    if (!pool) {
+      const resolutions = _resolutions.get(key) || [];
+      if (resolutions.some((item) => item.criterionId === resolution.criterionId)) return false;
+      resolutions.push({ ...resolution }); _resolutions.set(key, resolutions); return true;
+    }
+    const inserted = await pool.query(
+      `INSERT INTO curriculum_engine.package_review_resolutions (package_id,version,criterion_id,resolved_by,resolution)
+       VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING RETURNING criterion_id`,
+      [id, version, resolution.criterionId, resolution.resolvedBy, resolution.resolution]);
+    return inserted.rowCount === 1;
+  },
+
+  async getResolutions(id, version) {
+    if (!pool) return [...(_resolutions.get(keyOf(id, version)) || [])];
+    const rows = await pool.query(
+      `SELECT criterion_id AS "criterionId", resolved_by AS "resolvedBy", resolution, recorded_at AS ts
+       FROM curriculum_engine.package_review_resolutions WHERE package_id=$1 AND version=$2 ORDER BY recorded_at`, [id, version]);
+    return rows.rows;
   },
 
   async getReviews(id, version) {
     if (!pool) return [...(_reviews.get(keyOf(id, version)) || [])];
     const rows = await pool.query(
-      `SELECT reviewer_id, score::float, approved, digest, recorded_at AS ts
+      `SELECT reviewer_id, score::float, approved, digest, criterion_scores AS "criterionScores", source_checks AS "sourceChecks", review_comment AS comment, recorded_at AS ts
        FROM curriculum_engine.package_reviews WHERE package_id=$1 AND version=$2 ORDER BY recorded_at`, [id, version]);
     return rows.rows;
   },
@@ -245,7 +264,6 @@ const db = {
             pkg.manifest?.predecessor?.version !== current.version)) throw new Error('stale_candidate');
         if (current) await this.setPackageState(current.id, 'Superseded', current.version);
         await this.setPackageState(id, 'Active', version);
-        await this.setActivePointer(id, version);
         return { superseded_id: current?.id || null };
       }
       const client = await pool.connect();
@@ -261,9 +279,9 @@ const db = {
         const reviews = await client.query(
           `SELECT reviewer_id,score::float,approved FROM curriculum_engine.package_reviews
            WHERE package_id=$1 AND version=$2 AND digest=$3`, [id, version, digest]);
-        const approvals = reviews.rows.filter(review => review.approved && review.score >= 3.5);
-        if (new Set(approvals.map(review => review.reviewer_id)).size < 2 ||
-            approvals.reduce((sum, review) => sum + review.score, 0) / approvals.length < 3.5)
+        const approvals = reviews.rows.filter(review => review.approved && review.score >= REVIEW_FLOOR);
+        if (new Set(approvals.map(review => review.reviewer_id)).size < REQUIRED_APPROVALS ||
+            approvals.reduce((sum, review) => sum + review.score, 0) / approvals.length < REVIEW_FLOOR)
           throw new Error('insufficient_approvals');
         const active = await client.query(
           `SELECT p.package_id,p.version FROM curriculum_engine.packages p JOIN LATERAL
@@ -290,4 +308,5 @@ const db = {
   }
 };
 
-module.exports = { db };
+// The pool is shared with the grader-label store (labels-store.js); null in memory mode.
+module.exports = { db, pool };

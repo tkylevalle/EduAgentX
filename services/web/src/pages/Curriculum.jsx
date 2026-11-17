@@ -16,14 +16,14 @@ export default function Curriculum() {
   return (
     <main className="page">
       <PageHead index="05" title="Domain assurance package" sub="One immutable, versioned unit: sources, objectives, modules, exam template, rubric, fallback bank."
-        readouts={[['State', pkg ? pkg.state : null], ['Gates', pkg ? `${pkg.gates.filter((gate) => gate.passed).length}/6` : null], ['Reviewers', pkg ? '2 distinct' : null]]} />
+        readouts={[['State', pkg ? pkg.state : null], ['Gates', pkg ? `${pkg.gates.filter((gate) => gate.passed).length}/6` : null], ['Reviews', pkg ? 'see Governance' : null]]} />
       {error && <div className="notice bad" style={{ marginBottom: 18 }}>Package unavailable: {error}</div>}
       {pkg === undefined ? <Skeleton height={320} /> : !pkg ? (
-        <Panel><Empty title="No active package">The Lifecycle Lab activates the reference AI Agent Safety package on its first run.</Empty></Panel>
+        <Panel><Empty title="No active package">A package becomes active once it passes the six gates and two reviewers approve it in Governance.</Empty></Panel>
       ) : (
         <div className="stack">
           <div className="ledger" style={{ gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', marginBottom: 0 }}>
-            <div className="ledger-cell"><div className="label">Domain</div><div style={{ marginTop: 10, fontSize: 16, fontWeight: 560 }}>AI Agent Safety and Secure Tool Use</div><div className="ledger-foot"><code>{pkg.packageId}</code> v{pkg.version}</div></div>
+            <div className="ledger-cell"><div className="label">Domain</div><div style={{ marginTop: 10, fontSize: 16, fontWeight: 560 }}>{pkg.domain || 'Unnamed domain'}</div><div className="ledger-foot"><code>{pkg.packageId}</code> v{pkg.version}</div></div>
             <div className="ledger-cell"><div className="label">Digest</div><div className="data" style={{ marginTop: 12 }}>{short(pkg.digest, 18, 8)}</div><div className="ledger-foot">SHA-256 over the whole package</div></div>
             <div className="ledger-cell"><div className="label">Validation gates</div><div className="ledger-value">{pkg.gates.filter((gate) => gate.passed).length}/6</div><div className="ledger-foot">Automated, before human review</div></div>
             <div className="ledger-cell"><div className="label">Quarantined scopes</div><div className="ledger-value">{pkg.quarantinedScopes.length}</div><div className="ledger-foot">Critical corrections isolate content</div></div>

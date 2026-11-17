@@ -105,7 +105,42 @@ test('known vector ID with corrupted document bytes is excluded', async () => {
     ids: [[current.chunkId]], documents: [['tampered lesson']],
   }) }) };
   const result = await queryIndex({ pool, client, text: 'lesson' });
-  assert.deepEqual(result.results.ids, [[]]);
+  assert.deepEqual(result.results, []);
+});
+
+test('the cached fallback ranks chunks by the query words they contain, so a question finds its lesson', async () => {
+  const pool = fakePool([samplePackage]);
+  await rebuildIndex({ pool, client: fakeChromaClient(), embeddingFunction: null });
+  const chunks = require('../model').extractChunks(samplePackage);
+  const m4 = chunks.find((chunk) => chunk.moduleId === 'm4');
+  const others = chunks.filter((chunk) => chunk !== m4).map((chunk) => chunk.text.toLowerCase());
+  // Words only m4's lesson contains.
+  const words = [...new Set(m4.text.toLowerCase().split(/[^a-z0-9]+/))]
+    .filter((word) => word.length >= 4 && others.every((text) => !text.includes(word))).slice(0, 3).join(' ');
+  assert.ok(words, 'm4 has words of its own');
+  const result = await queryIndex({ pool, client: unreachableChromaClient(), embeddingFunction: null,
+    text: `How should an agent handle this? ${words}`, limit: 1 });
+  assert.equal(result.mode, 'cached-stale');
+  assert.deepEqual(result.results.map((chunk) => chunk.moduleId), ['m4']);
+});
+
+test('a lookup pinned to a package version returns only that version\'s chunks', async () => {
+  const pool = fakePool([samplePackage]);
+  const current = require('../model').extractChunks(samplePackage)[0];
+  const client = { getCollection: async () => ({ query: async () => ({ ids: [[current.chunkId]], documents: [[current.text]] }) }) };
+  const pinned = await queryIndex({ pool, client, text: 'lesson', packageId: current.packageId, version: current.version });
+  assert.deepEqual(pinned.results.map((chunk) => chunk.chunkId), [current.chunkId]);
+  const other = await queryIndex({ pool, client, text: 'lesson', packageId: current.packageId, version: '9.9.9' });
+  assert.deepEqual(other.results, []);
+});
+
+test('live results are the same chunk objects as cached ones: module, objectives, text and digest', async () => {
+  const pool = fakePool([samplePackage]);
+  const current = require('../model').extractChunks(samplePackage)[0];
+  const client = { getCollection: async () => ({ query: async () => ({ ids: [[current.chunkId]], documents: [[current.text]] }) }) };
+  const result = await queryIndex({ pool, client, text: 'lesson' });
+  assert.equal(result.mode, 'live');
+  assert.deepEqual(result.results, [current]);
 });
 
 test('tampered snapshot cannot be used during Chroma loss', async () => {

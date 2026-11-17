@@ -25,15 +25,18 @@ const { authHealth, issueToken, requireRole } = require('./auth');
 const execution = require('../../packages/execution-provenance');
 const { createRateLimit } = require('./rate-limit');
 const { registerAssuranceRoutes } = require('./assurance-routes');
+const { registerContinuousAssuranceRoutes } = require('./continuous-assurance-routes');
 const { registerReconciliationRoutes } = require('./reconciliation-routes');
+const { registerCurriculumRoutes } = require('./curriculum-routes');
+const { registerGraderLabellingRoutes } = require('./grader-labelling-routes');
+const { registerExaminationRoutes } = require('./examination-routes');
+const { createMarketplaceGateway } = require('./marketplace-routes');
+const { registerTrainingAdminRoutes } = require('./training-admin-routes');
+const { TRAINING_IDENTIFIER, isIdentifier } = require('./route-helpers');
 
 const PORT = process.env.PORT || 4000;
 const SERVICE_NAME = process.env.SERVICE_NAME || 'api-gateway';
 const MAX_PROTOCOL_IDEMPOTENCY_ENTRIES = 1000;
-const TRAINING_IDENTIFIER = /^[\x20-\x7e]{1,256}$/;
-const REMEDIATION_FIELDS = Object.freeze([
-  'requestId', 'agentLearnerKey', 'packageId', 'packageVersion', 'objectiveIds', 'cause', 'evidence',
-]);
 
 // Training Session interactions owned by training-service. The plain
 // `training.submit` stays on the Sprint 1 boundary below, because the
@@ -50,18 +53,14 @@ const MARKETPLACE_INTERACTIONS = Object.freeze({
   'marketplace.listing.publish': 'publish',
   'marketplace.listing.withdraw': 'withdraw',
 });
-// Who may change Capability Requests and run checks, and who may only read them.
-const MARKETPLACE_WRITERS = Object.freeze(['admin', 'demo_operator']);
-const MARKETPLACE_READERS = Object.freeze([...MARKETPLACE_WRITERS, 'viewer', 'evaluator', 'governance_operator']);
-// Heavy evaluation rechecks the complete candidate inventory. MATCH-POLICY's
-// approved p95 floor is 30s (10s target); unrelated forwarding stays at 5s.
-const MARKETPLACE_EVALUATION_TIMEOUT_MS = 30000;
 
 function createApp({
   agentRegistryUrl = process.env.AGENT_REGISTRY_URL || 'http://agent-registry:4001',
   curriculumEngineUrl = process.env.CURRICULUM_ENGINE_URL || 'http://curriculum-engine:4002',
   validationActivationUrl = process.env.VALIDATION_ACTIVATION_URL || 'http://validation-activation:4010',
   curriculumInternalKey = process.env.CURRICULUM_INTERNAL_KEY,
+  // knowledge.lookup reads the curriculum index; without it the route answers 503.
+  curriculumIndexUrl = process.env.CURRICULUM_INDEX_URL,
   trainingServiceUrl = process.env.TRAINING_SERVICE_URL || 'http://training-service:4004',
   trainingInternalKey = process.env.TRAINING_INTERNAL_KEY,
   examinationEngineUrl = process.env.EXAMINATION_ENGINE_URL || 'http://examination-engine:4005',
@@ -76,6 +75,8 @@ function createApp({
   credentialVerificationUrl = process.env.CREDENTIAL_VERIFICATION_URL,
   credentialInternalKey = process.env.CREDENTIAL_INTERNAL_KEY,
   monitoringServiceUrl = process.env.MONITORING_SERVICE_URL,
+  // The monitoring key only the Gateway holds: the one monitoring trusts with a caller's role.
+  monitoringGatewayKey = process.env.MONITORING_GATEWAY_KEY,
   protocolIdempotencyStore = new Map(),
   executionPrincipals = execution.enrollments(),
   // Issue #27: pending two-person approvals for governance commands, keyed
@@ -259,7 +260,7 @@ function createApp({
     const training = TRAINING_INTERACTIONS[message.payload.interactionType];
     if (training) return forwardTrainingInteraction(req, res, message, training);
     const listing = MARKETPLACE_INTERACTIONS[message.payload.interactionType];
-    if (listing) return forwardListingInteraction(req, res, message, listing);
+    if (listing) return marketplace.forwardListingInteraction(req, res, message, listing);
 
     // Sprint 1 has no curriculum/training owner yet. The gateway still proves
     // the real public interaction seam and returns a deliberately bounded
@@ -306,169 +307,13 @@ function createApp({
     await proxyJson(req, res, `${agentRegistryUrl}/v1/event-delivery`);
   });
 
-  // Candidate package intake is admin-only. No Agent Learner route serves
-  // these artifacts; activation and delivery are owned by later work.
-  const curriculumHeaders = (req) => ({
-    'x-internal-service-key': curriculumInternalKey,
-    'x-actor-subject': req.auth.subject,
-    'x-actor-role': req.auth.role,
-  });
-  app.post('/v1/admin/packages', requireRole('admin'), async (req, res) => {
-    await proxyJson(req, res, `${curriculumEngineUrl}/internal/packages`, {
-      method: 'POST', body: req.body, headers: curriculumHeaders(req),
-    });
-  });
-  app.get('/v1/admin/packages/:packageId/:version', requireRole('admin'), async (req, res) => {
-    await proxyJson(req, res,
-      `${curriculumEngineUrl}/internal/packages/${encodeURIComponent(req.params.packageId)}/${encodeURIComponent(req.params.version)}`,
-      { headers: curriculumHeaders(req) });
-  });
-  app.get('/v1/admin/packages/:packageId/:version/events', requireRole('admin'), async (req, res) => {
-    await proxyJson(req, res,
-      `${curriculumEngineUrl}/internal/packages/${encodeURIComponent(req.params.packageId)}/${encodeURIComponent(req.params.version)}/events`,
-      { headers: curriculumHeaders(req) });
-  });
+  registerCurriculumRoutes(app, { requireRole, proxyJson, forwardJson, proxyFailure, serviceName: SERVICE_NAME,
+    curriculumEngineUrl, curriculumInternalKey, validationActivationUrl, governanceApprovalStore });
+  registerGraderLabellingRoutes(app, { requireRole, proxyJson, validationActivationUrl, curriculumInternalKey });
 
-  // Governance operations are forwarded only after Gateway JWT verification;
-  // the downstream service trusts the internal key and the derived subject.
-  app.post('/v1/admin/curriculum/packages', requireRole('admin'), async (req, res) => {
-    await proxyJson(req, res, `${validationActivationUrl}/packages`,
-      { method: 'POST', body: req.body, headers: curriculumHeaders(req) });
-  });
-  app.post('/v1/admin/curriculum/validate', requireRole('admin'), async (req, res) => {
-    await proxyJson(req, res, `${validationActivationUrl}/validate`,
-      { method: 'POST', body: req.body, headers: curriculumHeaders(req) });
-  });
-  app.post('/v1/curriculum/review', requireRole('reviewer', 'admin'), async (req, res) => {
-    await proxyJson(req, res, `${validationActivationUrl}/review`,
-      { method: 'POST', body: req.body, headers: curriculumHeaders(req) });
-  });
-  app.post('/v1/admin/curriculum/activate', requireRole('admin'), async (req, res) => {
-    await proxyJson(req, res, `${validationActivationUrl}/activate`,
-      { method: 'POST', body: req.body, headers: curriculumHeaders(req) });
-  });
-  app.get('/v1/admin/curriculum/packages/:packageId/:version', requireRole('admin', 'reviewer'), async (req, res) => {
-    await proxyJson(req, res,
-      `${validationActivationUrl}/packages/${encodeURIComponent(req.params.packageId)}?version=${encodeURIComponent(req.params.version)}`,
-      { headers: curriculumHeaders(req) });
-  });
-
-  // Issue #27: bounded Governance command, requiring two distinct approving
-  // identities before it executes — the same two-person pattern already
-  // used for curriculum review (two distinct reviewer subjects before
-  // activation), now applied to quarantine release, one of the actions the
-  // spec names as human-governance-controlled (corrections, key rotation,
-  // policy changes, quarantine release). Either governance_operator or
-  // admin may approve; any two DISTINCT subjects (not roles) complete it —
-  // matching how /review counts distinct reviewer_id values regardless of
-  // whether the caller was 'reviewer' or 'admin'.
-  //
-  // The Gateway never mutates state itself. On every call (first and
-  // second) it rechecks authoritative state immediately before recording an
-  // approval or acting — closing a real gap in validation-activation's own
-  // restore route, which does not itself verify a scope is still
-  // quarantined before restoring it. Only once two distinct, matching
-  // approvals are gathered does it call the owning service, which performs
-  // the mutation and records it in its own append-only evidence trail —
-  // that evidence trail is the audit record for the action itself; the
-  // pending-approval store here only ever tracks *who has approved so far*,
-  // never a domain record.
-  //
-  // governance_operator (and viewer/evaluator/demo_operator) are
-  // intentionally only ever added to routes meant for them — never to
-  // curriculum/activate, training-remediations, or any other mutating
-  // admin route — so none of these roles can edit a score, force a pass,
-  // issue a credential, or touch immutable policy/evidence.
-  app.post('/v1/admin/governance/packages/:packageId/quarantine-release',
-    requireRole('governance_operator', 'admin'), async (req, res) => {
-      const body = req.body;
-      const scope = body?.scope;
-      const checks = {
-        version: typeof body?.version === 'string' && body.version.trim().length > 0,
-        scope: Boolean(scope) && typeof scope === 'object' && !Array.isArray(scope) &&
-          typeof scope.type === 'string' && typeof scope.id === 'string' && scope.id.trim().length > 0,
-        reason: typeof body?.reason === 'string' && body.reason.trim().length > 0,
-        evidenceReference: typeof body?.evidenceReference === 'string' && body.evidenceReference.trim().length > 0,
-        restoredPackageId: typeof body?.restoredPackageId === 'string' && body.restoredPackageId.trim().length > 0,
-      };
-      const invalid = Object.keys(checks).filter((name) => !checks[name]);
-      if (invalid.length) {
-        return res.status(400).json({ apiVersion: 'v1', error: 'invalid_request', details: invalid, correlationId: req.correlationId });
-      }
-
-      let current;
-      try {
-        current = await forwardJson(req,
-          `${validationActivationUrl}/packages/${encodeURIComponent(req.params.packageId)}?version=${encodeURIComponent(body.version)}`,
-          { headers: curriculumHeaders(req) });
-      } catch (error) {
-        return proxyFailure(req, res, error);
-      }
-      if (current.status !== 200) return res.status(current.status).json(current.body);
-
-      // Recheck authoritative state: the scope must be quarantined right now,
-      // under this request, not merely when an operator last looked at it.
-      // Done on every call, including the first approval, so a stale
-      // approval can never be banked against a scope that is not (or is no
-      // longer) quarantined.
-      const stillQuarantined = (current.body.quarantinedScopes || [])
-        .some((entry) => entry.scopeType === scope.type && entry.scopeId === scope.id);
-      if (!stillQuarantined) {
-        return res.status(409).json({ apiVersion: 'v1', error: 'scope_not_quarantined', correlationId: req.correlationId });
-      }
-
-      const key = `${req.params.packageId}:${scope.type}:${scope.id}`;
-      const pending = governanceApprovalStore.get(key);
-      const actor = req.auth.subject;
-
-      if (!pending) {
-        governanceApprovalStore.set(key, {
-          firstActor: actor, firstRole: req.auth.role, version: body.version,
-          restoredPackageId: body.restoredPackageId, evidenceReference: body.evidenceReference,
-          reason: body.reason, recordedAt: new Date().toISOString(),
-        });
-        telemetry.log(SERVICE_NAME, 'governance_approval_recorded',
-          { correlationId: req.correlationId, packageId: req.params.packageId, scope, approvals: 1 });
-        return res.status(202).json({
-          apiVersion: 'v1', status: 'pending_second_approval', approvals: 1, requiredApprovals: 2,
-          correlationId: req.correlationId,
-        });
-      }
-
-      if (pending.firstActor === actor) {
-        return res.status(409).json({ apiVersion: 'v1', error: 'duplicate_approver', correlationId: req.correlationId });
-      }
-      if (pending.version !== body.version || pending.restoredPackageId !== body.restoredPackageId ||
-        pending.evidenceReference !== body.evidenceReference) {
-        return res.status(409).json({ apiVersion: 'v1', error: 'approval_mismatch', correlationId: req.correlationId });
-      }
-
-      // Second, distinct, matching approval: execute. Clear the pending
-      // entry first so this can never be completed twice, and combine both
-      // approvers' stated reasons into the record the owning service keeps.
-      governanceApprovalStore.delete(key);
-      telemetry.log(SERVICE_NAME, 'governance_second_approval_executing', {
-        correlationId: req.correlationId, packageId: req.params.packageId, scope,
-        firstActor: pending.firstActor, secondActor: actor,
-      });
-      const combinedReason = `Two-person governance approval. First approval by ${pending.firstActor}: ` +
-        `${pending.reason} Second approval by ${actor}: ${body.reason}`;
-
-      await proxyJson(req, res,
-        `${validationActivationUrl}/packages/${encodeURIComponent(req.params.packageId)}/quarantines/restore`,
-        {
-          method: 'POST',
-          headers: curriculumHeaders(req),
-          body: {
-            version: body.version,
-            scope,
-            reason: combinedReason,
-            evidenceReference: body.evidenceReference,
-            restoredPackageId: body.restoredPackageId,
-          },
-        });
-    });
-
+  // Marketplace forwarding: the listing interaction below and the HTTP routes registered later.
+  const marketplace = createMarketplaceGateway({ requireRole, proxyJson, forwardJson, proxyFailure, decorateProtocolResponse,
+    marketplaceServiceUrl, marketplaceInternalKey });
   // Training-service trusts these two headers, so the actor is always the
   // authenticated subject, never an agentLearnerKey from the request body.
   const trainingHeaders = (req) => ({
@@ -496,6 +341,10 @@ function createApp({
     if (training.needsItem && !TRAINING_IDENTIFIER.test(typeof data.deliveryItemId === 'string' ? data.deliveryItemId : '')) {
       details.push({ field: 'payload.data.deliveryItemId', code: 'required', message: 'deliveryItemId is required' });
     }
+    // A start's domain is an identifier string; any other type is refused, never coerced or dropped.
+    if (training.action === 'start' && data.domainId !== undefined && !isIdentifier(data.domainId)) {
+      details.push({ field: 'payload.data.domainId', code: 'invalid', message: 'domainId must be an identifier string' });
+    }
     if (details.length) {
       return res.status(400).json(decorateProtocolResponse(message, {
         apiVersion: 'v1', error: 'invalid_lifecycle_payload', details, correlationId: req.correlationId,
@@ -514,6 +363,8 @@ function createApp({
       ...(training.needsItem && message.payload.data.executionEvidence ? { executionEvidence: message.payload.data.executionEvidence } : {}),
       evidence: { mode: message.evidence.mode, environment: message.evidence.environment },
       ...(training.needsItem ? { deliveryItemId: data.deliveryItemId, response: data.response } : {}),
+      // A start may name the domain to train in; Training validates it.
+      ...(training.action === 'start' && data.domainId !== undefined ? { domainId: data.domainId } : {}),
     };
     try {
       const upstream = await forwardJson(req, `${trainingServiceUrl}${path}`, {
@@ -534,54 +385,8 @@ function createApp({
     }
   }
 
-  // Read-only Training Session views for the Assurance Console. Training's own
-  // read routes do not check roles, so the admin role is enforced here.
-  app.get('/v1/admin/training-sessions', requireRole('admin'), async (req, res) => {
-    if (!trainingInternalKey) return trainingUnavailable(req, res);
-    const query = new URLSearchParams();
-    for (const name of ['agentLearnerKey', 'status']) {
-      if (typeof req.query[name] === 'string' && req.query[name]) query.set(name, req.query[name]);
-    }
-    await proxyJson(req, res, `${trainingServiceUrl}/internal/sessions${query.size ? `?${query}` : ''}`,
-      { headers: trainingHeaders(req) });
-  });
-  app.get('/v1/admin/training-sessions/:sessionId', requireRole('admin'), async (req, res) => {
-    if (!trainingInternalKey) return trainingUnavailable(req, res);
-    await proxyJson(req, res, `${trainingServiceUrl}/internal/sessions/${encodeURIComponent(req.params.sessionId)}`,
-      { headers: trainingHeaders(req) });
-  });
-  app.get('/v1/admin/training-metrics', requireRole('admin'), async (req, res) => {
-    if (!trainingInternalKey) return trainingUnavailable(req, res);
-    await proxyJson(req, res, `${trainingServiceUrl}/internal/metrics`, { headers: trainingHeaders(req) });
-  });
-  app.get('/v1/admin/training-completion-events', requireRole('admin'), async (req, res) => {
-    if (!trainingInternalKey) return trainingUnavailable(req, res);
-    await proxyJson(req, res, `${trainingServiceUrl}/internal/completion-events`, { headers: trainingHeaders(req) });
-  });
-  app.get('/v1/admin/training-completion-incidents', requireRole('admin'), async (req, res) => {
-    if (!trainingInternalKey) return trainingUnavailable(req, res);
-    await proxyJson(req, res, `${trainingServiceUrl}/internal/completion-incidents`, { headers: trainingHeaders(req) });
-  });
-
-  // The one human write route into Training: an operator assigns targeted
-  // remediation. An unknown field is refused here, as Training would refuse
-  // it; Training validates the rest and records the admin as requestedBy.
-  app.post('/v1/admin/training-remediations', requireRole('admin'), async (req, res) => {
-    const body = req.body;
-    if (!body || typeof body !== 'object' || Array.isArray(body)) {
-      return res.status(400).json({ apiVersion: 'v1', error: 'invalid_request', details: ['body'], correlationId: req.correlationId });
-    }
-    const unexpected = Object.keys(body).filter((name) => !REMEDIATION_FIELDS.includes(name));
-    if (unexpected.length) {
-      return res.status(400).json({ apiVersion: 'v1', error: 'invalid_request',
-        details: unexpected.map((name) => `unexpected:${name}`), correlationId: req.correlationId });
-    }
-    if (!trainingInternalKey) return trainingUnavailable(req, res);
-    const plannedAuthority = execution.authority(enrolledExecutors, { subject: body.agentLearnerKey, role: 'agent' });
-    await proxyJson(req, res, `${trainingServiceUrl}/internal/remediations`,
-      { method: 'POST', body: { ...body, ...(plannedAuthority ? { trustedExecution: plannedAuthority } : {}) },
-      headers: trainingHeaders(req) });
-  });
+  registerTrainingAdminRoutes(app, { requireRole, proxyJson, trainingServiceUrl, trainingInternalKey, trainingHeaders,
+    trainingUnavailable, enrolledExecutors });
 
   // Issue #32: recommendations and explicit Training handoff share existing admin authority.
   for (const [method, suffix] of [['post', ''], ['get', '/:id'], ['post', '/:id/training-handoff']]) {
@@ -596,153 +401,14 @@ function createApp({
     });
   }
 
-  // Issue #30: Marketplace. Like Training, marketplace-service trusts the two
-  // headers, so the actor is always the token subject, never a body field.
-  const marketplaceHeaders = (req) => ({
-    'x-internal-service-key': marketplaceInternalKey,
-    'x-actor-subject': req.auth.subject,
-  });
-  const marketplaceUnavailable = (req, res, message) => {
-    const body = { apiVersion: 'v1', error: 'marketplace_unavailable', correlationId: req.correlationId };
-    return res.status(503).json(message ? decorateProtocolResponse(message, body) : body);
-  };
+  marketplace.registerRoutes(app);
 
-  async function forwardListingInteraction(req, res, message, action) {
-    // Only the identity and the protocol's acknowledgement are allowed; the learner listed is the token subject.
-    const unexpected = Object.keys(message.payload.data).filter((name) => !['agentLearnerKey', 'response'].includes(name));
-    if (unexpected.length) {
-      return res.status(400).json(decorateProtocolResponse(message, { apiVersion: 'v1', error: 'invalid_lifecycle_payload',
-        details: unexpected.map((name) => ({ field: `payload.data.${name}`, code: 'unexpected', message: `${name} is not accepted` })),
-        correlationId: req.correlationId }));
-    }
-    if (!marketplaceServiceUrl || !marketplaceInternalKey) return marketplaceUnavailable(req, res, message);
-    try {
-      const upstream = await forwardJson(req, `${marketplaceServiceUrl}/internal/listings/${action}`, {
-        method: 'POST', body: { idempotencyKey: message.idempotencyKey }, correlationId: message.correlationId,
-        timeoutMs: message.timeoutMs, headers: marketplaceHeaders(req),
-      });
-      // Not cached here: marketplace-service keeps the durable idempotency record.
-      return res.status(upstream.status).json(decorateProtocolResponse(message, upstream.body));
-    } catch (error) {
-      return proxyFailure(req, res, error, message);
-    }
-  }
-
-  // One forwarding route. Unknown body fields are refused before anything is
-  // sent; marketplace-service validates the rest and stores the actor.
-  const marketplaceRoute = (method, buildPath, allowedFields, timeoutMs) => async (req, res) => {
-    let body;
-    if (method === 'POST') {
-      body = req.body;
-      if (!body || typeof body !== 'object' || Array.isArray(body)) {
-        return res.status(400).json({ apiVersion: 'v1', error: 'invalid_request', details: ['body'], correlationId: req.correlationId });
-      }
-      const unexpected = Object.keys(body).filter((name) => !allowedFields.includes(name));
-      if (unexpected.length) {
-        return res.status(400).json({ apiVersion: 'v1', error: 'invalid_request',
-          details: unexpected.map((name) => `unexpected:${name}`), correlationId: req.correlationId });
-      }
-    }
-    if (!marketplaceServiceUrl || !marketplaceInternalKey) return marketplaceUnavailable(req, res);
-    await proxyJson(req, res, `${marketplaceServiceUrl}${buildPath(req)}`,
-      { method, ...(body === undefined ? {} : { body }), headers: marketplaceHeaders(req),
-        ...(timeoutMs === undefined ? {} : { timeoutMs }) });
-  };
-  const requestPath = (req, suffix = '') =>
-    `/internal/capability-requests/${encodeURIComponent(req.params.id)}${suffix}`;
-
-  app.post('/v1/marketplace/capability-requests', requireRole(...MARKETPLACE_WRITERS),
-    marketplaceRoute('POST', () => '/internal/capability-requests', ['idempotencyKey', 'request']));
-  app.post('/v1/marketplace/capability-requests/:id/versions', requireRole(...MARKETPLACE_WRITERS),
-    marketplaceRoute('POST', (req) => requestPath(req, '/versions'), ['idempotencyKey', 'request']));
-  app.post('/v1/marketplace/capability-requests/:id/open', requireRole(...MARKETPLACE_WRITERS),
-    marketplaceRoute('POST', (req) => requestPath(req, '/open'), ['version']));
-  app.post('/v1/marketplace/capability-requests/:id/close', requireRole(...MARKETPLACE_WRITERS),
-    marketplaceRoute('POST', (req) => requestPath(req, '/close'), []));
-  app.post('/v1/marketplace/capability-requests/:id/eligibility-checks', requireRole(...MARKETPLACE_WRITERS),
-    marketplaceRoute('POST', (req) => requestPath(req, '/eligibility-checks'), ['idempotencyKey'], MARKETPLACE_EVALUATION_TIMEOUT_MS));
-  app.post('/v1/marketplace/capability-requests/:id/matches', requireRole(...MARKETPLACE_WRITERS),
-    marketplaceRoute('POST', (req) => requestPath(req, '/matches'), ['idempotencyKey'], MARKETPLACE_EVALUATION_TIMEOUT_MS));
-  app.get('/v1/marketplace/match-results/:resultId', requireRole(...MARKETPLACE_READERS),
-    marketplaceRoute('GET', (req) => `/internal/match-results/${encodeURIComponent(req.params.resultId)}`));
-  app.get('/v1/marketplace/capability-requests', requireRole(...MARKETPLACE_READERS),
-    marketplaceRoute('GET', () => '/internal/capability-requests'));
-  app.get('/v1/marketplace/capability-requests/:id', requireRole(...MARKETPLACE_READERS),
-    marketplaceRoute('GET', (req) => requestPath(req)));
-  app.get('/v1/marketplace/eligibility-checks/:checkId', requireRole(...MARKETPLACE_READERS),
-    marketplaceRoute('GET', (req) => `/internal/eligibility-checks/${encodeURIComponent(req.params.checkId)}`));
-  app.get('/v1/marketplace/listings/:agentLearnerKey', requireRole(...MARKETPLACE_READERS),
-    marketplaceRoute('GET', (req) => `/internal/listings/${encodeURIComponent(req.params.agentLearnerKey)}`));
-
-  // Issue #16: public Exam delivery is possible only after the Examination
-  // Engine has committed an immutable attempt. No caller-supplied package,
-  // completion event, learner key, or generated questions cross this boundary.
-  const examinationHeaders = (req) => ({ 'x-internal-service-key': examinationInternalKey,
-    'x-actor-subject': req.auth.subject, 'x-actor-role': req.auth.role });
-  const examinationUnavailable = (req, res) => res.status(503).json({ apiVersion: 'v1',
-    error: 'examination_unavailable', correlationId: req.correlationId });
-  app.post('/v1/examinations', requireRole('agent'), async (req, res) => {
-    if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body) ||
-      Object.keys(req.body).some((name) => !['idempotencyKey','trainingSessionId','executionProfile'].includes(name)) ||
-      !TRAINING_IDENTIFIER.test(req.body.idempotencyKey || ''))
-      return res.status(400).json({ apiVersion: 'v1', error: 'invalid_request', correlationId: req.correlationId });
-    if (!examinationInternalKey) return examinationUnavailable(req, res);
-    let trustedExecution;
-    try { trustedExecution = execution.authority(enrolledExecutors, req.auth, req.body.executionProfile); }
-    catch (e) { return res.status(e.status || 403).json({ error: e.code }); }
-    if (trustedExecution && !execution.UUID.test(req.body.trainingSessionId || ''))
-      return res.status(400).json({ error: 'training_run_required' });
-    const body = { idempotencyKey: req.body.idempotencyKey,
-      ...(req.body.trainingSessionId ? { trainingSessionId: req.body.trainingSessionId } : {}),
-      ...(trustedExecution ? { trustedExecution } : {}) };
-    await proxyJson(req, res, `${examinationEngineUrl}/internal/attempts`, { method: 'POST', body,
-      headers: examinationHeaders(req) });
-  });
-  // The Engine owns durable replay and state checks; the Gateway never caches
-  // an answer receipt or accepts a grading/finalization command publicly.
-  app.post('/v1/examinations/:attemptId/responses', requireRole('agent'), async (req, res) => {
-    const body = req.body;
-    if (!body || typeof body !== 'object' || Array.isArray(body) ||
-      Object.keys(body).some((name) => !['idempotencyKey', 'expectedSequence', 'itemId', 'response', 'executionEvidence', 'executionProfile'].includes(name)) ||
-      typeof body.idempotencyKey !== 'string' || !TRAINING_IDENTIFIER.test(body.idempotencyKey) ||
-      !Number.isSafeInteger(body.expectedSequence) || body.expectedSequence < 1 ||
-      typeof body.itemId !== 'string' || !TRAINING_IDENTIFIER.test(body.itemId) ||
-      typeof body.response !== 'string' || !body.response.trim() || body.response.length > 16000)
-      return res.status(400).json({ apiVersion: 'v1', error: 'invalid_request', correlationId: req.correlationId });
-    if (!examinationInternalKey) return examinationUnavailable(req, res);
-    let forwarded;
-    try { forwarded = responseBody(); } catch (e) { return res.status(e.status || 403).json({ error: e.code }); }
-    await proxyJson(req, res,
-      `${examinationEngineUrl}/internal/attempts/${encodeURIComponent(req.params.attemptId)}/responses`,
-      { method: 'POST', body: forwarded, headers: examinationHeaders(req) });
-    function responseBody() {
-      const trustedExecution = execution.authority(enrolledExecutors, req.auth, body.executionProfile);
-      if (body.executionEvidence && !trustedExecution) throw execution.fail('executor_not_authorized', 403);
-      return { idempotencyKey: body.idempotencyKey, expectedSequence: body.expectedSequence, itemId: body.itemId, response: body.response,
-        ...(body.executionEvidence ? { executionEvidence: body.executionEvidence } : {}),
-        ...(trustedExecution ? { trustedExecution } : {}) };
-    }
-  });
-  app.get('/v1/examinations/:attemptId', requireRole('agent'), async (req, res) => {
-    if (!examinationInternalKey) return examinationUnavailable(req, res);
-    await proxyJson(req, res, `${examinationEngineUrl}/internal/attempts/${encodeURIComponent(req.params.attemptId)}`,
-      { headers: examinationHeaders(req) });
-  });
-  app.get('/v1/admin/examinations/:attemptId', requireRole('admin'), async (req, res) => {
-    if (!examinationInternalKey) return examinationUnavailable(req, res);
-    await proxyJson(req, res, `${examinationEngineUrl}/internal/admin/attempts/${encodeURIComponent(req.params.attemptId)}`,
-      { headers: examinationHeaders(req) });
-  });
-  // Issue #21: failure, gap, remediation delivery and re-examinations of one attempt.
-  app.get('/v1/admin/examinations/:attemptId/remediation', requireRole('admin'), async (req, res) => {
-    if (!examinationInternalKey) return examinationUnavailable(req, res);
-    await proxyJson(req, res,
-      `${examinationEngineUrl}/internal/admin/attempts/${encodeURIComponent(req.params.attemptId)}/remediation`,
-      { headers: examinationHeaders(req) });
-  });
+  registerExaminationRoutes(app, { requireRole, proxyJson, forwardJson, serviceName: SERVICE_NAME, enrolledExecutors,
+    examinationEngineUrl, examinationInternalKey, curriculumIndexUrl, curriculumInternalKey });
 
   registerAssuranceRoutes(app, { requireRole, proxyJson, certificationServiceUrl, certificationInternalKey,
     credentialVerificationUrl, credentialInternalKey, monitoringServiceUrl });
+  registerContinuousAssuranceRoutes(app, { requireRole, proxyJson, monitoringServiceUrl, monitoringGatewayKey });
   registerReconciliationRoutes(app, { requireRole, proxyJson, examinationEngineUrl, examinationInternalKey,
     certificationServiceUrl, certificationInternalKey, marketplaceServiceUrl, marketplaceInternalKey });
 

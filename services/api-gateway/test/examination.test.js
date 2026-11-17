@@ -8,6 +8,7 @@ const { sha256 } = require('../../curriculum-engine/model');
 const candidate = require('../../curriculum-engine/examples/ai-safety-candidate');
 const { createApp: createExamination } = require('../../examination-engine');
 const { createMemoryStore } = require('../../examination-engine/store');
+const { EPISODES_PER_ITEM } = require('../../examination-engine/behaviour');
 
 process.env.JWT_ISSUER = 'eduagentx-api-gateway-exam-test';
 process.env.JWT_AUDIENCE = 'eduagentx-platform-exam-test';
@@ -60,7 +61,7 @@ async function boot(t) {
     package: { id: pkg.packageId, version: pkg.version, digest: pkg.digest },
     completion: { plannedItems: 10, completedItems: 10 } };
   const store = createMemoryStore();
-  const examination = await listen(http.createServer(createExamination({ internalKey: 'exam-key', gradingKey: 'grading-test-key',
+  const examination = await listen(http.createServer(createExamination({ internalKey: 'exam-key', gradingKey: 'grading-test-key', episodeSeedKey: 'gateway-test-episode-seed-key-0123456789abcdef',
     store, sources: { activePackage: async () => pkg,
       registration: async () => registration, completion: async () => completion } })));
   t.after(() => new Promise((resolve) => examination.close(resolve)));
@@ -98,6 +99,18 @@ test('Gateway delivers admitted exam only to its Agent Learner and an identifier
   assert.equal(console.status, 200);
   assert.equal(console.body.attempt.itemReferences.length, 15);
   assert.equal(Object.hasOwn(console.body.attempt.itemReferences[0], 'prompt'), false);
+});
+
+// Review finding 3: an exam start's domain is an identifier string, never coerced from another type.
+test('Gateway refuses an examination start whose domain is not an identifier string', async (t) => {
+  const { gateway, agentHeaders, store } = await boot(t);
+  for (const domainId of [{ id: 'ai-safety' }, ['ai-safety'], 0, false, null, '', 'x'.repeat(257)]) {
+    const refused = await request(gateway, 'POST', '/v1/examinations', { idempotencyKey: 'domain-check', domainId }, agentHeaders);
+    assert.equal(refused.status, 400, JSON.stringify(domainId));
+    assert.equal(refused.body.error, 'invalid_request');
+  }
+  const started = await request(gateway, 'POST', '/v1/examinations', { idempotencyKey: 'domain-check' }, agentHeaders);
+  assert.equal(started.status, 201, 'the refused starts left no attempt behind');
 });
 
 test('Gateway validates examination responses and keeps finalization unavailable publicly', async (t) => {
@@ -163,6 +176,18 @@ test('Gateway learner and admin reads agree after trusted finalization of comple
   const id = started.body.attempt.attemptId;
   let attempt = started.body.attempt;
   for (const [index, item] of attempt.form.items.entries()) {
+    // Behaviour items are answered by recorded episode steps, one finishing
+    // step per episode, never directly.
+    if (item.kind === 'behaviour') {
+      for (let episode = 0; episode < EPISODES_PER_ITEM; episode += 1) {
+        const step = await request(gateway, 'POST', `/v1/examinations/${id}/episodes/${item.id}/steps`, {
+          idempotencyKey: `item-${index}-${episode}`, expectedSequence: attempt.sequence,
+          action: { finish: { message: `restricted response ${index}` } } }, agentHeaders);
+        assert.equal(step.status, 200);
+        attempt = step.body.attempt;
+      }
+      continue;
+    }
     const submitted = await request(gateway, 'POST', `/v1/examinations/${id}/responses`, {
       idempotencyKey: `item-${index}`, expectedSequence: attempt.sequence, itemId: item.id,
       response: `restricted response ${index}`,

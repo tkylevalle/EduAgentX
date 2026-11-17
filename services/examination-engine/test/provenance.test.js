@@ -4,7 +4,8 @@ const assert = require('node:assert/strict');
 const { randomUUID } = require('node:crypto');
 const p = require('../../../packages/execution-provenance');
 const { fixture } = require('../../../packages/execution-provenance/test/fixtures');
-const { boot, ACTOR, AGENT, EXAMINER, INTERNAL_KEY } = require('./exam-harness');
+const { boot, answerItem, ACTOR, AGENT, EXAMINER, INTERNAL_KEY, EPISODE_KEY } = require('./exam-harness');
+const { actionsResponse, policyActions } = require('../behaviour');
 
 async function setup(t, mode, options = {}) {
   const f = fixture(mode, ACTOR);
@@ -28,6 +29,16 @@ for (const mode of ['synthetic','replay']) {
     assert.equal(changed.status, 409);
     let first;
     for (const [index, item] of a.form.items.entries()) {
+      if (item.kind === 'behaviour') {
+        // A step that departs from the source's reference policy is refused and records nothing.
+        const count = (await c.store.get(a.attemptId)).events.length;
+        const off = await c.call('POST', `/internal/attempts/${a.attemptId}/episodes/${item.id}/steps`,
+          { idempotencyKey: `off-${index}`, expectedSequence: a.sequence, action: { finish: { message: 'done' } } });
+        assert.deepEqual([off.status, off.body.error], [409, 'provenance_conflict']);
+        assert.equal((await c.store.get(a.attemptId)).events.length, count);
+        a = { ...a, ...(await answerItem(c, a, item, { policy: p.episodePolicy(c.f.run, item) }, `answer-${index}`)) };
+        continue;
+      }
       const produced = p.receipt(c.f.run, 'examination', item, a.attemptId, c.clock());
       const body = { idempotencyKey: `answer-${index}`, expectedSequence: a.sequence, itemId: item.id,
         ...produced, trustedExecution: c.f.authority };
@@ -58,6 +69,84 @@ for (const mode of ['synthetic','replay']) {
     assert.equal(projected.body.attempt.provenance.run.evidenceMode, mode);
   });
 }
+
+test('a retried provenance-bound episode step replays instead of conflicting', async (t) => {
+  const c = await setup(t, 'synthetic');
+  const a = (await c.call('POST', '/internal/attempts', c.admission)).body.attempt;
+  const item = (await c.store.get(a.attemptId)).form.items.find((value) => value.kind === 'behaviour');
+  const [action] = policyActions(a.attemptId, item, EPISODE_KEY, p.episodePolicy(c.f.run, item));
+  const body = { idempotencyKey: 'step-retry', expectedSequence: a.sequence, action };
+  const path = `/internal/attempts/${a.attemptId}/episodes/${item.id}/steps`;
+  const first = await c.call('POST', path, body);
+  assert.equal(first.status, 200, JSON.stringify(first.body));
+  const retry = await c.call('POST', path, body);
+  assert.deepEqual([retry.status, retry.body.outcome], [200, 'replay'], JSON.stringify(retry.body));
+});
+
+test('a concurrent off-policy step sent with the next sequence is refused under the lock', async (t) => {
+  const c = await setup(t, 'synthetic');
+  const a = (await c.call('POST', '/internal/attempts', c.admission)).body.attempt;
+  const item = (await c.store.get(a.attemptId)).form.items.find((value) => value.kind === 'behaviour');
+  const [first] = policyActions(a.attemptId, item, EPISODE_KEY, p.episodePolicy(c.f.run, item));
+  const path = `/internal/attempts/${a.attemptId}/episodes/${item.id}/steps`;
+  const [onPolicy, offPolicy] = await Promise.all([
+    c.call('POST', path, { idempotencyKey: 'race-1', expectedSequence: a.sequence, action: first }),
+    c.call('POST', path, { idempotencyKey: 'race-2', expectedSequence: a.sequence + 1, action: { finish: { message: 'done' } } })]);
+  assert.equal(onPolicy.status, 200, JSON.stringify(onPolicy.body));
+  assert.equal(offPolicy.status, 409);
+  const steps = (await c.store.get(a.attemptId)).events.filter((e) => e.eventType === 'episode_step_recorded');
+  assert.deepEqual(steps.map((e) => e.payload.action), [first]);
+});
+
+test('the store refuses caller-supplied episode evidence and a provenance step without the reference', async (t) => {
+  const c = await setup(t, 'synthetic');
+  const a = (await c.call('POST', '/internal/attempts', c.admission)).body.attempt;
+  const item = (await c.store.get(a.attemptId)).form.items.find((value) => value.kind === 'behaviour');
+  const [first] = policyActions(a.attemptId, item, EPISODE_KEY, p.episodePolicy(c.f.run, item));
+  const step = { type: 'episode_step', idempotencyKey: 'direct', expectedSequence: a.sequence, itemId: item.id, action: first,
+    now: c.clock(), correlationId: 'direct' };
+  await assert.rejects(c.store.command(a.attemptId, step), /provenance_conflict/);
+  const forged = p.episodeReceipt(c.f.run, item, a.attemptId, '{}', '2026-11-09T00:00:00.000Z');
+  await assert.rejects(c.store.command(a.attemptId, { ...step, executionEvidence: forged },
+    { referenceStep: () => first }), /provenance_conflict/);
+});
+
+test('a stale or late step is refused by the cheap checks before the reference policy is consulted', async (t) => {
+  const c = await setup(t, 'synthetic');
+  const a = (await c.call('POST', '/internal/attempts', c.admission)).body.attempt;
+  const item = (await c.store.get(a.attemptId)).form.items.find((value) => value.kind === 'behaviour');
+  let consulted = 0;
+  const referenceStep = () => { consulted += 1; return { finish: { message: 'never matches' } }; };
+  const step = { type: 'episode_step', idempotencyKey: 'stale', expectedSequence: a.sequence + 5, itemId: item.id,
+    action: { tool: 'read_document', args: {} }, now: c.clock(), correlationId: 'stale' };
+  await assert.rejects(c.store.command(a.attemptId, step, { referenceStep }), /sequence_conflict/);
+  assert.equal(consulted, 0);
+  // The step that is checked receives the steps already taken on its item
+  // (once in the store's preview of the command and once when it commits).
+  const seen = [];
+  const [first] = policyActions(a.attemptId, item, EPISODE_KEY, p.episodePolicy(c.f.run, item));
+  await c.store.command(a.attemptId, { ...step, idempotencyKey: 'fresh', expectedSequence: a.sequence, action: first },
+    { referenceStep: (_attempt, _item, taken) => { seen.push(taken); return first; } });
+  assert.deepEqual(seen, [[], []]);
+});
+
+test('an episode receipt binds the run, attempt, item, steps, policy and a well-formed time', () => {
+  const f = fixture('synthetic', ACTOR), attemptId = randomUUID();
+  const items = require('../standard-generator').createStandardItems({ packageDigest: f.pkg.digest, template: f.pkg.examTemplate,
+    objectives: f.pkg.objectives, modules: f.pkg.modules, sources: f.pkg.sources, rubric: f.pkg.rubric });
+  const [item, other] = items.filter((value) => value.kind === 'behaviour');
+  const response = actionsResponse([{ finish: { message: 'done' } }]);
+  const rec = p.episodeReceipt(f.run, item, attemptId, response, '2026-11-09T00:00:00.000Z');
+  assert.ok(rec.entryId.endsWith(':episode:safe-agent'));
+  assert.deepEqual(p.validateEpisodeReceipt(f.run, rec, item, response, attemptId), rec);
+  for (const bad of [() => p.validateEpisodeReceipt(f.run, rec, item, response, randomUUID()),
+    () => p.validateEpisodeReceipt(f.run, rec, other, response, attemptId),
+    () => p.validateEpisodeReceipt(f.run, rec, item, actionsResponse([{ finish: { message: 'other' } }]), attemptId),
+    () => p.validateEpisodeReceipt(f.run, { ...rec, executedAt: 'yesterday' }, item, response, attemptId),
+    () => p.validateEpisodeReceipt(f.run, { ...rec, entryId: rec.entryId.replace('safe-agent', 'instruction-follower') }, item, response, attemptId),
+    () => p.validateEpisodeReceipt(fixture('synthetic', 'other-agent').run, rec, item, response, attemptId)])
+    assert.throws(bad, /provenance_conflict/);
+});
 
 test('Examination refuses unknown/wrong exact Training run, incomplete completion and missing internal key', async (t) => {
   const c = await setup(t, 'synthetic');

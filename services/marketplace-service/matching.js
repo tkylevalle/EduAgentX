@@ -1,6 +1,6 @@
 'use strict';
 
-const { SUPPORTED_DOMAIN, validateRequestVersion } = require('./capability-request');
+const { isSupportedDomain, validateRequestVersion } = require('./capability-request');
 const { GATES, checkEligibility } = require('./eligibility');
 const POLICY_VERSION = 'MATCH-POLICY-1.0.0';
 const DAY_MS = 86400000;
@@ -81,7 +81,7 @@ function rank(items, near, limit) {
 function matchCandidates(request, inputs, now) {
   const empty = { policyVersion: POLICY_VERSION, eligibleMatches: [], nearMatches: [],
     nearMatchLane: 'Not Eligible', totalEligible: 0, totalNearMatches: 0, exclusions: [], exclusionCounts: {} };
-  if (request?.domain !== SUPPORTED_DOMAIN) return { ...empty, outcome: 'UNSUPPORTED_DOMAIN' };
+  if (!isSupportedDomain(request?.domain)) return { ...empty, outcome: 'UNSUPPORTED_DOMAIN' };
   if (!validateRequestVersion(request).ok || !Number.isFinite(Date.parse(now)))
     return { ...empty, outcome: 'INVALID_REQUEST' };
   const eligible = [], near = [], exclusions = [];
@@ -116,6 +116,8 @@ function matchCandidates(request, inputs, now) {
       evidence: { checkedAt: now, credentialStatus: authoritative.verification.status,
         configurationFingerprint: c.configurationFingerprint, assessmentMode: c.assessmentMode,
         evidenceMode: c.evidenceMode, environment: c.environment,
+        // The signed behaviour bounds, or null: behaviour was not measured.
+        behaviour: c.behaviour ?? null,
         package: { id: c.package.id, version: c.package.version, digest: c.package.digest } },
       sources: Object.fromEntries(SOURCE_KEYS.map((key) => [key, SOURCE_VALUES.includes(sources[key]) ? sources[key] : 'contract_violation'])),
     };

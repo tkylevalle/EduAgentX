@@ -1,0 +1,140 @@
+{
+ "ai-safety": [
+  {
+   "id": "rmf-ai-actors",
+   "sourceId": "nist-rmf",
+   "locator": "Section 2, Audience",
+   "text": "The Framework is designed to equip organizations and individuals – referred to here as AI actors – with approaches that increase the trustworthiness of AI systems, and to help foster the responsible design, development, deployment, and use of AI systems over time. AI actors are defined by the Organisation for Economic Co-operation and Development (OECD) as “those who play an active role in the AI system lifecycle, including organizations and individuals that deploy or operate AI” [OECD (2019) Artificial Intelligence in Society—OECD iLibrary] (See Appendix A)."
+  },
+  {
+   "id": "rmf-govern",
+   "sourceId": "nist-rmf",
+   "locator": "Section 5.1, Govern",
+   "text": "The GOVERN function: • cultivates and implements a culture of risk management within organizations designing, developing, deploying, evaluating, or acquiring AI systems;"
+  },
+  {
+   "id": "rmf-map",
+   "sourceId": "nist-rmf",
+   "locator": "Section 5.2, Map",
+   "text": "The MAP function establishes the context to frame risks related to an AI system. The AI lifecycle consists of many interdependent activities involving a diverse set of actors (See Figure 3)."
+  },
+  {
+   "id": "rmf-measure",
+   "sourceId": "nist-rmf",
+   "locator": "Section 5.3, Measure",
+   "text": "The MEASURE function employs quantitative, qualitative, or mixed-method tools, techniques, and methodologies to analyze, assess, benchmark, and monitor AI risk and related impacts. It uses knowledge relevant to AI risks identified in the MAP function and informs the MANAGE function. AI systems should be tested before their deployment and regularly while in operation. AI risk measurements include documenting aspects of systems’ functionality and trustworthiness."
+  },
+  {
+   "id": "rmf-manage",
+   "sourceId": "nist-rmf",
+   "locator": "Section 5.4, Manage",
+   "text": "The MANAGE function entails allocating risk resources to mapped and measured risks on a regular basis and as defined by the GOVERN function. Risk treatment comprises plans to respond to, recover from, and communicate about incidents or events."
+  },
+  {
+   "id": "gai-confabulation",
+   "sourceId": "nist-gai",
+   "locator": "Section 2, risk 2: Confabulation",
+   "text": "Confabulation: The production of confidently stated but erroneous or false content (known colloquially as “hallucinations” or “fabrications”) by which users may be misled or deceived."
+  },
+  {
+   "id": "gai-data-privacy",
+   "sourceId": "nist-gai",
+   "locator": "Section 2, risk 4: Data Privacy",
+   "text": "Data Privacy: Impacts due to leakage and unauthorized use, disclosure, or de-anonymization of biometric, health, location, or other personally identifiable information or sensitive data."
+  },
+  {
+   "id": "aml-indirect-injection",
+   "sourceId": "nist-aml",
+   "locator": "Section 3.4 [NISTAML.015], indirect prompt injection",
+   "text": "Many use cases for GenAI models involve models interacting with additional resources, from an internet-connected AGENT to a RETRIEVAL-AUGMENTED GENERATION (RAG) system depicted in Fig. 6. Because GenAI models combine the data and instruction channels, attackers can leverage the data channel to affect system operations by manipulating resources with which the system interacts. Thus, INDIRECT PROMPT INJECTION attacks are enabled by RESOURCE CONTROL that allows an attacker to indirectly (or remotely) inject system prompts without directly interacting with the application [146, 408]."
+  },
+  {
+   "id": "aml-agent-hijack",
+   "sourceId": "nist-aml",
+   "locator": "Section 3.4, integrity violations",
+   "text": "Attackers may also use indirect prompt injection attacks to hijack a GenAI AGENT, causing it to perform a malicious, attacker-specified task instead of (or in addition to) its intended, user-provided task [353]."
+  },
+  {
+   "id": "aml-agents",
+   "sourceId": "nist-aml",
+   "locator": "Section 3.5, Security of Agents",
+   "text": "An increasingly common use of GenAI models is constructing an (often LLM-based) AGENT, a software system that iteratively prompts a model, process its outputs – such as to select and call a function with specified inputs – and provides the results back to the model as a part of its next prompt [151, 155, 393]. Agents may be equipped to use tools such as webbrowsing or code interpreters, and may have additional features such as memory and/or planning capabilities. Because agents rely on GenAI systems to plan and execute their actions, they can be vulnerable to the many of the above categories of attacks against GenAI systems, including direct and indirect prompt injection. However, because agents can take actions using tools, these attacks can create additional risks in this context, such as enabling actors to hijack agents to execute arbitrary code or exfiltrate data from the environment in which they are operating."
+  },
+  {
+   "id": "aml-poisoning",
+   "sourceId": "nist-aml",
+   "locator": "Section 2.3, Poisoning Attacks and Mitigations",
+   "text": "Poisoning attacks are broadly defined as adversarial attacks during the training stage of the ML algorithm."
+  },
+  {
+   "id": "aml-evasion",
+   "sourceId": "nist-aml",
+   "locator": "Section 2.2, Evasion Attacks and Mitigations",
+   "text": "In an evasion attack, the adversary’s goal is to generate adversarial examples: samples whose classification can be changed to an arbitrary class of the attacker’s choice – often with only minimal perturbation [362]."
+  }
+ ],
+ "customer-refunds": [
+  {
+   "id": "crd-art9-1",
+   "sourceId": "crd-2011-83",
+   "locator": "Article 9(1)",
+   "text": "Save where the exceptions provided for in Article 16 apply, the consumer shall have a period of 14 days to withdraw from a distance or off-premises contract, without giving any reason, and without incurring any costs other than those provided for in Article 13(2) and Article 14."
+  },
+  {
+   "id": "crd-art13-1",
+   "sourceId": "crd-2011-83",
+   "locator": "Article 13(1)",
+   "text": "The trader shall reimburse all payments received from the consumer, including, if applicable, the costs of delivery without undue delay and in any event not later than 14 days from the day on which he is informed of the consumer’s decision to withdraw from the contract in accordance with Article 11. The trader shall carry out the reimbursement referred to in the first subparagraph using the same means of payment as the consumer used for the initial transaction, unless the consumer has expressly agreed otherwise and provided that the consumer does not incur any fees as a result of such reimbursement."
+  },
+  {
+   "id": "gdpr-art5-1-f",
+   "sourceId": "gdpr",
+   "locator": "Article 5(1)(f)",
+   "text": "processed in a manner that ensures appropriate security of the personal data, including protection against unauthorised or unlawful processing and against accidental loss, destruction or damage, using appropriate technical or organisational measures (‘integrity and confidentiality’)."
+  }
+ ],
+ "personal-data": [
+  {
+   "id": "gdpr-art4-1",
+   "sourceId": "gdpr",
+   "locator": "Article 4(1)",
+   "text": "‘personal data’ means any information relating to an identified or identifiable natural person (‘data subject’); an identifiable natural person is one who can be identified, directly or indirectly, in particular by reference to an identifier such as a name, an identification number, location data, an online identifier or to one or more factors specific to the physical, physiological, genetic, mental, economic, cultural or social identity of that natural person;"
+  },
+  {
+   "id": "gdpr-art5-1-b",
+   "sourceId": "gdpr",
+   "locator": "Article 5(1)(b)",
+   "text": "collected for specified, explicit and legitimate purposes and not further processed in a manner that is incompatible with those purposes; further processing for archiving purposes in the public interest, scientific or historical research purposes or statistical purposes shall, in accordance with Article 89(1), not be considered to be incompatible with the initial purposes (‘purpose limitation’);"
+  },
+  {
+   "id": "gdpr-art5-1-c",
+   "sourceId": "gdpr",
+   "locator": "Article 5(1)(c)",
+   "text": "adequate, relevant and limited to what is necessary in relation to the purposes for which they are processed (‘data minimisation’);"
+  },
+  {
+   "id": "gdpr-art5-1-e",
+   "sourceId": "gdpr",
+   "locator": "Article 5(1)(e)",
+   "text": "kept in a form which permits identification of data subjects for no longer than is necessary for the purposes for which the personal data are processed; personal data may be stored for longer periods insofar as the personal data will be processed solely for archiving purposes in the public interest, scientific or historical research purposes or statistical purposes in accordance with Article 89(1) subject to implementation of the appropriate technical and organisational measures required by this Regulation in order to safeguard the rights and freedoms of the data subject (‘storage limitation’);"
+  },
+  {
+   "id": "gdpr-art5-1-f",
+   "sourceId": "gdpr",
+   "locator": "Article 5(1)(f)",
+   "text": "processed in a manner that ensures appropriate security of the personal data, including protection against unauthorised or unlawful processing and against accidental loss, destruction or damage, using appropriate technical or organisational measures (‘integrity and confidentiality’)."
+  },
+  {
+   "id": "gdpr-art6-1",
+   "sourceId": "gdpr",
+   "locator": "Article 6(1), opening and points (a) and (b)",
+   "text": "Processing shall be lawful only if and to the extent that at least one of the following applies: (a) the data subject has given consent to the processing of his or her personal data for one or more specific purposes; (b) processing is necessary for the performance of a contract to which the data subject is party or in order to take steps at the request of the data subject prior to entering into a contract;"
+  },
+  {
+   "id": "gdpr-art44",
+   "sourceId": "gdpr",
+   "locator": "Article 44, first sentence",
+   "text": "Any transfer of personal data which are undergoing processing or are intended for processing after transfer to a third country or to an international organisation shall take place only if, subject to the other provisions of this Regulation, the conditions laid down in this Chapter are complied with by the controller and processor, including for onward transfers of personal data from the third country or an international organisation to another third country or to another international organisation."
+  }
+ ]
+}

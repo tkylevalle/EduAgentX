@@ -11,6 +11,14 @@ async function getJson(source, url, { headers = {}, correlationId, timeoutMs = 2
       signal: AbortSignal.timeout(timeoutMs) });
   } catch { throw new DependencyError(source); }
   if (response.status === 404) return null;
+  // validation-activation's answer when several domains are Active and the
+  // caller named none: the caller's to fix, so a 409 with the domains, not an
+  // outage. The same shape as lifecycle's fail(), which sources does not load.
+  if (response.status === 409) {
+    const body = await response.json().catch(() => null);
+    if (body?.error === 'domain_required') throw Object.assign(new Error('domain_required'), { code: 'domain_required', status: 409,
+      domains: Array.isArray(body.domains) ? body.domains : [] });
+  }
   if (!response.ok) throw new DependencyError(source, 502);
   try { return await response.json(); }
   catch { throw new DependencyError(source, 502); }
@@ -25,7 +33,9 @@ function createSources({
 } = {}) {
   if (!curriculumKey || !trainingKey) throw new Error('curriculum and training keys required');
   return {
-    activePackage: (correlationId) => getJson('validation-activation', `${validationUrl}/packages/active`, {
+    // selector: { packageId } or { domain }; none asks for the only Active package.
+    activePackage: (correlationId, selector = {}) => getJson('validation-activation',
+      `${validationUrl}/packages/active${Object.keys(selector).length ? `?${new URLSearchParams(selector)}` : ''}`, {
       correlationId, headers: { 'x-internal-service-key': curriculumKey, 'x-actor-subject': 'examination-engine' },
     }),
     registration: async (actor, correlationId) => {
@@ -33,9 +43,11 @@ function createSources({
         `${registryUrl}/v1/registrations?agentLearnerKey=${encodeURIComponent(actor)}`, { correlationId });
       return body?.registration || null;
     },
-    completion: async (actor, pkg, correlationId, sessionId) => {
+    // remediationRequestId: the newest completion of that remediation request instead of the newest of any.
+    completion: async (actor, pkg, correlationId, sessionId, { remediationRequestId } = {}) => {
       const query = new URLSearchParams({ agentLearnerKey: actor, packageId: pkg.packageId,
-        packageVersion: pkg.version, packageDigest: pkg.digest, ...(sessionId ? { sessionId } : {}) });
+        packageVersion: pkg.version, packageDigest: pkg.digest, ...(sessionId ? { sessionId } : {}),
+        ...(remediationRequestId ? { remediationRequestId } : {}) });
       const body = await getJson('training-service', `${trainingUrl}/internal/completions/latest?${query}`, {
         correlationId, headers: { 'x-internal-service-key': trainingKey, 'x-actor-subject': 'examination-engine' },
       });

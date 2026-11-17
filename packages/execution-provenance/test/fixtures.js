@@ -39,4 +39,12 @@ function fixture(mode = 'synthetic', actor = 'provenance-agent') {
   }
   return { pkg, registration, authority, evidence, run, completion, events, trainingPackage, session: started.session, profile };
 }
-module.exports = { fixture };
+// Examination receipts as the Engine holds them: text items carry the
+// executor's receipt, behaviour items the Engine's receipt over recorded steps.
+function examinationReceipts(run, items, attemptId) {
+  const { actionsResponse } = require('../../../services/examination-engine/behaviour');
+  return items.map((item) => (item.kind === 'behaviour'
+    ? execution.episodeReceipt(run, item, attemptId, actionsResponse([{ finish: { message: 'done' } }]), '2026-11-09T00:00:00.000Z')
+    : execution.receipt(run, 'examination', item, attemptId).executionEvidence));
+}
+module.exports = { fixture, examinationReceipts };

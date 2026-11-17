@@ -2,7 +2,8 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { sha256, validatePackage } = require('../model');
+const { RUBRIC_POLICY, SOURCE_HOSTS, sha256, validatePackage } = require('../model');
+const { sectionsDigest } = require('../sections');
 const sample = require('../examples/ai-safety-candidate');
 
 const copy = () => structuredClone(sample);
@@ -10,6 +11,30 @@ const hasError = (errors, prefix) => errors.some(({ path }) => path.startsWith(p
 
 test('five-source candidate has complete pinned artifacts and objective delivery links', () => {
   assert.deepEqual(validatePackage(copy()), []);
+});
+
+test('the refunds and personal-data packages validate against their own domain baselines', () => {
+  for (const name of ['customer-refunds-candidate', 'personal-data-candidate']) {
+    assert.deepEqual(validatePackage(structuredClone(require(`../examples/${name}`))), [], name);
+  }
+});
+
+test('a package names a known domain, and its sources must be that domain\'s', () => {
+  const unknown = copy();
+  unknown.manifest.domainId = 'payments';
+  assert.ok(hasError(validatePackage(unknown), 'manifest.domainId'));
+  const crossed = copy();
+  crossed.manifest.domainId = 'personal-data';
+  assert.ok(hasError(validatePackage(crossed), 'sources'));
+});
+
+test('a stored section must match its digest, and a legislation source is pinned by its sections', () => {
+  const edited = structuredClone(require('../examples/customer-refunds-candidate'));
+  edited.sourceSections[0].text += ' Added later.';
+  assert.ok(hasError(validatePackage(edited), 'sourceSections[0]'));
+  const stale = structuredClone(require('../examples/customer-refunds-candidate'));
+  stale.sources[0].contentSha256 = sha256('another text');
+  assert.ok(hasError(validatePackage(stale), 'sources[0]'));
 });
 
 test('a source change cannot reuse a manifest pin', () => {
@@ -95,4 +120,32 @@ test('Curriculum Track cannot repeat one module while omitting the others', () =
   pkg.curriculumTrack.moduleIds = Array(5).fill('m1');
   pkg.manifest.curriculumTrackPin.sha256 = sha256(pkg.curriculumTrack);
   assert.ok(hasError(validatePackage(pkg), 'curriculumTrack.moduleIds'));
+});
+
+const EXAMPLES = ['ai-safety-candidate', 'customer-refunds-candidate', 'personal-data-candidate'];
+
+test('every file or page the freshness job fetches is on the pinned source host allowlist', () => {
+  for (const name of EXAMPLES) {
+    const pkg = require(`../examples/${name}`);
+    const urls = [...pkg.sources.filter((source) => source.snapshotKind === 'pdf').map((source) => source.snapshotUrl),
+      ...pkg.sourceSections.filter((section) => section.url).map((section) => section.url)];
+    for (const url of urls) assert.ok(SOURCE_HOSTS.includes(new URL(url).hostname), `${name}: ${url}`);
+  }
+});
+
+test('a source kept as sections is pinned by the one shared sections digest', () => {
+  for (const name of EXAMPLES) {
+    const pkg = require(`../examples/${name}`);
+    for (const source of pkg.sources.filter((value) => value.snapshotKind !== 'pdf'))
+      assert.equal(source.contentSha256, sectionsDigest(pkg.sourceSections.filter((section) => section.sourceId === source.id)), `${name}: ${source.id}`);
+  }
+});
+
+test('every example rubric carries the one shared review floor, target and scale', () => {
+  assert.deepEqual([RUBRIC_POLICY.scoreFloor, RUBRIC_POLICY.scoreTarget, RUBRIC_POLICY.scoreScale], [3.5, 4, { min: 0, max: 5 }]);
+  for (const name of EXAMPLES) {
+    const { rubric } = require(`../examples/${name}`);
+    assert.deepEqual([rubric.scoreFloor, rubric.scoreTarget, rubric.scoreScale],
+      [RUBRIC_POLICY.scoreFloor, RUBRIC_POLICY.scoreTarget, RUBRIC_POLICY.scoreScale], name);
+  }
 });

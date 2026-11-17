@@ -6,8 +6,10 @@ const { canonicalEvidence } = require('../../packages/external-agent-protocol');
 const { GatewayProtocolClient } = require('./gateway-client');
 const { createExamRunner } = require('./exam-runner');
 const { publishListing } = require('./listing');
-const { examAnswer, listExamScenarios } = require('./exam-scenarios');
+const { examAnswer, examPolicy, listExamScenarios } = require('./exam-scenarios');
 const { createLiveModel, LiveModelError } = require('./live-model');
+const { createNotebook, scopeOf } = require('./notes');
+const { isDomainId } = require('../../packages/agent-sandbox/src/families');
 const {
   DEFAULT_REGISTRATION,
   createSyntheticAgentLearner,
@@ -32,7 +34,7 @@ const LIVE_SCENARIO = 'live-model';
 const DEFAULT_EXAM_SCENARIO = 'safe-escalation';
 
 function createApp({ learner = createDefaultLearner(), examRunner = null, liveModel = createDefaultLiveModel(),
-  liveLearner = null, liveExamRunner = null, liveAgentSecret = LIVE_AGENT_CLIENT_SECRET } = {}) {
+  liveLearner = null, liveExamRunner = null, liveAgentSecret = LIVE_AGENT_CLIENT_SECRET, notebook = createNotebook() } = {}) {
   // Built on first use, so apps that never run an exam need no exam client.
   const runner = () => examRunner || (examRunner = createDefaultExamRunner());
   const liveAgent = () => liveLearner || (liveLearner = createDefaultLearner(LIVE_AGENT_CLIENT_ID, liveAgentSecret));
@@ -55,9 +57,10 @@ function createApp({ learner = createDefaultLearner(), examRunner = null, liveMo
   app.get('/v1/live-model', (req, res) => {
     res.status(200).json({ apiVersion: 'v1', available: liveReady, provider: liveModel.provider,
       model: liveModel.model, scenarioId: LIVE_SCENARIO, evidence: canonicalEvidence('live'),
-      ...(liveReady ? {} : { reason: liveModel.available ? 'live_agent_not_configured' : 'live_model_not_configured' }) });
+      ...(liveReady ? {} : { reason: liveModel.available ? 'live_agent_not_configured' : (liveModel.reason || 'live_model_not_configured') }) });
   });
 
+  const invalidDomain = (res) => res.status(400).json({ apiVersion: 'v1', outcome: 'rejected', reason: 'invalid_domain' });
   const liveUnavailable = (res) => res.status(503).json({ apiVersion: 'v1', outcome: 'system_aborted',
     reason: liveModel.available ? 'live_agent_not_configured' : 'live_model_not_configured', evidence: canonicalEvidence('live') });
 
@@ -99,6 +102,7 @@ function createApp({ learner = createDefaultLearner(), examRunner = null, liveMo
     try {
       const body = req.body || {};
       const live = body.learner === 'live';
+      if (body.domainId !== undefined && !isDomainId(body.domainId)) return invalidDomain(res);
       if (live && !liveReady) return liveUnavailable(res);
       const usage = newUsage();
       const result = await (live ? liveAgent() : learner).train({
@@ -107,17 +111,21 @@ function createApp({ learner = createDefaultLearner(), examRunner = null, liveMo
         resumeSessionId: body.resumeSessionId,
         maxItems: body.maxItems === undefined ? 20 : body.maxItems,
         correlationId: req.correlationId || body.correlationId,
+        domainId: body.domainId,
         ...(live ? { registration: liveModel.registration, evidenceMode: 'live',
-          respond: async (item) => {
-            try { return record(usage, await liveModel.answerTraining(item)); } catch (error) {
+          respond: async (item, context) => {
+            try { return record(usage, await liveModel.answerTraining(item, context?.remediation, context?.domainId)); } catch (error) {
               telemetry.log(SERVICE_NAME, 'live_model_failed', { correlationId: req.correlationId, dependency: 'live-model',
                 outcome: error.code, itemKind: item.kind, itemFields: Object.keys(item).join(','), ...(error.detail || {}) });
               throw error;
             }
-          } } : {}),
+          },
+          // Once Training accepts an answer, it becomes the model's note for the
+          // item's objectives in that package version.
+          onAccepted: (item, answer, context) => notebook.write(item.objectiveIds, answer, scopeOf(context?.package)) } : {}),
       });
       return res.status(statusForOutcome(result.outcome)).json({ apiVersion: 'v1', ...result,
-        ...(live ? { live: liveSummary(liveModel, usage) } : {}),
+        ...(live ? { live: liveSummary(liveModel, usage), notes: notesSummary(notebook) } : {}),
         evidence: canonicalEvidence(live ? 'live' : 'synthetic') });
     } catch (error) { return next(error); }
   });
@@ -126,8 +134,9 @@ function createApp({ learner = createDefaultLearner(), examRunner = null, liveMo
   app.post('/v1/execution-runs', async (req, res, next) => {
     try {
       const body = req.body || {};
-      if (Object.keys(body).some((k) => !['evidenceMode','profileId','scenarioId','action','trainingSessionId'].includes(k)) ||
-        !['synthetic','replay'].includes(body.evidenceMode) || !['training','examination','publish'].includes(body.action))
+      if (Object.keys(body).some((k) => !['evidenceMode','profileId','scenarioId','action','trainingSessionId','domainId'].includes(k)) ||
+        !['synthetic','replay'].includes(body.evidenceMode) || !['training','examination','publish'].includes(body.action) ||
+        (body.domainId !== undefined && !isDomainId(body.domainId)))
         return res.status(400).json({ error: 'invalid_execution_request' });
       const replay = body.evidenceMode === 'replay';
       const clientId = replay ? process.env.REPLAY_AGENT_CLIENT_ID : process.env.SYNTHETIC_EXECUTOR_CLIENT_ID;
@@ -144,12 +153,12 @@ function createApp({ learner = createDefaultLearner(), examRunner = null, liveMo
       if (body.action === 'training') {
         const result = await createSyntheticAgentLearner({ gatewayClient: client }).train({ agentLearnerKey: clientId,
           evidenceMode: body.evidenceMode, executionProfile: profile, profileId: body.profileId || 'competent',
-          correlationId: req.correlationId || undefined });
+          correlationId: req.correlationId || undefined, domainId: body.domainId });
         return res.status(result.outcome === 'completed' ? 200 : 409).json(result);
       }
       if (!execution.UUID.test(body.trainingSessionId || '')) return res.status(400).json({ error: 'training_run_required' });
       const result = await createExamRunner({ gatewayClient: client }).examine({ trainingSessionId: body.trainingSessionId,
-        executionProfile: profile, correlationId: req.correlationId || undefined });
+        executionProfile: profile, correlationId: req.correlationId || undefined, domainId: body.domainId });
       return res.status(result.outcome === 'complete' ? 200 : 409).json(result);
     } catch (error) {
       if (error.code) return res.status(error.status || 409).json({ error: error.code });
@@ -167,18 +176,30 @@ function createApp({ learner = createDefaultLearner(), examRunner = null, liveMo
     try {
       const body = req.body || {};
       const scenarioId = body.scenarioId || DEFAULT_EXAM_SCENARIO;
+      if (body.domainId !== undefined && !isDomainId(body.domainId)) return invalidDomain(res);
       if (scenarioId === LIVE_SCENARIO) {
         if (!liveReady) return liveUnavailable(res);
         const usage = newUsage();
         try {
           const result = await liveRunner().examine({
-            answerFor: async (item) => record(usage, await liveModel.answerExam(item)),
+            // Open book: the model sees the lessons knowledge.lookup returns for
+            // the item, and its own training notes for the item's objectives.
+            answerFor: async (item, index, tools) => record(usage,
+              await liveModel.answerExam(item, await tools.lookup(item.prompt), notebook.for(item.objectiveIds, scopeOf(tools.package)), tools.domainId)),
+            // Behaviour items: the model chooses each action from what the step route shows it.
+            actFor: (item, context) => async (observation) => {
+              const { action, valid, usage: used } = await liveModel.actEpisode(observation, notebook.for(item.objectiveIds, scopeOf(context?.package)));
+              count(usage, used);
+              if (!valid) usage.invalidActions += 1;
+              return action;
+            },
             correlationId: req.correlationId || body.correlationId,
+            domainId: body.domainId,
             gradingWaitMs: 90_000,
           });
           const status = result.outcome === 'not_started' && result.status >= 500 ? 503 : 200;
           return res.status(status).json({ apiVersion: 'v1', scenarioId, ...result, credentialIssued: false,
-            live: liveSummary(liveModel, usage), evidence: canonicalEvidence('live') });
+            live: liveSummary(liveModel, usage), notes: notesSummary(notebook), evidence: canonicalEvidence('live') });
         } catch (error) {
           if (!(error instanceof LiveModelError)) throw error;
           telemetry.log(SERVICE_NAME, 'live_model_failed', { correlationId: req.correlationId, dependency: 'live-model', outcome: error.code });
@@ -191,8 +212,8 @@ function createApp({ learner = createDefaultLearner(), examRunner = null, liveMo
           evidence: canonicalEvidence('synthetic') });
       }
       const result = await runner().examine({
-        answerFor: (item, index) => examAnswer(scenarioId, item, index),
-        correlationId: req.correlationId || body.correlationId,
+        answerFor: (item, index) => examAnswer(scenarioId, item, index), actFor: (item) => examPolicy(scenarioId, item, body.domainId),
+        correlationId: req.correlationId || body.correlationId, domainId: body.domainId,
       });
       const status = result.outcome === 'not_started' && result.status >= 500 ? 503 : 200;
       return res.status(status).json({ apiVersion: 'v1', scenarioId, ...result, credentialIssued: false,
@@ -237,14 +258,21 @@ function createDefaultLiveModel() {
 
 // Token counts only. Answers are restricted examination material (#17) and are
 // never returned.
-const newUsage = () => ({ calls: 0, promptTokens: 0, completionTokens: 0 });
-function record(usage, { answer, usage: used }) {
+// invalidActions: acting turns whose reply held no valid action, so the
+// episode ended there; counted so a format failure is not read as a choice.
+const newUsage = () => ({ calls: 0, promptTokens: 0, completionTokens: 0, invalidActions: 0 });
+function count(usage, used) {
   usage.calls += 1;
   usage.promptTokens += used.promptTokens || 0;
   usage.completionTokens += used.completionTokens || 0;
+}
+function record(usage, { answer, usage: used }) {
+  count(usage, used);
   return answer;
 }
 const liveSummary = (liveModel, usage) => ({ provider: liveModel.provider, model: liveModel.model, ...usage });
+// Which notes the live learner holds: a count and a digest, never the text.
+const notesSummary = (notebook) => ({ objectives: notebook.objectives(), digest: notebook.digest() });
 
 function createDefaultExamRunner(clientId = AGENT_CLIENT_ID, clientSecret = AGENT_CLIENT_SECRET) {
   return createExamRunner({

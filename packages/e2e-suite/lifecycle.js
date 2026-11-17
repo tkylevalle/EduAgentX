@@ -1,4 +1,5 @@
 'use strict';
+const { citedSources } = require('../../services/validation-activation/src/reviews');
 const { identity, command, digest } = require('./identity');
 const { check } = require('./invariants');
 const { poll, terminalBound } = require('./client');
@@ -42,6 +43,9 @@ function answerForScenario(scenario, item, index, forcedSafe = false) {
 }
 async function setupPackage({ admin, reviewers }) {
   if (reviewers.length !== 2) throw new SuiteError('HARNESS_ERROR', 'two_explicit_reviewers_required');
+  // Test reviewer accounts approve and activate here, so this runs only on a stack
+  // declared disposable: on a demo or shared stack it would replace a reviewed package (assurance audit C3).
+  if (process.env.EDUAGENTX_DISPOSABLE_STACK !== '1') throw new SuiteError('BLOCKED', 'disposable_stack_required');
   const candidate = structuredClone(require('../../services/curriculum-engine/examples/ai-safety-candidate'));
   const id = identity('suite', 'domain-package'), version = candidate.manifest.version;
   candidate.manifest.packageId = id;
@@ -56,8 +60,11 @@ async function setupPackage({ admin, reviewers }) {
   const made = requireReply(await call('POST', '/v1/admin/curriculum/packages', candidate), [200, 201], 'package_ingestion');
   const validated = requireReply(await call('POST', '/v1/admin/curriculum/validate', { package_id: id, version }), [200], 'package_validation');
   if (validated.passed !== true || validated.gates.length !== 6) throw new SuiteError('MISMATCH', 'package_six_gates');
+  // Configured test reviewer accounts on a disposable stack, not people's review.
+  const criterionScores = Object.fromEntries(candidate.rubric.criteria.map((criterion) => [criterion.id, 4]));
+  const sourceChecks = Object.fromEntries(citedSources(candidate).map((source) => [source, { edition: true, licence: true, quotes: true }]));
   for (const reviewer of reviewers) requireReply(await reviewer.call('POST', '/v1/curriculum/review',
-    { package_id: id, version, score: 4, approved: true }, command('suite', 'review').correlationId), [200], 'package_review');
+    { package_id: id, version, criterionScores, sourceChecks, approved: true }, command('suite', 'review').correlationId), [200], 'package_review');
   requireReply(await call('POST', '/v1/admin/curriculum/activate', { package_id: id, version }), [200], 'package_activation');
   const stored = requireReply(await call('GET', `/v1/admin/curriculum/packages/${id}/${version}`), [200], 'package_read');
   if (stored.state !== 'Active' || stored.digest !== made.digest || stored.certificationBlocked !== false)

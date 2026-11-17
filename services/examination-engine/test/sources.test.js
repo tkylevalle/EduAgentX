@@ -36,3 +36,21 @@ test('owned HTTP sources use service keys and exact completion query, with fail-
     curriculumKey: 'curriculum-key', trainingKey: 'training-key' });
   await assert.rejects(broken.activePackage('corr'), DependencyError);
 });
+
+test('several Active domains is the caller\'s domain_required refusal with the domains, not an outage', async (t) => {
+  const server = http.createServer((req, res) => {
+    res.setHeader('content-type', 'application/json');
+    res.statusCode = 409;
+    if (req.url === '/packages/active') return res.end(JSON.stringify({ error: 'domain_required', domains: ['ai-safety', 'personal-data'] }));
+    res.end(JSON.stringify({ error: 'something_else' }));
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const sources = createSources({ validationUrl: base, registryUrl: base, trainingUrl: base,
+    curriculumKey: 'curriculum-key', trainingKey: 'training-key' });
+  await assert.rejects(sources.activePackage('corr'), (error) => !(error instanceof DependencyError) &&
+    error.code === 'domain_required' && error.status === 409 && JSON.stringify(error.domains) === '["ai-safety","personal-data"]');
+  // Any other refusal is still a dependency failure.
+  await assert.rejects(sources.registration('a', 'corr'), DependencyError);
+});

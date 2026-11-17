@@ -8,6 +8,11 @@ const {
   protocolResponseMetadata,
 } = require('../../packages/external-agent-protocol');
 const { getSyntheticProfile, listSyntheticProfiles } = require('./profiles');
+const { isDomainId } = require('../../packages/agent-sandbox/src/families');
+
+// Block reasons with which Training ends an earlier session on start; any other
+// block (package state, pin, quarantine) is reported as it is.
+const SESSION_ENDED_REASONS = Object.freeze(['session_timed_out', 'configuration_changed']);
 
 const DEFAULT_REGISTRATION = Object.freeze({
   model: { provider: 'synthetic', version: '1.0.0' },
@@ -173,13 +178,16 @@ function createSyntheticAgentLearner({ gatewayClient, idGenerator = randomUUID }
   // Sprint 2 path: a synthetic learner exercises the actual Gateway session
   // contract. Bounded runs make interruption/resumption reproducible.
   // registration, evidenceMode and respond let a live learner reuse this
-  // contract; respond(item) returns the response text for one delivered item.
+  // contract; respond(item, context) returns the response text for one delivered
+  // item, and onAccepted(item, response, context) runs after Training accepts it.
+  // context holds the session's remediation reason and package.
   async function train({ agentLearnerKey, profileId = 'competent', resumeSessionId,
     maxItems = 20, correlationId = `synthetic-training-${idGenerator()}`, timeoutMs = 5000,
-    registration = {}, evidenceMode = 'synthetic', respond = null, executionProfile } = {}) {
+    registration = {}, evidenceMode = 'synthetic', respond = null, onAccepted = null, executionProfile, domainId } = {}) {
     const profile = getSyntheticProfile(profileId);
     if (!profile || !agentLearnerKey || !Number.isInteger(maxItems) || maxItems < 1 || maxItems > 20)
       return { outcome: 'rejected', reason: 'invalid_training_request', credentialIssued: false };
+    if (domainId !== undefined && !isDomainId(domainId)) return { outcome: 'rejected', reason: 'invalid_domain', credentialIssued: false };
     const evidence = canonicalEvidence(evidenceMode);
     const registrationMessage = createRegistrationMessage({
       messageId: `synthetic-registration-${idGenerator()}`, correlationId,
@@ -194,11 +202,19 @@ function createSyntheticAgentLearner({ gatewayClient, idGenerator = randomUUID }
         idempotencyKey: `synthetic-training-${idGenerator()}`, timeoutMs, evidence,
         payload: { interactionType, data: { agentLearnerKey, response: 'acknowledge', ...(executionProfile ? { executionProfile } : {}), ...data } },
       }));
-      const started = await interact('training.session.start', {});
+      // Without a domainId Training picks the one Active package, or refuses when several domains are Active.
+      const start = () => interact('training.session.start', domainId ? { domainId } : {});
+      // training_blocked on start means Training has just ended this learner's
+      // earlier session (idle, or kept for a configuration this learner no
+      // longer has); by Training's contract the next start opens a new one.
+      let started = await start();
+      if (started.body?.error === 'training_blocked' && SESSION_ENDED_REASONS.includes(started.body.reason)) started = await start();
       if (!isSuccess(started) || !started.body?.sessionId)
         return { outcome: 'system_aborted', reason: started.body?.error || 'training_start_failed', credentialIssued: false };
       const sessionId = started.body.sessionId;
       const provenance = started.body.provenance || null;
+      // What every item is answered in: the session's package and, for a remediation session, why.
+      const context = { remediation: started.body.remediation || null, package: started.body.package || null, domainId: domainId || null };
       if (resumeSessionId && resumeSessionId !== sessionId)
         return { outcome: 'rejected', reason: 'session_identity_changed', sessionId, credentialIssued: false };
       const completedItems = [];
@@ -217,7 +233,7 @@ function createSyntheticAgentLearner({ gatewayClient, idGenerator = randomUUID }
           response = produced.response; executionEvidence = produced.executionEvidence;
         }
         if (respond) {
-          try { response = await respond(item); } catch (error) {
+          try { response = await respond(item, context); } catch (error) {
             return { outcome: 'system_aborted', reason: error.code || 'learner_unavailable', sessionId, completedItems, credentialIssued: false };
           }
         }
@@ -226,6 +242,7 @@ function createSyntheticAgentLearner({ gatewayClient, idGenerator = randomUUID }
         });
         if (!isSuccess(submitted) || submitted.body.modelWeightsModified !== false)
           return { outcome: 'system_aborted', reason: submitted.body?.error || 'training_submit_failed', sessionId, completedItems, credentialIssued: false };
+        if (onAccepted) onAccepted(item, response, context);
         completedItems.push({ moduleId: item.moduleId, deliveryItemId: item.deliveryItemId, kind: item.kind });
         if (submitted.body.status === 'completed') return { outcome: 'completed', sessionId, ...(provenance ? { provenance } : {}), completedItems, credentialIssued: false };
       }

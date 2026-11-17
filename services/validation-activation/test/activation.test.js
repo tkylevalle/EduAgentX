@@ -40,6 +40,6 @@ test('active pointer updated after activation', async () => {
   await ready('pkg-c2', { packageId: 'pkg-c1', version: '1.0.0' });
   await activatePackage('pkg-c1');
   await activatePackage('pkg-c2');
-  const active = await db.getActivePackage();
+  const [active] = await db.getActivePackages();
   assert.strictEqual(active.id, 'pkg-c2');
 });

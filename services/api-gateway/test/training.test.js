@@ -86,6 +86,20 @@ test('unauthenticated, cross-identity and incomplete training interactions fail 
   assert.equal(training.requests.length, 0);
 });
 
+// Review finding 3: a start's domain is an identifier string, or it is refused before Training.
+test('a training start forwards a string domain and refuses any other domain before Training', async (t) => {
+  const { gateway, training } = await startGateway(t);
+  const token = await getToken(gateway, 'training-agent', 'training-agent-secret');
+  for (const domainId of [{ id: 'personal-data' }, 0, false, '', 'x'.repeat(257)]) {
+    const refused = await send(gateway, token, message('training.session.start', { response: 'ack', domainId }));
+    assert.deepEqual([refused.status, refused.body.details?.[0]?.field], [400, 'payload.data.domainId'], JSON.stringify(domainId));
+  }
+  assert.equal(training.requests.length, 0);
+  const started = await send(gateway, token, message('training.session.start', { response: 'ack', domainId: 'personal-data' }));
+  assert.equal(started.status, 201);
+  assert.equal(training.requests[0].body.domainId, 'personal-data');
+});
+
 test('a Quarantined-package block from Training comes back through the Gateway and is never cached', async (t) => {
   const { gateway, training } = await startGateway(t);
   training.respond = () => [409, {

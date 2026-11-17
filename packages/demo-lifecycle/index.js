@@ -7,7 +7,9 @@
 // records what that service answered.
 //
 // Used by scripts/poc-lifecycle.js (CLI evidence run) and by the web app's
-// server (live demonstration). Operator credentials stay server-side.
+// server (live demonstration). Operator credentials stay server-side. It
+// never reviews a package: activation waits for two people's reviews,
+// submitted in the governance console (assurance audit C3).
 
 const { randomUUID } = require('node:crypto');
 
@@ -20,6 +22,10 @@ const LIVE_SCENARIO = 'live-model';
 const LIVE_TRAINING_TIMEOUT_MS = 240_000;
 const LIVE_EXAM_TIMEOUT_MS = 420_000;
 const isLive = (scenario) => scenario === LIVE_SCENARIO;
+// The activation route's refusals that mean people still have to review
+// (validation-activation POST /activate): too few approvals, or reviewers who
+// disagree and have not resolved it. Any other refusal is a fault, not a wait.
+const AWAITING_REVIEW_REFUSALS = Object.freeze(['insufficient_approvals', 'unresolved_review_disagreement']);
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -43,11 +49,14 @@ class LifecycleError extends Error {
 }
 
 function createLifecycleDriver({ gatewayUrl, syntheticUrl, validationUrl, curriculumInternalKey,
-  admin, reviewers = [], candidate, examScenario = 'safe-escalation', fetchImpl = fetch } = {}) {
+  admin, candidate, examScenario = 'safe-escalation', fetchImpl = fetch } = {}) {
   if (!gatewayUrl || !syntheticUrl || !admin?.clientId || !admin?.clientSecret) {
     throw new TypeError('gatewayUrl, syntheticUrl and admin credentials are required');
   }
   const tokens = new Map();
+  // Training and the examination run in the candidate's domain, so a stack with
+  // several Active domains never has to guess which one is meant.
+  const inDomain = candidate?.manifest?.domainId ? { domainId: candidate.manifest.domainId } : {};
 
   async function http(url, { method = 'GET', token, body, headers = {}, timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
     const response = await fetchImpl(url, {
@@ -73,49 +82,62 @@ function createLifecycleDriver({ gatewayUrl, syntheticUrl, validationUrl, curric
   }
   const adminToken = () => token(admin);
 
+  // The Active package of the candidate's domain (or the only Active one).
   async function activePackage() {
     if (!validationUrl || !curriculumInternalKey) return null;
-    const reply = await http(`${validationUrl}/packages/active`, {
+    const domain = candidate?.manifest?.domainId;
+    const reply = await http(`${validationUrl}/packages/active${domain ? `?domain=${encodeURIComponent(domain)}` : ''}`, {
       headers: { 'x-internal-service-key': curriculumInternalKey, 'x-actor-subject': 'demo-lifecycle' } });
     if (reply.status === 404) return null;
     if (reply.status !== 200) throw new LifecycleError('active_package_unavailable', { status: reply.status });
     return reply.data;
   }
 
-  // Reuses the active package when one exists; otherwise ingests the
-  // reference candidate and takes it through six gates, two distinct
-  // reviews and activation.
+  // Reuses the Active package of the candidate's domain. Otherwise it ingests
+  // the candidate under its own id and version (idempotent), runs the six
+  // gates once, and activates it only when two people have already approved
+  // that exact version in the governance console. Until then the run stops at
+  // this step with the package's review state, so nobody mistakes an
+  // unreviewed package for an approved one.
   async function ensurePackage() {
     const existing = await activePackage();
     if (existing) {
+      // Who approved the package the run will use, so a reused package is never taken on trust.
+      const detail = await http(`${gatewayUrl}/v1/admin/curriculum/packages/${encodeURIComponent(existing.packageId)}/${encodeURIComponent(existing.version)}`,
+        { token: await adminToken() });
+      // Without the review record the run cannot say who approved the package, so it stops rather than show none.
+      if (detail.status !== 200) throw new LifecycleError('package_details_unavailable', { packageId: existing.packageId, version: existing.version, status: detail.status });
       return { reused: true, packageId: existing.packageId, version: existing.version, digest: existing.digest,
-        domain: existing.manifest?.domain || existing.domain || null, moduleCount: existing.modules?.length ?? null };
+        domain: existing.manifest?.domain || existing.domain || null, moduleCount: existing.modules?.length ?? null,
+        reviews: (detail.data.reviews || []).map((review) => ({ reviewer: review.reviewer_id, score: review.score, approved: review.approved })) };
     }
     if (!candidate) throw new LifecycleError('no_candidate_package');
-    if (reviewers.length < 2) throw new LifecycleError('two_reviewers_required');
     const auth = await adminToken();
-    const pkg = structuredClone(candidate);
-    pkg.manifest.packageId = `ai-safety-demo-${randomUUID().slice(0, 8)}`;
-    const id = pkg.manifest.packageId, version = pkg.manifest.version;
-    const ingested = await http(`${gatewayUrl}/v1/admin/curriculum/packages`, { method: 'POST', token: auth, body: pkg });
-    if (ingested.status !== 201) throw new LifecycleError('ingestion_failed', { status: ingested.status, error: ingested.data.error });
-    const validated = await http(`${gatewayUrl}/v1/admin/curriculum/validate`, { method: 'POST', token: auth,
-      body: { package_id: id, version } });
-    if (validated.status !== 200 || !validated.data.passed) {
-      throw new LifecycleError('validation_failed', { status: validated.status, gates: validated.data.gates });
+    const id = candidate.manifest.packageId, version = candidate.manifest.version;
+    const read = () => http(`${gatewayUrl}/v1/admin/curriculum/packages/${encodeURIComponent(id)}/${encodeURIComponent(version)}`, { token: auth });
+    let stored = await read();
+    if (stored.status === 404) {
+      const ingested = await http(`${gatewayUrl}/v1/admin/curriculum/packages`, { method: 'POST', token: auth, body: candidate });
+      if (![200, 201].includes(ingested.status)) throw new LifecycleError('ingestion_failed', { status: ingested.status, error: ingested.data.error });
+      stored = await read();
     }
-    const reviews = [];
-    for (const [index, reviewer] of reviewers.slice(0, 2).entries()) {
-      const reviewed = await http(`${gatewayUrl}/v1/curriculum/review`, { method: 'POST', token: await token(reviewer),
-        body: { package_id: id, version, reviewer_id: reviewer.clientId, score: index ? 4.5 : 4, approved: true } });
-      if (reviewed.status !== 200) throw new LifecycleError('review_failed', { status: reviewed.status, error: reviewed.data.error });
-      reviews.push({ reviewer: reviewer.clientId, approvals: reviewed.data.approvals });
+    if (stored.status !== 200) throw new LifecycleError('package_unavailable', { status: stored.status });
+    let gates = null;
+    if (stored.data.state === 'Candidate') {
+      const validated = await http(`${gatewayUrl}/v1/admin/curriculum/validate`, { method: 'POST', token: auth, body: { package_id: id, version } });
+      if (validated.status !== 200 || !validated.data.passed) throw new LifecycleError('validation_failed', { status: validated.status, gates: validated.data.gates });
+      gates = validated.data.gates.map((gate) => gate.name);
+      stored = await read();
     }
-    const activated = await http(`${gatewayUrl}/v1/admin/curriculum/activate`, { method: 'POST', token: auth,
-      body: { package_id: id, version } });
-    if (activated.status !== 200) throw new LifecycleError('activation_failed', { status: activated.status, error: activated.data.error });
-    return { reused: false, packageId: id, version, digest: ingested.data.digest, domain: pkg.manifest.domain,
-      gates: validated.data.gates.map((gate) => gate.name), reviews, moduleCount: pkg.modules?.length ?? null };
+    const reviews = (stored.data.reviews || []).map((review) => ({ reviewer: review.reviewer_id, score: review.score, approved: review.approved }));
+    const activated = await http(`${gatewayUrl}/v1/admin/curriculum/activate`, { method: 'POST', token: auth, body: { package_id: id, version } });
+    if (activated.status !== 200 && AWAITING_REVIEW_REFUSALS.includes(activated.data.error)) {
+      throw new LifecycleError('package_awaiting_review', { packageId: id, version, state: stored.data.state, reviews,
+        openDisagreements: stored.data.openDisagreements || [], reason: activated.data.error });
+    }
+    if (activated.status !== 200) throw new LifecycleError('activation_failed', { packageId: id, version, status: activated.status, reason: activated.data.error });
+    return { reused: false, packageId: id, version, digest: stored.data.digest, domain: candidate.manifest.domain, gates, reviews,
+      moduleCount: candidate.modules?.length ?? null };
   }
 
   async function register(scenario = examScenario) {
@@ -136,7 +158,7 @@ function createLifecycleDriver({ gatewayUrl, syntheticUrl, validationUrl, curric
     const usage = { calls: 0, promptTokens: 0, completionTokens: 0 };
     for (let round = 0; round < MAX_TRAINING_ROUNDS; round += 1) {
       const reply = await http(`${syntheticUrl}/v1/training-runs`, { method: 'POST',
-        body: { maxItems: 20, ...(resumeSessionId ? { resumeSessionId } : {}), ...(live ? { learner: 'live' } : {}) },
+        body: { maxItems: 20, ...(resumeSessionId ? { resumeSessionId } : {}), ...(live ? { learner: 'live' } : {}), ...inDomain },
         ...(live ? { timeoutMs: LIVE_TRAINING_TIMEOUT_MS } : {}) });
       if (reply.status !== 200) throw new LifecycleError('training_failed', { status: reply.status, reason: reply.data.reason });
       completed = completed.concat(reply.data.completedItems || []);
@@ -158,7 +180,7 @@ function createLifecycleDriver({ gatewayUrl, syntheticUrl, validationUrl, curric
   }
 
   async function examine(scenario = examScenario) {
-    const reply = await http(`${syntheticUrl}/v1/exam-runs`, { method: 'POST', body: { scenarioId: scenario },
+    const reply = await http(`${syntheticUrl}/v1/exam-runs`, { method: 'POST', body: { scenarioId: scenario, ...inDomain },
       timeoutMs: isLive(scenario) ? LIVE_EXAM_TIMEOUT_MS : 120_000 });
     if (reply.status !== 200 || !reply.data.attempt) {
       throw new LifecycleError('examination_failed', { status: reply.status, outcome: reply.data.outcome, reason: reply.data.reason });
@@ -170,8 +192,20 @@ function createLifecycleDriver({ gatewayUrl, syntheticUrl, validationUrl, curric
       terminalReason: reply.data.attempt.terminalReason || null, itemsAnswered: reply.data.answered.length,
       scenario, overallPercent: assessment?.overallPercent ?? null,
       tierPercents: assessment?.tierPercents ?? null, criticalViolationRuleIds: assessment?.criticalViolationRuleIds ?? [],
+      failureReasons: assessment?.failureReasons ?? [],
       passed: reply.data.attempt.status === 'complete', evidence: reply.data.evidence?.label || null,
       ...(reply.data.live ? { live: reply.data.live } : {}) };
+  }
+
+  // How many credentials Certification holds for one examination, from its
+  // own store (Gateway reconciliation route): 0 or 1 when issuance is correct.
+  async function credentialCount(examinationId) {
+    const reply = await http(`${gatewayUrl}/v1/admin/reconciliation/credentials?examinationId=${encodeURIComponent(examinationId)}`,
+      { token: await adminToken() });
+    if (reply.status !== 200 || !Number.isInteger(reply.data.count)) {
+      throw new LifecycleError('reconciliation_unavailable', { status: reply.status });
+    }
+    return reply.data.count;
   }
 
   async function certify(attemptId) {
@@ -221,7 +255,7 @@ function createLifecycleDriver({ gatewayUrl, syntheticUrl, validationUrl, curric
   async function statusCycle(credential, agentLearnerKey) {
     const id = credential.credentialId;
     await changeStatus(id, 'suspend', 'PoC demonstration: reversible suspension', agentLearnerKey);
-    let reinstated = null;
+    let reinstated;
     let whileSuspended;
     try {
       whileSuspended = await verify(credential.compactJws);
@@ -229,8 +263,12 @@ function createLifecycleDriver({ gatewayUrl, syntheticUrl, validationUrl, curric
         throw new LifecycleError('suspension_not_enforced', { overall: whileSuspended.overall });
       }
       reinstated = await changeStatus(id, 'reinstate', 'PoC demonstration: suspension cleared', agentLearnerKey);
-    } finally {
-      if (!reinstated) await changeStatus(id, 'reinstate', 'PoC demonstration: restored after a failed check', agentLearnerKey).catch(() => {});
+    } catch (error) {
+      // Restore the credential before reporting the failure; if that also
+      // fails, the error says so instead of hiding it.
+      await changeStatus(id, 'reinstate', 'PoC demonstration: restored after a failed check', agentLearnerKey)
+        .catch((restore) => { error.detail = { ...(error.detail || {}), restoreFailed: restore.code || restore.name }; });
+      throw error;
     }
     const afterReinstate = await verify(credential.compactJws);
     if (afterReinstate.overall !== 'VALID') {
@@ -309,7 +347,7 @@ function createLifecycleDriver({ gatewayUrl, syntheticUrl, validationUrl, curric
     return report;
   }
 
-  return { run, ensurePackage, register, train, examine, certify, verify, changeStatus, statusCycle, monitor, activePackage };
+  return { run, ensurePackage, register, train, examine, certify, credentialCount, verify, changeStatus, statusCycle, monitor, activePackage };
 }
 
 module.exports = { createLifecycleDriver, LifecycleError, STEPS, LIVE_SCENARIO };

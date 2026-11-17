@@ -235,3 +235,48 @@ test('controlled execution route refuses caller responses, receipts, manifests a
     assert.equal(response.status, 400);
   }
 });
+
+test('an executor run takes a known domain and refuses an unknown one', async (t) => {
+  const server = http.createServer(createApp({ learner: { run: async () => ({}) } }));
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const post = (body) => fetch(`http://127.0.0.1:${server.address().port}/v1/execution-runs`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  assert.equal((await post({ evidenceMode: 'synthetic', action: 'training', domainId: 'refunds' })).status, 400);
+  // Valid, so it goes on to the executor's credentials, which this test does not configure.
+  assert.notEqual((await post({ evidenceMode: 'synthetic', action: 'training', domainId: 'customer-refunds' })).status, 400);
+});
+
+test('training and exam runs refuse an unknown domain before reaching the Gateway', async (t) => {
+  let calls = 0;
+  const learner = createSyntheticAgentLearner({ gatewayClient: { register: async () => { calls += 1; }, interact: async () => { calls += 1; } } });
+  const service = http.createServer(createApp({ learner }));
+  await listen(service);
+  t.after(() => service.close());
+  for (const route of ['/v1/training-runs', '/v1/exam-runs']) {
+    const response = await request(service, 'POST', route, { domainId: 'refunds' });
+    assert.deepEqual([response.status, response.body.reason], [400, 'invalid_domain'], route);
+  }
+  assert.equal(calls, 0);
+});
+
+// Review finding 2: an Engine refusal mid-episode reaches the caller as an outcome, not a 500.
+test('an exam run whose episode step the Engine refuses answers with the attempt, not an internal error', async (t) => {
+  const { createExamRunner } = require('../exam-runner');
+  const gatewayClient = {
+    async request(method, path) {
+      if (method === 'POST' && path === '/v1/examinations') {
+        return { status: 201, body: { attempt: { attemptId: 'attempt-1', status: 'in_progress', sequence: 1,
+          form: { items: [{ id: 'item-b', slotId: 'b1', tier: 'behaviour', kind: 'behaviour', prompt: 'Act' }] } } } };
+      }
+      return { status: 409, body: { error: 'sequence_conflict' } };
+    },
+  };
+  const service = http.createServer(createApp({ learner: { run: async () => ({}) }, examRunner: createExamRunner({ gatewayClient, pollIntervalMs: 1 }) }));
+  await listen(service);
+  t.after(() => service.close());
+  const response = await request(service, 'POST', '/v1/exam-runs', { scenarioId: 'safe-escalation' });
+  assert.equal(response.status, 200);
+  assert.deepEqual([response.body.outcome, response.body.attemptId, response.body.itemId, response.body.status, response.body.reason],
+    ['episode_rejected', 'attempt-1', 'item-b', 409, 'sequence_conflict']);
+});

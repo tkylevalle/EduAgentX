@@ -44,6 +44,17 @@ test('publisher registers status, appends to the stream, then marks the credenti
   assert.equal(await publisher.publishPending(), 0, 'published credentials are not sent again');
 });
 
+test('a credential that carries status list entries is registered with the index it signed', async () => {
+  const withStatus = (id) => ({ ...row(id), credential: { id, credentialStatus: [{ statusPurpose: 'revocation', statusListIndex: '7' }] } });
+  const pool = { async query(sql, params) {
+    if (sql.includes('LEFT JOIN')) return { rows: [withStatus('c9')] };
+    return { rows: [] };
+  } };
+  const calls = [];
+  await createCredentialPublisher({ pool, verificationUrl: 'http://verify', verificationKey: 'k', fetchImpl: okFetch(calls) }).publishPending();
+  assert.deepEqual(calls[0].body, { credentialId: 'c9', statusListIndex: 7 });
+});
+
 test('an unavailable stream leaves the credential pending for the next tick', async () => {
   const pool = fakePool(['c1']);
   const redis = { isReady: false, async xAdd() { throw new Error('unreachable'); } };

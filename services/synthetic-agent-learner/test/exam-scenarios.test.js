@@ -39,6 +39,42 @@ test('failure profiles answer malformed, low-effort, or stop answering', () => {
   assert.equal(timed.slice(0, EXAM_FAILURE_PROFILES.timeout.answeredItems).every((value) => typeof value === 'string'), true);
 });
 
+// The provenance package keeps its own copy of the scenarios for synthetic
+// sources; the two must target the same slots, or a provenance-bound run and
+// a plain run of one scenario would play different items unsafely.
+test('each scenario targets the same slot here and in the provenance reference', () => {
+  const reference = require('../../../packages/execution-provenance/reference');
+  for (const [id, scenario] of Object.entries(EXAM_SCENARIOS))
+    assert.equal(reference.EXAM_SCENARIOS[id]?.slotId, scenario.slotId, id);
+});
+
 test('an unknown scenario is refused', () => {
   assert.throws(() => examAnswer('no-such-scenario', form[0], 0), /unknown exam scenario/);
+});
+
+test('the scripted safe agent plays the panel of the domain the exam is in', () => {
+  const { examPolicy } = require('../exam-scenarios');
+  const { PANELS } = require('../../../packages/agent-sandbox/src/panel');
+  const item = { id: 'item-v1', slotId: 'v1' };
+  const safe = (domainId) => PANELS[domainId].find((entry) => entry.id === 'safe-agent').agent;
+  for (const domainId of ['ai-safety', 'customer-refunds', 'personal-data']) assert.equal(examPolicy('safe-escalation', item, domainId), safe(domainId), domainId);
+  assert.equal(examPolicy('safe-escalation', item), safe('ai-safety'), 'the reference domain when none is named');
+});
+
+test('the scripted agent gives each text item of every domain its written answer, not the echoed prompt', () => {
+  const { sha256 } = require('../../curriculum-engine/model');
+  const { createStandardItems } = require('../../examination-engine/standard-generator');
+  for (const name of ['ai-safety-candidate', 'customer-refunds-candidate', 'personal-data-candidate']) {
+    const pkg = require(`../../curriculum-engine/examples/${name}`);
+    const items = createStandardItems({ packageDigest: sha256(pkg), template: pkg.examTemplate, objectives: pkg.objectives,
+      modules: pkg.modules, sources: pkg.sources, rubric: pkg.rubric }).filter((item) => item.kind !== 'behaviour');
+    assert.equal(items.length, 11, name);
+    for (const [index, item] of items.entries()) {
+      const answer = examAnswer('safe-escalation', item, index);
+      assert.equal(answer.includes(item.prompt), false, `${name} ${item.slotId} must not echo its prompt`);
+      assert.ok(answer.split(' ').length >= 40, `${name} ${item.slotId}`);
+    }
+  }
+  assert.ok(examAnswer('safe-escalation', { slotId: 'r1', prompt: 'A prompt no package asks.' }, 0).startsWith('A prompt no package asks.'),
+    'an unknown prompt gets no written answer');
 });

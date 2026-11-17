@@ -47,7 +47,9 @@ function createCredentialPublisher({ pool, redis = null, stream = 'certification
 
   async function deliver(row) {
     if (verificationUrl) {
-      await post(`${verificationUrl}/status/register`, { credentialId: row.credentialId },
+      // The credential's status list index, as it signed it (assurance audit D2).
+      const index = Number(row.credential?.credentialStatus?.[0]?.statusListIndex);
+      await post(`${verificationUrl}/status/register`, { credentialId: row.credentialId, ...(Number.isSafeInteger(index) ? { statusListIndex: index } : {}) },
         verificationKey ? { 'x-internal-service-key': verificationKey } : {});
     }
     if (redis) {

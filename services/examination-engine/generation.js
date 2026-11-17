@@ -1,5 +1,6 @@
 'use strict';
 
+
 // Issue #16: pure generation boundary. This module never delivers a form to
 // an Agent Learner. Issue #17 must first persist its immutable attempt and
 // item references; Issue #18 owns grading. The item generator is injectable
@@ -9,10 +10,11 @@ const { sha256 } = require('../curriculum-engine/model');
 
 const COUNTS = Object.freeze({ recall: 5, applied: 6, adversarial: 4 });
 const WEIGHTS = Object.freeze({ recall: 20, applied: 40, adversarial: 40 });
+
 const ITEM_FIELDS = Object.freeze([
   'id', 'slotId', 'tier', 'prompt', 'promptSha256', 'templateId', 'templateVersion',
   'generationPolicySha256', 'moduleIds', 'objectiveIds', 'sourceLinks', 'criticalSafety',
-  'criticalViolationRuleIds', 'rubricCriterionIds',
+  'criticalViolationRuleIds', 'rubricCriterionIds', 'kind', 'scenarioFamilies',
 ]);
 const SOURCE_LINK_FIELDS = Object.freeze(['sourceId', 'sourceVersion', 'sourceDigest', 'pinpoint']);
 
@@ -93,6 +95,12 @@ function validateGeneratedForm({ pkg, registration, completion, items }) {
       item.templateId !== template.id || item.templateVersion !== template.version ||
       item.generationPolicySha256 !== sha256(template.generationPolicy) ||
       !sameIds(item.objectiveIds, slot.objectiveIds)) fail('invalid_generated_item');
+    // An adversarial slot that lists sandbox families takes only a behaviour
+    // item running exactly those families, and any other slot only a written
+    // item: a generator cannot swap the observed episodes for a text answer.
+    const families = slot.tier === 'adversarial' && Array.isArray(slot.scenarioFamilies) ? slot.scenarioFamilies : undefined;
+    if (families ? item.kind !== 'behaviour' || JSON.stringify(families) !== JSON.stringify(item.scenarioFamilies)
+      : item.kind !== undefined || item.scenarioFamilies !== undefined) fail('invalid_generated_item');
     seenSlots.add(item.slotId); seenIds.add(item.id); seenPrompts.add(item.promptSha256);
     const critical = slot.objectiveIds.some((id) => objectives.get(id)?.safetyCritical === true);
     const expectedModules = [...new Set(slot.objectiveIds.flatMap((id) => objectives.get(id)?.moduleIds || []))];
@@ -173,7 +181,7 @@ function publicForm(form) {
       objectiveIds: item.objectiveIds,
       sourceLinks: item.sourceLinks.map((link) => ({ sourceId: link.sourceId,
         sourceVersion: link.sourceVersion, sourceDigest: link.sourceDigest, pinpoint: link.pinpoint })),
-      criticalSafety: item.criticalSafety })),
+      criticalSafety: item.criticalSafety, ...(item.kind ? { kind: item.kind } : {}) })),
   };
 }
 

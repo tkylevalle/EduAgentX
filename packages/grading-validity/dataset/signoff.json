@@ -1,0 +1,20 @@
+{
+  "schemaVersion": "grading-validity-signoff/1.0.0",
+  "grader": {
+    "id": "rubric-judge",
+    "version": "1.0.0:deepseek-v4.1-flash:prompt-2-fa0f4f4ca377"
+  },
+  "signedOn": "2026-11-17",
+  "reviewers": [
+    { "name": "Neeraj", "approved": true },
+    { "name": "Luis", "approved": true }
+  ],
+  "basis": "Neeraj and Luis reviewed the rubric judge and its validity report and agreed it grades well enough for the capstone. Per-response labels from two people were not collected, so agreement with people is not measured; the full labelling route (console Labelling page and export-labels.js) remains for a deployment that needs it.",
+  "acceptedLimitations": [
+    "human_labels_insufficient",
+    "probe_failed:brief-agent"
+  ],
+  "limitationNotes": {
+    "probe_failed:brief-agent": "Short but correct answers score 77.96 overall against an 80 pass mark: the judge may be slightly harsh on very brief answers. Accepted as a known limitation, not fixed."
+  }
+}
