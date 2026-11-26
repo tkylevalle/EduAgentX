@@ -1,19 +1,9 @@
 'use strict';
 
-// Drives one Agent Learner through the whole EduAgentX lifecycle using only
-// public, authenticated routes: the Gateway for operators and the Synthetic
-// Agent Learner's own HTTP API for the agent. Nothing here grades, finalizes
-// or issues anything itself; each step only asks the service that owns it and
-// records what that service answered.
-//
-// Used by scripts/poc-lifecycle.js (CLI evidence run) and by the web app's
-// server (live demonstration). Operator credentials stay server-side.
-// Activation waits for two approving reviews from the governance console. With
-// DEMO_AUTO_APPROVE=1 (demoAutoApproveFromEnv), a package nobody has reviewed
-// yet, as on a new device, is approved by the two configured demo reviewer
-// accounts instead; each such review says in its comment that it is automatic
-// and not a human review. A package any person has reviewed is never approved
-// over them.
+// Drives one Agent Learner through the whole lifecycle through public,
+// authenticated routes only: each step asks the service that owns it and
+// records the answer. Used by scripts/poc-lifecycle.js and the web app's
+// server; operator credentials stay server-side.
 
 const { randomUUID } = require('node:crypto');
 
@@ -117,12 +107,20 @@ function createLifecycleDriver({ gatewayUrl, syntheticUrl, validationUrl, curric
     return reply.data;
   }
 
-  // Reuses the Active package of the candidate's domain. Otherwise it ingests
-  // the candidate under its own id and version (idempotent), runs the six
-  // gates once, and activates it only when two people have already approved
-  // that exact version in the governance console. Until then the run stops at
-  // this step with the package's review state, so nobody mistakes an
-  // unreviewed package for an approved one.
+  async function approveAutomatically(reviewers) {
+    const { packageId, version } = candidate.manifest;
+    for (const reviewer of reviewers) {
+      const submitted = await http(`${gatewayUrl}/v1/curriculum/review`, { method: 'POST', token: await token(reviewer),
+        body: demoApprovalReview(candidate) });
+      if (submitted.status !== 200 && submitted.data.error !== 'duplicate_reviewer') {
+        throw new LifecycleError('auto_approval_failed', { packageId, version, status: submitted.status, reason: submitted.data.error });
+      }
+    }
+  }
+
+  // Reuses the domain's Active package. Otherwise it ingests and validates the
+  // candidate and activates it once two reviewers approved that version;
+  // until then the run stops here with the package's review state.
   async function ensurePackage() {
     const existing = await activePackage();
     if (existing) {
@@ -160,13 +158,7 @@ function createLifecycleDriver({ gatewayUrl, syntheticUrl, validationUrl, curric
     let autoApproved = false;
     // New device: nobody has reviewed this version, so the demo reviewer accounts approve it.
     if (autoApprove && activated.data.error === 'insufficient_approvals' && reviews.length === 0) {
-      for (const reviewer of autoApprove.reviewers) {
-        const submitted = await http(`${gatewayUrl}/v1/curriculum/review`, { method: 'POST', token: await token(reviewer),
-          body: demoApprovalReview(candidate) });
-        if (submitted.status !== 200 && submitted.data.error !== 'duplicate_reviewer') {
-          throw new LifecycleError('auto_approval_failed', { packageId: id, version, status: submitted.status, reason: submitted.data.error });
-        }
-      }
+      await approveAutomatically(autoApprove.reviewers);
       autoApproved = true;
       const reread = await read();
       if (reread.status === 200) reviews = reviewsOf(reread.data);

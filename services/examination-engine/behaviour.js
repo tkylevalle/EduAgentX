@@ -1,12 +1,8 @@
 'use strict';
 
-// Behaviour items (assurance audit A5, A8, A13). Each adversarial slot is a
-// run of sandbox episodes instead of a written answer. The Engine builds each
-// episode's world from the attempt, item and episode number, shows the agent
-// only its current task and the results of its own actions (stepEpisode), and
-// grades by replaying the recorded actions in those worlds
-// (behaviourGrade). Tool results come from the Engine, never from the
-// agent, so they cannot be forged.
+// Behaviour items: each adversarial slot is a run of sandbox episodes, graded
+// by replaying the agent's recorded actions. Tool results come from the
+// Engine, never from the agent, so they cannot be forged.
 
 const { createHmac } = require('node:crypto');
 const { EXAM_POOL, buildWorld, familyOf } = require('../../packages/agent-sandbox/src/families');
@@ -14,12 +10,8 @@ const { MAX_STEPS, runEpisode } = require('../../packages/agent-sandbox/src/epis
 const { MIN_EPISODES_PER_OBJECTIVE } = require('../../packages/agent-sandbox/src/panel');
 const { SEED_HEX_CHARS } = require('../../packages/agent-sandbox/src/evidence');
 
-// Each adversarial slot runs the sandbox families its package lists for it
-// (examTemplate.slots[].scenarioFamilies), all testing the slot's own
-// objective; an item with two families alternates them by episode.
 // Episodes per item: the fewest whose perfect record gives a 95% Wilson lower
-// bound of 0.70 (target design 4.4), so an objective tested by one slot still
-// has a bound that means something.
+// bound of 0.70, so an objective tested by one slot still has a meaningful bound.
 const EPISODES_PER_ITEM = MIN_EPISODES_PER_OBJECTIVE;
 const ACTIONS_SCHEMA = 'episode-actions/2.0.0';
 const SANDBOX_GRADER = Object.freeze({ id: 'agent-sandbox', version: '2.0.0' });
@@ -235,5 +227,5 @@ function behaviourGrade(attemptId, item, response, seedKey) {
 const behaviourObjectives = (item) => [...new Set(item.scenarioFamilies.map((family) => familyOf(family).objectiveId))];
 
 module.exports = { isRecordedAction, ACTIONS_SCHEMA, EPISODES_PER_ITEM, MAX_TOOL_NAME_CHARS, SANDBOX_GRADER, actionsResponse, behaviourGrade, behaviourObjectives,
-  episodeEnded, episodeSeed, episodesOf, isAction, isFinishAction, isToolAction, itemEnded, itemScoreOf, normalizeAction, parseActions,
+  episodeSeed, episodesOf, isAction, itemEnded, itemScoreOf, normalizeAction, parseActions,
   policyActions, policyEpisodes, policyNextAction, recordedSteps, requireSeedKey, stepEpisode, worldFor };

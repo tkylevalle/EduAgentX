@@ -98,4 +98,4 @@ function createKeyring(env, onUnreadable) {
 /** One lookup with a keyring of its own; an unreadable key file throws. */
 const publicKeyForKid = (kid, issuedAt, env = process.env) => createKeyring(env, () => {}).publicKeyForKid(kid, issuedAt);
 
-module.exports = { createKeyring, issuerJwks, keySources, publicKeyForKid };
+module.exports = { createKeyring, issuerJwks, publicKeyForKid };

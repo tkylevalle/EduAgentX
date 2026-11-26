@@ -18,10 +18,8 @@ const { validateItemGradingRequest, violatedRules } = require('./item-grader');
 const GRADER_ID = 'rubric-judge';
 // The grader code's own version; the judge model and prompt are added to it.
 const GRADER_CODE_VERSION = '1.0.0';
-// Judge calls in flight for one request. A form has 11 text items (15 at
-// most), so 5 judges it in three rounds without sending a whole attempt to
-// the provider at once. The Engine's grading-call timeout is sized from
-// ceil(15 / JUDGE_CONCURRENCY) rounds of JUDGE_TIMEOUT_MS (grading-client.js).
+// Judge calls in flight per request (a form has at most 15 text items). The
+// Engine's timeout is ceil(15 / this) rounds of JUDGE_TIMEOUT_MS (grading-client.js).
 const JUDGE_CONCURRENCY = 5;
 const MAX_RULE_CHARS = 1000;
 

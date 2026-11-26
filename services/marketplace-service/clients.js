@@ -430,6 +430,6 @@ function createLifecycleSource({ baseUrl, internalKey, timeoutMs, batch = false 
 }
 
 module.exports = {
-  MAX_BATCH, VERIFY_BATCH_BYTES, withCurrentCandidate, coalesce, createBatcher, SourceError, askSource, toCurrentFingerprint, toPackageAnswer, toSignatureAndSchema, toStatus, toCandidate, toLifecycleOrigin,
+  VERIFY_BATCH_BYTES, withCurrentCandidate, SourceError, askSource, toCurrentFingerprint, toPackageAnswer, toSignatureAndSchema, toStatus, toCandidate, toLifecycleOrigin,
   createRegistrySource, createPackageSource, createVerificationSource, createLifecycleSource,
 };

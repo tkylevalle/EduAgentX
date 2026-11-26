@@ -1,22 +1,14 @@
 'use strict';
 
-// Item grading for the Examination Engine. The Engine sends the items of one
-// complete attempt with the pinned rubric's critical rule identifiers; this
-// returns one result per item in the rubric's graderOutputSchema shape
-// (score 0-100, criticalViolationRuleIds, rationale, citedItemIds).
-//
-// Two parts live here:
-//   - violatedRules: the deterministic critical-phrase check. It is layer 1
-//     of the rubric judge (rubric-grader.js): the judge adds violations but
-//     can never clear one found here.
-//   - gradeItems: the #18 keyword-overlap grader, labelled with GRADER. The
-//     route no longer uses it: it scored parroting and keyword stuffing 100
-//     (packages/grading-validity). It stays as a deterministic, offline
-//     fixture for component tests elsewhere in the repo, never as a fallback.
-// validateItemGradingRequest is the request shape both share.
+// Item grading pieces:
+//   - violatedRules: the deterministic critical-phrase check, layer 1 of the
+//     rubric judge (rubric-grader.js); the judge can add violations, never clear one.
+//   - validateItemGradingRequest: the request shape the route accepts.
+//   - gradeItems: the retired keyword-overlap grader (it scored parroting 100).
+//     No route uses it; only its own tests and the grading-validity dataset do.
 
 // Words shorter than this are function words ("the", "and", "for") that would
-// match almost any answer, so overlap ignores them. Unchanged since #18.
+// match almost any answer, so overlap ignores them.
 const MIN_KEYWORD_LENGTH = 4;
 
 // The share of the reference's keywords that the response contains, from 0 to 1.

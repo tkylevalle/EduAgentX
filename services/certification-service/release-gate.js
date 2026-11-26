@@ -117,4 +117,4 @@ async function reportBlock(incidentReporter, { subjectId, examinationId, compari
   }
 }
 
-module.exports = { BOUND_DROP_TOLERANCE, RELEASE_GATE_RESULT, UUID, compareRelease, registerReleaseGateRoute, releaseGateResult };
+module.exports = { UUID, compareRelease, registerReleaseGateRoute };

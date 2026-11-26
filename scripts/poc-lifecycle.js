@@ -1,40 +1,30 @@
 'use strict';
-// PoC evidence run: one Synthetic Agent Learner through package activation,
-// registration, training, examination, certification, verification, a
-// suspend/reinstate cycle and the monitoring projection, against the running
-// Compose stack. Writes artifacts/poc/lifecycle-run.json. Simulation evidence
-// only. The package needs two approving reviews (governance console); with
-// DEMO_AUTO_APPROVE=1 in .env, a package nobody has reviewed is approved by the
-// demo reviewer accounts, labelled as automatic (packages/demo-lifecycle).
+// PoC evidence run: one Synthetic Agent Learner through the whole lifecycle
+// against the running Compose stack; writes artifacts/poc/lifecycle-run.json.
+// Simulation evidence only.
 //   node scripts/poc-lifecycle.js [exam scenario, default safe-escalation] [domain, default ai-safety]
 const fs = require('node:fs');
 const path = require('node:path');
 const { createLifecycleDriver, demoAutoApproveFromEnv } = require('../packages/demo-lifecycle');
-// The domain to run, by sandbox domain id; each has one candidate package.
-const CANDIDATES = { 'ai-safety': 'ai-safety-candidate', 'customer-refunds': 'customer-refunds-candidate', 'personal-data': 'personal-data-candidate' };
+const { CANDIDATE_DOMAINS, candidateFor, readEnvFile, stackConnection } = require('../packages/demo-lifecycle/stack');
+
 const domain = process.argv[3] || 'ai-safety';
-if (!Object.hasOwn(CANDIDATES, domain)) {
-  console.error(`unknown domain ${domain}; use one of ${Object.keys(CANDIDATES).join(', ')}`);
+const candidate = candidateFor(domain);
+if (!candidate) {
+  console.error(`unknown domain ${domain}; use one of ${CANDIDATE_DOMAINS.join(', ')}`);
   process.exit(2);
 }
-const candidate = require(`../services/curriculum-engine/examples/${CANDIDATES[domain]}`);
 
 const root = path.resolve(__dirname, '..');
 // EDUAGENTX_ENV_FILE runs the lifecycle against another stack's settings, e.g. a copy of older data.
-const env = Object.fromEntries(fs.readFileSync(process.env.EDUAGENTX_ENV_FILE || path.join(root, '.env'), 'utf8').split(/\r?\n/)
-  .filter((line) => /^[A-Z][A-Z0-9_]*=/.test(line))
-  .map((line) => [line.slice(0, line.indexOf('=')), line.slice(line.indexOf('=') + 1)]));
+const env = readEnvFile(process.env.EDUAGENTX_ENV_FILE || path.join(root, '.env'));
 const output = path.join(root, 'artifacts', 'poc', 'lifecycle-run.json');
 
 const driver = createLifecycleDriver({
-  gatewayUrl: `http://127.0.0.1:${env.GATEWAY_PORT || 8080}`,
-  syntheticUrl: `http://127.0.0.1:${env.SYNTHETIC_AGENT_PORT || 4200}`,
-  validationUrl: `http://127.0.0.1:${env.VALIDATION_ACTIVATION_PORT || 4010}`,
-  curriculumInternalKey: env.CURRICULUM_INTERNAL_KEY,
-  admin: { clientId: env.ADMIN_CLIENT_ID, clientSecret: env.ADMIN_CLIENT_SECRET },
+  ...stackConnection(env),
   candidate,
   examScenario: process.argv[2] || 'safe-escalation',
-  // .env's value wins; unset means on, as in docker-compose.yml's web service.
+  // Unset means on, as in docker-compose.yml's web service.
   autoApprove: demoAutoApproveFromEnv({ ...env, DEMO_AUTO_APPROVE: env.DEMO_AUTO_APPROVE ?? '1' }),
 });
 

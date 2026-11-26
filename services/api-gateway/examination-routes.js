@@ -8,7 +8,7 @@
 
 const telemetry = require('../../packages/telemetry');
 const execution = require('../../packages/execution-provenance');
-const { TRAINING_IDENTIFIER, isIdentifier, unavailable } = require('./route-helpers');
+const { TRAINING_IDENTIFIER, isIdentifier, isPlainObject, unavailable } = require('./route-helpers');
 
 // One recorded sandbox action: the Engine's own limit (behaviour.js MAX_ACTION_CHARS).
 const EPISODE_MAX_ACTION_CHARS = 4000;
@@ -25,7 +25,6 @@ const RESPONSE_FIELDS = Object.freeze(['idempotencyKey', 'expectedSequence', 'it
 const STEP_FIELDS = Object.freeze(['idempotencyKey', 'expectedSequence', 'action']);
 
 const invalidRequest = (req, res) => res.status(400).json({ apiVersion: 'v1', error: 'invalid_request', correlationId: req.correlationId });
-const isPlainObject = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 
 function startRoute(app, { requireRole, proxyJson, enrolledExecutors, examinationEngineUrl, examinationInternalKey, examinationHeaders, examinationUnavailable }) {
   app.post('/v1/examinations', requireRole('agent'), async (req, res) => {
