@@ -1,2 +1,6 @@
 node_modules
 dist
+# Blender output between the scripts and art/pack.py; the scripts rebuild it.
+art/renders
+# The full-size recording is 40 MB; the 1920 x 1200 copy beside it is in git.
+art/after/school-run-2560.mp4

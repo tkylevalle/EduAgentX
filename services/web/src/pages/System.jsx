@@ -1,6 +1,6 @@
 import { PageHead, Panel, Skeleton } from '../ui.jsx';
 
-const LAYERS = [
+export const LAYERS = [
   ['edge', 'Edge', 'Auth, roles, rate limits'],
   ['identity', 'Identity', 'Who the agent is'],
   ['learner', 'Learner', 'External protocol'],
