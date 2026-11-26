@@ -4,7 +4,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createLifecycleDriver, STEPS } = require('..');
+const { createLifecycleDriver, DEMO_APPROVAL_COMMENT, demoApprovalReview, demoAutoApproveFromEnv, STEPS } = require('..');
 
 const GATEWAY = 'http://gateway';
 const LEARNER = 'http://learner';
@@ -137,7 +137,7 @@ test('a failure that is not a lifecycle error is reported by its kind, not its m
   assert.equal(JSON.stringify(report).includes('ECONNREFUSED'), false);
 });
 
-// Assurance audit C3: the demo never reviews a package; it activates only what two people approved.
+// Assurance audit C3, strict mode (no auto-approval): the demo activates only what two people approved.
 test('the package step never posts a review, and stops with the review state until two people have approved', async () => {
   const candidate = { manifest: { packageId: 'pkg-x', version: '1.0.0', domainId: 'customer-refunds', domain: 'Refunds' }, modules: [] };
   const make = (activation) => {
@@ -165,6 +165,75 @@ test('the package step never posts a review, and stops with the review state unt
     await assert.rejects(make([status, body]).driver.ensurePackage(), (error) => error.code === 'activation_failed' &&
       error.detail.status === status && error.detail.reason === body.error);
   }
+});
+
+// Innovation-fair mode: a package nobody has reviewed is approved by the demo reviewer accounts, labelled as such.
+test('with auto-approval, an unreviewed package is approved by the demo accounts and a reviewed one is left to people', async () => {
+  const candidate = { manifest: { packageId: 'pkg-x', version: '1.0.0', domainId: 'customer-refunds', domain: 'Refunds' },
+    rubric: { criteria: [{ id: 'accuracy' }, { id: 'safety' }] },
+    modules: [{ claims: [{ sourceId: 's-2' }, { sourceId: 's-1' }] }, { claims: [{ sourceId: 's-1' }] }] };
+  const reviewers = [{ clientId: 'rev-a', clientSecret: 'a' }, { clientId: 'rev-b', clientSecret: 'b' }];
+  const make = ({ existingReviews, reviewReply = [200, { ok: true }], autoApprove = { reviewers } }) => {
+    const posted = [];
+    let approvals = 0;
+    const fetchImpl = async (url, init = {}) => {
+      const body = init.body ? JSON.parse(init.body) : undefined;
+      const reply = (status, data) => ({ status, text: async () => JSON.stringify(data) });
+      if (url.endsWith('/v1/auth/tokens')) return reply(200, { accessToken: `token-${body.clientId}`, expiresIn: 3600 });
+      if (url.includes('/packages/active')) return reply(404, { error: 'no_active_package' });
+      if (url.endsWith('/v1/curriculum/review')) {
+        posted.push({ token: init.headers.authorization, body });
+        if (reviewReply[0] === 200) approvals += 1;
+        return reply(...reviewReply);
+      }
+      if (url.endsWith('/v1/admin/curriculum/activate')) {
+        return approvals >= 2 || existingReviews.length >= 2 ? reply(200, { activated: true }) : reply(403, { error: 'insufficient_approvals' });
+      }
+      if (url.endsWith('/packages/pkg-x/1.0.0')) {
+        const demo = posted.map((entry, index) => ({ reviewer_id: reviewers[index].clientId, score: 4, approved: true }));
+        return reply(200, { state: 'AwaitingReview', digest: 'd', openDisagreements: [], reviews: [...existingReviews, ...demo] });
+      }
+      return reply(404, { error: 'not_found' });
+    };
+    return { posted, driver: createLifecycleDriver({ gatewayUrl: GATEWAY, syntheticUrl: LEARNER, validationUrl: 'http://validation',
+      curriculumInternalKey: 'key', admin, candidate, autoApprove, fetchImpl }) };
+  };
+
+  const fresh = make({ existingReviews: [] });
+  const result = await fresh.driver.ensurePackage();
+  assert.equal(result.autoApproved, true);
+  assert.equal(result.approval, 'automatic demo approval, not a human review');
+  assert.deepEqual(result.reviews.map((review) => review.reviewer), ['rev-a', 'rev-b']);
+  assert.deepEqual(fresh.posted.map((entry) => entry.token), ['Bearer token-rev-a', 'Bearer token-rev-b']);
+  for (const { body } of fresh.posted) {
+    assert.equal(body.comment, DEMO_APPROVAL_COMMENT);
+    assert.match(body.comment, /not a human review/);
+    assert.deepEqual(body.criterionScores, { accuracy: 4, safety: 4 });
+    assert.deepEqual(Object.keys(body.sourceChecks), ['s-1', 's-2']);
+  }
+
+  // A person already reviewed it: the demo accounts never approve over them.
+  const reviewed = make({ existingReviews: [{ reviewer_id: 'person-a', score: 2, approved: false }] });
+  await assert.rejects(reviewed.driver.ensurePackage(), (error) => error.code === 'package_awaiting_review');
+  assert.equal(reviewed.posted.length, 0);
+
+  // Auto-approval off: the strict rule, no review posted.
+  const strict = make({ existingReviews: [], autoApprove: null });
+  await assert.rejects(strict.driver.ensurePackage(), (error) => error.code === 'package_awaiting_review');
+  assert.equal(strict.posted.length, 0);
+
+  // A refused demo review stops the run with the service's reason instead of claiming approval.
+  const refused = make({ existingReviews: [], reviewReply: [403, { error: 'forbidden' }] });
+  await assert.rejects(refused.driver.ensurePackage(), (error) => error.code === 'auto_approval_failed' && error.detail.reason === 'forbidden');
+});
+
+test('auto-approval is on only with DEMO_AUTO_APPROVE=1 and both demo reviewer accounts', () => {
+  const accounts = { REVIEWER_1_CLIENT_ID: 'a', REVIEWER_1_CLIENT_SECRET: 'x', REVIEWER_2_CLIENT_ID: 'b', REVIEWER_2_CLIENT_SECRET: 'y' };
+  assert.deepEqual(demoAutoApproveFromEnv({ DEMO_AUTO_APPROVE: '1', ...accounts }).reviewers.map((reviewer) => reviewer.clientId), ['a', 'b']);
+  assert.equal(demoAutoApproveFromEnv({ DEMO_AUTO_APPROVE: '0', ...accounts }), null);
+  assert.equal(demoAutoApproveFromEnv({ ...accounts }), null);
+  assert.equal(demoAutoApproveFromEnv({ DEMO_AUTO_APPROVE: '1', ...accounts, REVIEWER_2_CLIENT_SECRET: '' }), null);
+  assert.equal(demoApprovalReview({ manifest: { packageId: 'p', version: '1' } }).approved, true);
 });
 
 test('a reused package whose review record cannot be read stops the run instead of reporting no reviews', async () => {
