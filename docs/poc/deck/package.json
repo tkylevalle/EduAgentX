@@ -2,7 +2,8 @@
   "name": "eduagentx-poc-deck",
   "version": "1.0.0",
   "description": "Builds docs/poc/EduAgentX-PoC.pptx: npm install, then node build.js",
-  "private": true, "main": "build.js",
+  "private": true,
+  "main": "build.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -12,5 +13,8 @@
   "type": "commonjs",
   "dependencies": {
     "pptxgenjs": "^3.12.0"
+  },
+  "overrides": {
+    "image-size": "^2.1.0"
   }
 }
