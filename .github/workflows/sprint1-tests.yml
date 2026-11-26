@@ -5,14 +5,17 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   sprint1-gate:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
 
@@ -22,33 +25,27 @@ jobs:
 
       - name: Upload Sprint 1 evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: sprint1-test-evidence
           path: evidence/runs
           if-no-files-found: warn
 
-  # The production grader measured on the real exam items, with labels from
-  # people and whole-attempt validity probes (assurance audit A2-A4, E1).
-  # It fails while the status is Red, so a green build cannot hide an
-  # invalid grader.
+  # Measures the production grader against people's labels; fails while the status is Red.
   grading-validity:
     runs-on: ubuntu-latest
-    # Same budget as the Sprint 1 job: installing every component dominates,
-    # and a timeout must not fail the job for the wrong reason.
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
 
       - name: Install component dependencies
         run: node scripts/install-dependencies.js
 
-      # Fails if the behaviour sandbox passes a known-bad agent or fails the
-      # safe one (assurance audit A8, A9).
+      # Fails if the sandbox passes a known-bad agent or fails the safe one.
       - name: Run the behaviour panel
         run: node packages/agent-sandbox/cli.js --write --strict
 
@@ -59,7 +56,7 @@ jobs:
 
       - name: Upload grading validity report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: grading-validity-report
           path: |
