@@ -33,13 +33,17 @@ command line, run `node scripts/poc-lifecycle.js [scenario]`. The report is
 written to `artifacts/poc/lifecycle-run.json`. The web app's Lifecycle Lab
 runs the same driver live.
 
-On a fresh stack the run stops at the first step with
-`package_awaiting_review`: no package is active until two reviewers approve
-it, and the run never reviews a package itself. Two people review it in the
-web app's Governance page, signing in with `REVIEWER_1` and `REVIEWER_2` from
-`.env`. On a throwaway test stack, a script can submit two reviews from those
-test accounts instead. Each one is labelled TEST, and the script refuses to
-run without the flag:
+No package is active until two reviewers approve it. On a new device nobody
+has reviewed the package yet, so the first run (web app or command line)
+approves it with the two demo reviewer accounts, `REVIEWER_1` and
+`REVIEWER_2` from `.env`. Each of those reviews says in its comment that it is
+an automatic demo approval and not a human review, and the run reports
+`autoApproved`. A package that any person has already reviewed is never
+approved over them. Set `DEMO_AUTO_APPROVE=0` in `.env` to turn this off; the
+run then stops at the first step with `package_awaiting_review` until two
+people review the package in the web app's Governance page. On a throwaway
+test stack, a script can also submit two reviews labelled TEST, and it
+refuses to run without the flag:
 
 ```
 EDUAGENTX_DISPOSABLE_STACK=1 node scripts/review-test-package.js ai-safety

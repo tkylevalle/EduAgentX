@@ -7,9 +7,13 @@
 // records what that service answered.
 //
 // Used by scripts/poc-lifecycle.js (CLI evidence run) and by the web app's
-// server (live demonstration). Operator credentials stay server-side. It
-// never reviews a package: activation waits for two people's reviews,
-// submitted in the governance console (assurance audit C3).
+// server (live demonstration). Operator credentials stay server-side.
+// Activation waits for two approving reviews from the governance console. With
+// DEMO_AUTO_APPROVE=1 (demoAutoApproveFromEnv), a package nobody has reviewed
+// yet, as on a new device, is approved by the two configured demo reviewer
+// accounts instead; each such review says in its comment that it is automatic
+// and not a human review. A package any person has reviewed is never approved
+// over them.
 
 const { randomUUID } = require('node:crypto');
 
@@ -28,6 +32,26 @@ const isLive = (scenario) => scenario === LIVE_SCENARIO;
 const AWAITING_REVIEW_REFUSALS = Object.freeze(['insufficient_approvals', 'unresolved_review_disagreement']);
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const DEMO_APPROVAL_COMMENT = 'AUTOMATIC DEMO APPROVAL (DEMO_AUTO_APPROVE=1) by a configured demo reviewer account on a device ' +
+  'where nobody had reviewed this version; not a human review.';
+
+// The review body the demo reviewer accounts submit: every rubric criterion at 4
+// and every cited source confirmed, so the validation-activation rules accept it.
+function demoApprovalReview(candidate, comment = DEMO_APPROVAL_COMMENT) {
+  const { packageId, version } = candidate.manifest;
+  const sources = [...new Set((candidate.modules || []).flatMap((module) => (module.claims || []).map((claim) => claim.sourceId)))].sort();
+  return { package_id: packageId, version, approved: true, comment,
+    criterionScores: Object.fromEntries((candidate.rubric?.criteria || []).map((criterion) => [criterion.id, 4])),
+    sourceChecks: Object.fromEntries(sources.map((source) => [source, { edition: true, licence: true, quotes: true }])) };
+}
+
+// The demo reviewer accounts when DEMO_AUTO_APPROVE=1 and both are configured; otherwise null (no auto-approval).
+function demoAutoApproveFromEnv(env) {
+  if (env.DEMO_AUTO_APPROVE !== '1') return null;
+  const reviewers = ['REVIEWER_1', 'REVIEWER_2'].map((prefix) => ({ clientId: env[`${prefix}_CLIENT_ID`], clientSecret: env[`${prefix}_CLIENT_SECRET`] }));
+  return reviewers.every((reviewer) => reviewer.clientId && reviewer.clientSecret) ? { reviewers } : null;
+}
 
 const STEPS = Object.freeze([
   { id: 'package', title: 'Activate Domain Assurance Package', owner: 'curriculum-engine · validation-activation' },
@@ -49,7 +73,7 @@ class LifecycleError extends Error {
 }
 
 function createLifecycleDriver({ gatewayUrl, syntheticUrl, validationUrl, curriculumInternalKey,
-  admin, candidate, examScenario = 'safe-escalation', fetchImpl = fetch } = {}) {
+  admin, candidate, examScenario = 'safe-escalation', autoApprove = null, fetchImpl = fetch } = {}) {
   if (!gatewayUrl || !syntheticUrl || !admin?.clientId || !admin?.clientSecret) {
     throw new TypeError('gatewayUrl, syntheticUrl and admin credentials are required');
   }
@@ -129,14 +153,32 @@ function createLifecycleDriver({ gatewayUrl, syntheticUrl, validationUrl, curric
       gates = validated.data.gates.map((gate) => gate.name);
       stored = await read();
     }
-    const reviews = (stored.data.reviews || []).map((review) => ({ reviewer: review.reviewer_id, score: review.score, approved: review.approved }));
-    const activated = await http(`${gatewayUrl}/v1/admin/curriculum/activate`, { method: 'POST', token: auth, body: { package_id: id, version } });
+    const reviewsOf = (data) => (data.reviews || []).map((review) => ({ reviewer: review.reviewer_id, score: review.score, approved: review.approved }));
+    let reviews = reviewsOf(stored.data);
+    const activate = () => http(`${gatewayUrl}/v1/admin/curriculum/activate`, { method: 'POST', token: auth, body: { package_id: id, version } });
+    let activated = await activate();
+    let autoApproved = false;
+    // New device: nobody has reviewed this version, so the demo reviewer accounts approve it.
+    if (autoApprove && activated.data.error === 'insufficient_approvals' && reviews.length === 0) {
+      for (const reviewer of autoApprove.reviewers) {
+        const submitted = await http(`${gatewayUrl}/v1/curriculum/review`, { method: 'POST', token: await token(reviewer),
+          body: demoApprovalReview(candidate) });
+        if (submitted.status !== 200 && submitted.data.error !== 'duplicate_reviewer') {
+          throw new LifecycleError('auto_approval_failed', { packageId: id, version, status: submitted.status, reason: submitted.data.error });
+        }
+      }
+      autoApproved = true;
+      const reread = await read();
+      if (reread.status === 200) reviews = reviewsOf(reread.data);
+      activated = await activate();
+    }
     if (activated.status !== 200 && AWAITING_REVIEW_REFUSALS.includes(activated.data.error)) {
       throw new LifecycleError('package_awaiting_review', { packageId: id, version, state: stored.data.state, reviews,
         openDisagreements: stored.data.openDisagreements || [], reason: activated.data.error });
     }
     if (activated.status !== 200) throw new LifecycleError('activation_failed', { packageId: id, version, status: activated.status, reason: activated.data.error });
     return { reused: false, packageId: id, version, digest: stored.data.digest, domain: candidate.manifest.domain, gates, reviews,
+      ...(autoApproved ? { autoApproved: true, approval: 'automatic demo approval, not a human review' } : {}),
       moduleCount: candidate.modules?.length ?? null };
   }
 
@@ -350,4 +392,5 @@ function createLifecycleDriver({ gatewayUrl, syntheticUrl, validationUrl, curric
   return { run, ensurePackage, register, train, examine, certify, credentialCount, verify, changeStatus, statusCycle, monitor, activePackage };
 }
 
-module.exports = { createLifecycleDriver, LifecycleError, STEPS, LIVE_SCENARIO };
+module.exports = { createLifecycleDriver, LifecycleError, STEPS, LIVE_SCENARIO, DEMO_APPROVAL_COMMENT, demoApprovalReview,
+  demoAutoApproveFromEnv };

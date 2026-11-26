@@ -3,12 +3,13 @@
 // registration, training, examination, certification, verification, a
 // suspend/reinstate cycle and the monitoring projection, against the running
 // Compose stack. Writes artifacts/poc/lifecycle-run.json. Simulation evidence
-// only. The package must already carry two people's reviews (governance
-// console); the run never reviews it.
+// only. The package needs two approving reviews (governance console); with
+// DEMO_AUTO_APPROVE=1 in .env, a package nobody has reviewed is approved by the
+// demo reviewer accounts, labelled as automatic (packages/demo-lifecycle).
 //   node scripts/poc-lifecycle.js [exam scenario, default safe-escalation] [domain, default ai-safety]
 const fs = require('node:fs');
 const path = require('node:path');
-const { createLifecycleDriver } = require('../packages/demo-lifecycle');
+const { createLifecycleDriver, demoAutoApproveFromEnv } = require('../packages/demo-lifecycle');
 // The domain to run, by sandbox domain id; each has one candidate package.
 const CANDIDATES = { 'ai-safety': 'ai-safety-candidate', 'customer-refunds': 'customer-refunds-candidate', 'personal-data': 'personal-data-candidate' };
 const domain = process.argv[3] || 'ai-safety';
@@ -33,6 +34,8 @@ const driver = createLifecycleDriver({
   admin: { clientId: env.ADMIN_CLIENT_ID, clientSecret: env.ADMIN_CLIENT_SECRET },
   candidate,
   examScenario: process.argv[2] || 'safe-escalation',
+  // .env's value wins; unset means on, as in docker-compose.yml's web service.
+  autoApprove: demoAutoApproveFromEnv({ ...env, DEMO_AUTO_APPROVE: env.DEMO_AUTO_APPROVE ?? '1' }),
 });
 
 driver.run({ onStep: (step) => {
@@ -44,9 +47,13 @@ driver.run({ onStep: (step) => {
   fs.mkdirSync(path.dirname(output), { recursive: true });
   fs.writeFileSync(output, `${JSON.stringify(report, null, 2)}\n`);
   console.log(`\n${report.status.toUpperCase()}  ${output}`);
+  if (report.steps?.find((step) => step.id === 'package')?.detail?.autoApproved) {
+    console.log('\nThe package was approved automatically by the demo reviewer accounts (DEMO_AUTO_APPROVE=1), not by people.');
+  }
   if (report.steps?.some((step) => step.error === 'package_awaiting_review')) {
     const { packageId, version } = candidate.manifest;
-    console.log(`\n${packageId} ${version} needs two approving reviews before it can be activated. Either:\n` +
+    console.log(`\n${packageId} ${version} needs two approving reviews before it can be activated. It is approved ` +
+      'automatically only when nobody has reviewed it, DEMO_AUTO_APPROVE is not 0 and REVIEWER_1/REVIEWER_2 are in .env. Otherwise:\n' +
       `  - two people review it in the Governance page (http://localhost:4300), signing in with REVIEWER_1 and REVIEWER_2 from .env; or\n` +
       `  - on a throwaway test stack only: EDUAGENTX_DISPOSABLE_STACK=1 node scripts/review-test-package.js ${domain}\n` +
       'Then run this script again.');

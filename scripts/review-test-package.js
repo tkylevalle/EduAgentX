@@ -11,7 +11,7 @@
 //   EDUAGENTX_DISPOSABLE_STACK=1 node scripts/review-test-package.js [domain, default ai-safety]
 const fs = require('node:fs');
 const path = require('node:path');
-const { citedSources } = require('../services/validation-activation/src/reviews');
+const { demoApprovalReview } = require('../packages/demo-lifecycle');
 
 const CANDIDATES = { 'ai-safety': 'ai-safety-candidate', 'customer-refunds': 'customer-refunds-candidate', 'personal-data': 'personal-data-candidate' };
 const TEST_COMMENT = 'TEST REVIEW on a disposable stack by a configured test account; not a human review.';
@@ -71,11 +71,9 @@ async function main() {
     const validated = expect(await call('POST', '/v1/admin/curriculum/validate', { token: admin, body: { package_id: id, version } }), [200], 'validation');
     if (!validated.passed) fail(`validation did not pass: ${JSON.stringify(validated.gates)}`);
   }
-  const criterionScores = Object.fromEntries(candidate.rubric.criteria.map((criterion) => [criterion.id, 4]));
-  const sourceChecks = Object.fromEntries(citedSources(candidate).map((source) => [source, { edition: true, licence: true, quotes: true }]));
   for (const prefix of ['REVIEWER_1', 'REVIEWER_2']) {
     const reply = await call('POST', '/v1/curriculum/review', { token: await signIn(prefix),
-      body: { package_id: id, version, criterionScores, sourceChecks, approved: true, comment: TEST_COMMENT } });
+      body: demoApprovalReview(candidate, TEST_COMMENT) });
     // duplicate_reviewer: this account already reviewed this version on an earlier run.
     const repeated = reply.status === 409 && reply.data.error === 'duplicate_reviewer';
     if (!repeated) expect(reply, [200], `${prefix} review`);

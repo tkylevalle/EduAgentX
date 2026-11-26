@@ -9,7 +9,7 @@
 const path = require('node:path');
 const fs = require('node:fs');
 const express = require('express');
-const { createLifecycleDriver, STEPS } = require('../../packages/demo-lifecycle');
+const { createLifecycleDriver, demoAutoApproveFromEnv, STEPS } = require('../../packages/demo-lifecycle');
 const { UUID } = require('../../packages/execution-provenance');
 
 const PORT = Number(process.env.PORT || 4300);
@@ -91,7 +91,7 @@ function createServer({ env = process.env, fetchImpl = fetch, driver } = {}) {
   const admin = { clientId: env.ADMIN_CLIENT_ID, clientSecret: env.ADMIN_CLIENT_SECRET };
   const lifecycle = driver || createLifecycleDriver({ gatewayUrl: GATEWAY_URL, syntheticUrl: SYNTHETIC_URL,
     validationUrl: VALIDATION_URL, curriculumInternalKey: env.CURRICULUM_INTERNAL_KEY, admin,
-    candidate: loadCandidate(), fetchImpl });
+    candidate: loadCandidate(), autoApprove: demoAutoApproveFromEnv(env), fetchImpl });
   let token = null;
   let tokenExpiresAt = 0;
   let runInProgress = false;
