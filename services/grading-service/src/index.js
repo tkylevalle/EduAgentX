@@ -2,7 +2,9 @@
 const express = require('express');
 const { timingSafeEqual } = require('node:crypto');
 const { DEFAULT_MODEL, DEFAULT_URL, createJudge } = require('./judge');
-const { GradingUnavailableError, createRubricGrader, validateJudgedRequest } = require('./rubric-grader');
+const { GradingUnavailableError, createRubricGrader, graderIdentity, validateJudgedRequest } = require('./rubric-grader');
+const { loadRecordedVerdicts } = require('./recorded-verdicts');
+const { createMemoryCache } = require('./verdict-cache');
 
 const SERVICE_NAME = 'grading-service';
 
@@ -27,11 +29,22 @@ function judgeFromEnv(env = process.env) {
     model: env.JUDGE_MODEL || DEFAULT_MODEL });
 }
 
+/**
+ * The rubric grader with its cache started from the recorded verdicts of the
+ * same grader version, so a recorded answer is graded even without a key.
+ * @param {{ judge?: object, recordedDir?: string }} options
+ * @returns {{ grader: object, judge: object, recorded: number }}
+ */
+function graderFromEnv({ judge = judgeFromEnv(), recordedDir } = {}) {
+  const entries = loadRecordedVerdicts({ dir: recordedDir, identity: graderIdentity(judge.model) });
+  return { grader: createRubricGrader({ judge, cache: createMemoryCache({ entries }) }), judge, recorded: Object.keys(entries).length };
+}
+
 // The service has one grader, the layered rubric judge. Pass thresholds and
 // critical rules are not held here: each attempt is graded under the rubric
 // and exam template pinned by its Domain Assurance Package, which the
 // Examination Engine sends with the rule definitions and item prompts.
-function createApp({ itemGradingKey = process.env.GRADING_SERVICE_KEY, grader = createRubricGrader({ judge: judgeFromEnv() }),
+function createApp({ itemGradingKey = process.env.GRADING_SERVICE_KEY, grader = graderFromEnv().grader,
   logEvent = log } = {}) {
   const app = express();
   app.use(express.json({ limit: '256kb' }));
@@ -74,9 +87,13 @@ function createApp({ itemGradingKey = process.env.GRADING_SERVICE_KEY, grader = 
 
 if (require.main === module) {
   const port = process.env.PORT || 4020;
-  const judge = judgeFromEnv();
-  createApp({ grader: createRubricGrader({ judge }) }).listen(port, () =>
-    log('listening', { port: Number(port), judgeModel: judge.model, judgeAvailable: judge.available, judgeReason: judge.reason }));
+  const { grader, judge, recorded } = graderFromEnv();
+  createApp({ grader }).listen(port, () => {
+    log('listening', { port: Number(port), judgeModel: judge.model, judgeAvailable: judge.available, judgeReason: judge.reason,
+      recordedVerdicts: recorded });
+    if (!judge.available) log('judge_not_configured', { recordedVerdicts: recorded,
+      effect: 'only recorded answers can be graded; any other written answer is refused (503) until JUDGE_API_KEY or OPENCODE_API_KEY is set in .env' });
+  });
 }
 
-module.exports = { createApp, judgeFromEnv };
+module.exports = { createApp, graderFromEnv, judgeFromEnv };
