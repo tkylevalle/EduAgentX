@@ -7,7 +7,9 @@ const MAX_BYTES = 2 * 1024 * 1024;
 function readPrincipals(file) {
   let fd;
   try {
-    fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+    // Windows has no O_NOFOLLOW, so a link is refused by lstat first on every platform.
+    if (fs.lstatSync(file).isSymbolicLink()) throw new Error();
+    fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0) | (fs.constants.O_NONBLOCK ?? 0));
     const stat = fs.fstatSync(fd);
     if (!stat.isFile() || stat.size > MAX_BYTES) throw new Error();
     const data = Buffer.alloc(MAX_BYTES + 1);
