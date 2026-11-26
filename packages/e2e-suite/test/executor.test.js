@@ -35,9 +35,23 @@ test('private preload supports 1000 explicit identities without broadening enrol
   }
   fs.writeFileSync(file, ' '.repeat(MAX_BYTES + 1));
   assert.throws(() => readPrincipals(file));
-  const link = path.join(dir, 'link'); fs.symlinkSync(file, link);
-  assert.throws(() => readPrincipals(link));
   assert.throws(() => readPrincipals(dir));
+});
+test('private preload refuses an enrollment file reached through a symbolic link', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'e2e33-enrollment-'));
+  t.after(() => fs.rmSync(dir, { recursive: true }));
+  const file = path.join(dir, 'principals.json');
+  fs.writeFileSync(file, JSON.stringify(executor.principalsFor(manifest.scenarios)), { mode: 0o600 });
+  assert.ok(readPrincipals(file).length);
+  // The refusal itself, on every OS: a valid file that lstat reports as a link is refused.
+  const lstat = fs.lstatSync;
+  const stub = t.mock.method(fs, 'lstatSync', (target) => Object.assign(lstat(target), { isSymbolicLink: () => true }));
+  assert.throws(() => readPrincipals(file), /invalid_private_execution_enrollment/);
+  stub.mock.restore();
+  // A real link too, where this OS user may create one (Windows needs Developer Mode or admin rights).
+  const link = path.join(dir, 'link');
+  try { fs.symlinkSync(file, link); } catch (e) { if (e.code !== 'EPERM') throw e; return t.diagnostic('real symbolic link not created: EPERM'); }
+  assert.throws(() => readPrincipals(link), /invalid_private_execution_enrollment/);
 });
 test('pilot uses frozen mixed recipe without unsafe safe-escalation misclassification', () => {
   for (const s of select('developer')) {

@@ -291,3 +291,91 @@ test('a failed candidate step stops the run and names the step', async (t) => {
   assert.deepEqual(await reply.json(), { error: 'candidate_failed', step: 'training', reason: 'registration_unavailable' });
   assert.deepEqual(calls.map((c) => c.action), ['training']);
 });
+
+// Assurance audit C3: a review is signed by the reviewer who submits it, never by credentials the server holds.
+test('a review is submitted under the reviewer\'s own token, and a failed sign-in records nothing', async (t) => {
+  const calls = [];
+  const fetchImpl = async (url, init = {}) => {
+    const body = init.body ? JSON.parse(init.body) : null;
+    calls.push({ url, method: init.method || 'GET', authorization: init.headers?.authorization, body });
+    const reply = (status, data) => ({ status, text: async () => JSON.stringify(data) });
+    if (url.endsWith('/v1/auth/tokens')) return body.clientId === 'person-a' && body.clientSecret === 'right' ? reply(200, { accessToken: 'person-a-token', expiresIn: 900 }) : reply(401, { error: 'invalid_client' });
+    if (url.endsWith('/v1/curriculum/review')) return reply(200, { score: 4, approvals: 1 });
+    return reply(404, { error: 'not_found' });
+  };
+  const base = await listen(t, { fetchImpl });
+  const sourceChecks = { gdpr: { edition: true, licence: true, quotes: true } };
+  const review = { packageId: 'pkg-x', version: '1.0.0', approved: true, comment: 'Checked.', criterionScores: { safety: 4 }, sourceChecks };
+  assert.equal((await post(base, '/api/governance/reviews', { ...review, clientId: 'person-a', clientSecret: 'wrong' })).status, 401);
+  assert.equal(calls.some((call) => call.url.endsWith('/v1/curriculum/review')), false);
+  const signed = await post(base, '/api/governance/reviews', { ...review, clientId: 'person-a', clientSecret: 'right' });
+  assert.equal(signed.status, 200);
+  const sent = calls.find((call) => call.url.endsWith('/v1/curriculum/review'));
+  assert.equal(sent.authorization, 'Bearer person-a-token');
+  assert.deepEqual(sent.body, { package_id: 'pkg-x', version: '1.0.0', criterionScores: { safety: 4 }, sourceChecks, approved: true, comment: 'Checked.' });
+});
+
+// A gateway stand-in holding one package awaiting review, whose sections carry
+// a safe page link, a script link, a plain-http link and a malformed one.
+function governanceGateway({ reviewerTokenStatus = 200 } = {}) {
+  const calls = [];
+  const fetchImpl = async (url, init = {}) => {
+    const body = init.body ? JSON.parse(init.body) : null;
+    calls.push({ url, method: init.method || 'GET' });
+    const reply = (status, data) => ({ status, text: async () => JSON.stringify(data) });
+    if (url.endsWith('/v1/auth/tokens')) {
+      if (body.clientId === 'admin') return reply(200, { accessToken: 'admin-token', expiresIn: 900 });
+      return reviewerTokenStatus === 200 ? reply(200, { accessToken: 'reviewer-token', expiresIn: 900 }) : reply(reviewerTokenStatus, { error: 'refused' });
+    }
+    if (url.endsWith('/v1/admin/curriculum/packages')) {
+      return reply(200, [{ packageId: 'pkg-x', version: '1.0.0', digest: 'd1', state: 'AwaitingReview', domainId: 'personal-data', approvals: 1, required: 2 },
+        { packageId: 'pkg-y', version: '2.0.0', digest: 'd2', state: 'Active' }, { packageId: 'pkg-z', version: '1.0.0', digest: 'd3', state: 'Candidate' }]);
+    }
+    if (url.endsWith('/v1/admin/curriculum/packages/pkg-x/1.0.0')) {
+      return reply(200, { packageId: 'pkg-x', version: '1.0.0', digest: 'd1', state: 'AwaitingReview', sourceSections: [
+        { id: 's1', sourceId: 'gdpr', locator: 'Art. 5', text: 'safe', url: 'https://eur-lex.europa.eu/page' },
+        { id: 's2', sourceId: 'gdpr', locator: 'Art. 6', text: 'script', url: 'javascript:alert(1)' },
+        { id: 's3', sourceId: 'gdpr', locator: 'Art. 7', text: 'plain', url: 'http://example.org/page' },
+        { id: 's4', sourceId: 'gdpr', locator: 'Art. 8', text: 'broken', url: 'not a url' }] });
+    }
+    if (url.endsWith('/v1/curriculum/review')) return reply(200, { score: 4, approvals: 1 });
+    return reply(404, { error: 'not_found' });
+  };
+  return { fetchImpl, calls };
+}
+
+// Review finding 7: the list is one Gateway read; detail is fetched for the selected package only.
+test('the governance list returns summaries with domain and approvals, without reading each package', async (t) => {
+  const { fetchImpl, calls } = governanceGateway();
+  const base = await listen(t, { fetchImpl });
+  const reply = await fetch(`${base}/api/governance/packages`);
+  assert.equal(reply.status, 200);
+  assert.deepEqual(await reply.json(), { packages: [
+    { packageId: 'pkg-x', version: '1.0.0', digest: 'd1', state: 'AwaitingReview', domainId: 'personal-data', approvals: 1, required: 2 },
+    { packageId: 'pkg-y', version: '2.0.0', digest: 'd2', state: 'Active', domainId: null, approvals: null, required: null }] });
+  assert.equal(calls.some((call) => /\/curriculum\/packages\/pkg-/.test(call.url)), false);
+});
+
+// Review finding 1: a section link is rendered as an anchor, so only https survives.
+test('a package detail keeps https section links and drops script, http and malformed ones', async (t) => {
+  const { fetchImpl } = governanceGateway();
+  const base = await listen(t, { fetchImpl });
+  const reply = await fetch(`${base}/api/governance/packages/pkg-x/1.0.0`);
+  assert.equal(reply.status, 200);
+  const { package: pkg } = await reply.json();
+  assert.deepEqual(pkg.sections.map((section) => section.url), ['https://eur-lex.europa.eu/page', null, null, null]);
+  assert.equal((await fetch(`${base}/api/governance/packages/pkg-missing/1.0.0`)).status, 404);
+  assert.equal((await fetch(`${base}/api/governance/packages/${encodeURIComponent('a b')}/1.0.0`)).status, 400);
+});
+
+// Review finding 10: only a refused sign-in is the reviewer's fault; a throttled or failing Gateway is an outage.
+test('a reviewer sign-in the Gateway throttles is reported as unavailable, not as a bad sign-in', async (t) => {
+  const review = { packageId: 'pkg-x', version: '1.0.0', approved: false, criterionScores: {}, sourceChecks: {}, clientId: 'person-a', clientSecret: 'right' };
+  for (const [tokenStatus, expected] of [[429, 503], [500, 503], [403, 401], [401, 401]]) {
+    const { fetchImpl, calls } = governanceGateway({ reviewerTokenStatus: tokenStatus });
+    const base = await listen(t, { fetchImpl });
+    const reply = await post(base, '/api/governance/reviews', review);
+    assert.equal(reply.status, expected, `token status ${tokenStatus}`);
+    assert.equal(calls.some((call) => call.url.endsWith('/v1/curriculum/review')), false);
+  }
+});

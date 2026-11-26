@@ -5,11 +5,15 @@
 // Credential status changes are admin-only and are forwarded with the
 // credential-verification internal key, which never leaves the Gateway.
 
+const telemetry = require('../../packages/telemetry');
+const { UUID, unavailable } = require('./route-helpers');
+
 const ASSURANCE_READERS = Object.freeze(['admin', 'viewer', 'evaluator', 'governance_operator', 'demo_operator']);
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const STATUS_ACTIONS = Object.freeze(['suspend', 'reinstate', 'revoke']);
 const MAX_REASON_CHARS = 500;
 const MAX_JWS_CHARS = 60000;
+// Signing a 16 KB status list takes milliseconds; the same budget as other upstream reads.
+const STATUS_LIST_TIMEOUT_MS = 5000;
 
 function registerAssuranceRoutes(app, {
   requireRole, proxyJson,
@@ -17,7 +21,6 @@ function registerAssuranceRoutes(app, {
   credentialVerificationUrl, credentialInternalKey,
   monitoringServiceUrl,
 }) {
-  const unavailable = (req, res, error) => res.status(503).json({ apiVersion: 'v1', error, correlationId: req.correlationId });
   const invalid = (req, res, details) => res.status(400).json({ apiVersion: 'v1', error: 'invalid_request', details,
     correlationId: req.correlationId });
   const certificationHeaders = (req) => ({ 'x-internal-service-key': certificationInternalKey,
@@ -44,6 +47,13 @@ function registerAssuranceRoutes(app, {
     await proxyJson(req, res, `${certificationServiceUrl}/internal/kpi/issuance`, { headers: certificationHeaders(req) });
   });
 
+  // Release Gate (target design 7): a CI step asks whether a re-examined agent may ship.
+  app.post('/v1/release-gate/checks', requireRole('admin'), async (req, res) => {
+    if (!certificationServiceUrl || !certificationInternalKey) return unavailable(req, res, 'certification_unavailable');
+    await proxyJson(req, res, `${certificationServiceUrl}/internal/release-gate/checks`, { method: 'POST', body: req.body,
+      headers: certificationHeaders(req) });
+  });
+
   // Any authenticated role may verify a credential it holds; the report says
   // only what the signature, schema, time, status and policy checks found.
   app.post('/v1/credentials/verify', requireRole('agent', ...ASSURANCE_READERS), async (req, res) => {
@@ -52,6 +62,28 @@ function registerAssuranceRoutes(app, {
       typeof body.jws !== 'string' || !body.jws || body.jws.length > MAX_JWS_CHARS) return invalid(req, res, ['jws']);
     if (!credentialVerificationUrl) return unavailable(req, res, 'verification_unavailable');
     await proxyJson(req, res, `${credentialVerificationUrl}/verify`, { method: 'POST', body: { jws: body.jws } });
+  });
+
+  // The issuer's public keys (assurance audit D3): open to anyone, so a third
+  // party can check a credential's signature itself.
+  app.get('/.well-known/jwks.json', async (req, res) => {
+    if (!credentialVerificationUrl) return unavailable(req, res, 'verification_unavailable');
+    await proxyJson(req, res, `${credentialVerificationUrl}/.well-known/jwks.json`);
+  });
+
+  // The signed status lists (assurance audit D2): open to anyone, passed through as signed.
+  app.get('/status-lists/:purpose', async (req, res) => {
+    if (!['revocation', 'suspension'].includes(req.params.purpose)) return res.status(404).json({ apiVersion: 'v1', error: 'not_found' });
+    if (!credentialVerificationUrl) return unavailable(req, res, 'verification_unavailable');
+    try {
+      const upstream = await fetch(`${credentialVerificationUrl}/status-lists/${req.params.purpose}`,
+        { signal: AbortSignal.timeout(STATUS_LIST_TIMEOUT_MS) });
+      res.status(upstream.status).type(upstream.headers.get('content-type') || 'application/json').send(await upstream.text());
+    } catch (error) {
+      telemetry.log('api-gateway', 'upstream_failed', { correlationId: req.correlationId, dependency: 'credential-verification',
+        outcome: error?.name || 'request_failed' });
+      return unavailable(req, res, 'verification_unavailable');
+    }
   });
 
   app.get('/v1/credentials/:credentialId/status', requireRole('agent', ...ASSURANCE_READERS), async (req, res) => {

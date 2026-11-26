@@ -11,6 +11,9 @@ const isUniqueViolation = (error) => error?.code === '23505';
 const isTerminal = (eventType) => eventType === 'session_completed' || eventType === 'session_blocked';
 // One relay at a time publishes the completion outbox, across every Training instance.
 const RELAY_LOCK = 'training-relay:completions';
+// A page of incidents when the caller names none: as many as the completion
+// outbox view shows, enough for an operator to see the recent failures.
+const DEFAULT_INCIDENT_LIMIT = 100;
 
 async function decideAndAppend(store, lockKey, decide) {
   for (let attempt = 1; ; attempt += 1) {
@@ -97,21 +100,33 @@ function pgQueries(db) {
         AND e.event_type='session_started' AND e.idempotency_key=$2 ORDER BY s.started_at LIMIT 1`, [actor, key]);
       return rows[0] ? toSession(rows[0]) : null;
     },
-    async findOpenSession(agentLearnerKey) {
+    // packageId: only that package's sessions; a learner trains in each domain separately.
+    async findOpenSession(agentLearnerKey, packageId = null) {
       // Open = started with no completion or block event yet.
       const result = await db.query(
         `SELECT ${SESSION_COLUMNS} FROM training_service.sessions s
-         WHERE s.agent_learner_key = $1 AND NOT EXISTS (
+         WHERE s.agent_learner_key = $1 AND ($2::text IS NULL OR s.package_id = $2) AND NOT EXISTS (
            SELECT 1 FROM training_service.session_events e
            WHERE e.session_id = s.session_id AND e.event_type IN ('session_completed', 'session_blocked'))
-         ORDER BY s.started_at DESC LIMIT 1`, [agentLearnerKey]);
+         ORDER BY s.started_at DESC LIMIT 1`, [agentLearnerKey, packageId]);
       return result.rows[0] ? toSession(result.rows[0]) : null;
     },
     async findRemediation(agentLearnerKey, requestId) {
       const result = await db.query(
         `SELECT ${SESSION_COLUMNS} FROM training_service.sessions
-         WHERE agent_learner_key = $1 AND kind = 'remediation' AND remediation->>'requestId' = $2`,
+         WHERE agent_learner_key = $1 AND kind = 'remediation' AND remediation->>'requestId' = $2
+           AND NOT (remediation ? 'carriedFromSessionId')`,
         [agentLearnerKey, requestId]);
+      if (!result.rows[0]) return null;
+      const session = toSession(result.rows[0]);
+      return { session, events: await this.getEvents(session.sessionId) };
+    },
+    // The learner's newest remediation session, assigned or carried over, with its events.
+    async findLatestRemediation(agentLearnerKey, packageId = null) {
+      const result = await db.query(
+        `SELECT ${SESSION_COLUMNS} FROM training_service.sessions
+         WHERE agent_learner_key = $1 AND kind = 'remediation' AND ($2::text IS NULL OR package_id = $2)
+         ORDER BY started_at DESC LIMIT 1`, [agentLearnerKey, packageId]);
       if (!result.rows[0]) return null;
       const session = toSession(result.rows[0]);
       return { session, events: await this.getEvents(session.sessionId) };
@@ -216,14 +231,15 @@ function createPgStore(pool) {
         'SELECT envelope FROM training_service.completion_events ORDER BY occurred_at DESC, event_id LIMIT $1', [limit]);
       return result.rows.map((row) => row.envelope);
     },
-    async findCompletion({ agentLearnerKey, packageId, packageVersion, packageDigest, sessionId }) {
+    async findCompletion({ agentLearnerKey, packageId, packageVersion, packageDigest, sessionId, remediationRequestId }) {
       const result = await pool.query(
         `SELECT c.envelope FROM training_service.completion_events c
          JOIN training_service.sessions s ON s.session_id = c.session_id
          WHERE s.agent_learner_key = $1 AND s.package_id = $2 AND s.package_version = $3
            AND s.package_digest = $4 AND ($5::uuid IS NULL OR s.session_id = $5::uuid)
+           AND ($6::text IS NULL OR c.envelope->>'remediationRequestId' = $6)
          ORDER BY c.occurred_at DESC, c.event_id DESC LIMIT 1`,
-        [agentLearnerKey, packageId, packageVersion, packageDigest, sessionId || null]);
+        [agentLearnerKey, packageId, packageVersion, packageDigest, sessionId || null, remediationRequestId || null]);
       return result.rows[0]?.envelope || null;
     },
     // Started sessions with no terminal event and no event since `cutoff`, oldest first.
@@ -252,12 +268,13 @@ function createPgStore(pool) {
       const { total, published, quarantined } = result.rows[0];
       return { total, published, pending: total - published - quarantined, quarantined };
     },
-    async listCompletionIncidents() {
+    // Newest first, at most `limit`: callers read a page, never the whole table.
+    async listCompletionIncidents({ limit = DEFAULT_INCIDENT_LIMIT } = {}) {
       const result = await pool.query(
         `SELECT event_id AS "eventId", category, severity, safe_state AS "safeState",
           cause_code AS "causeCode", correlation_id AS "correlationId", affected,
           retry_count AS "retryCount", occurred_at AS "occurredAt"
-         FROM training_service.completion_delivery_incidents ORDER BY occurred_at DESC`);
+         FROM training_service.completion_delivery_incidents ORDER BY occurred_at DESC, event_id LIMIT $1`, [limit]);
       return result.rows;
     },
   };
@@ -322,6 +339,18 @@ async function publishUnderRelayLock(pool, publish, limit) {
 // --- In-memory store with the same interface, for route tests only. It
 // enforces the same unique constraints so the retry path can be exercised.
 
+// The two unique indexes on remediation sessions in schema.sql. An assigned
+// remediation (not a carry-over): one per learner and request.
+const sameAssignedRequest = (existing, session) => existing.kind === 'remediation' && session.kind === 'remediation' &&
+  !existing.remediation.carriedFromSessionId && !session.remediation.carriedFromSessionId &&
+  existing.agentLearnerKey === session.agentLearnerKey && existing.remediation.requestId === session.remediation.requestId;
+// A carry-over: one per ended session it carries.
+const sameCarryOver = (existing, session) => existing.kind === 'remediation' && session.kind === 'remediation' &&
+  Boolean(session.remediation.carriedFromSessionId) &&
+  existing.remediation.carriedFromSessionId === session.remediation.carriedFromSessionId;
+// Oldest first, as ORDER BY started_at reads it; ISO timestamps compare as instants.
+const byStartedAt = (a, b) => new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime();
+
 function createMemoryStore() {
   const sessions = new Map();
   const events = [];
@@ -339,32 +368,36 @@ function createMemoryStore() {
       const run = queue.then(async () => {
         const staged = { sessions: [], events: [], completions: [] };
         const allEvents = () => [...events, ...staged.events];
+        const allSessions = () => [...sessions.values(), ...staged.sessions];
+        const withEvents = (session) => (session
+          ? structuredClone({ session, events: allEvents().filter((e) => e.sessionId === session.sessionId) })
+          : null);
         const tx = {
           async findStart(actor, key) {
             const e = allEvents().find((e) => e.actor === actor && e.eventType === 'session_started' && e.idempotencyKey === key);
             return structuredClone(e ? sessions.get(e.sessionId) : null);
           },
-          async findOpenSession(agentLearnerKey) {
+          async findOpenSession(agentLearnerKey, packageId = null) {
             const candidates = [...sessions.values(), ...staged.sessions]
-              .filter((s) => s.agentLearnerKey === agentLearnerKey)
+              .filter((s) => s.agentLearnerKey === agentLearnerKey && (packageId === null || s.packageId === packageId))
               .filter((s) => ['open', 'assigned'].includes(
                 deriveSessionState(allEvents().filter((e) => e.sessionId === s.sessionId)).status));
             return structuredClone(candidates.at(-1) || null);
           },
+          // As Postgres within a transaction: committed sessions and this transaction's own.
           async findRemediation(agentLearnerKey, requestId) {
-            const session = [...sessions.values()].find((s) => s.agentLearnerKey === agentLearnerKey &&
-              s.kind === 'remediation' && s.remediation.requestId === requestId);
-            return session
-              ? structuredClone({ session, events: allEvents().filter((e) => e.sessionId === session.sessionId) })
-              : null;
+            return withEvents(allSessions().find((s) => s.agentLearnerKey === agentLearnerKey &&
+              s.kind === 'remediation' && s.remediation.requestId === requestId && !s.remediation.carriedFromSessionId));
+          },
+          async findLatestRemediation(agentLearnerKey, packageId = null) {
+            return withEvents(allSessions().filter((s) => s.agentLearnerKey === agentLearnerKey && s.kind === 'remediation' &&
+              (packageId === null || s.packageId === packageId)).sort(byStartedAt).at(-1));
           },
           async getSession(sessionId) { return structuredClone(sessions.get(sessionId) || null); },
           async getEvents(sessionId) { return structuredClone(allEvents().filter((e) => e.sessionId === sessionId)); },
           async insertSession(session) {
-            if (sessions.has(session.sessionId)) throw uniqueViolation();
-            const sameRequest = (s) => s.kind === 'remediation' && session.kind === 'remediation' &&
-              s.agentLearnerKey === session.agentLearnerKey && s.remediation.requestId === session.remediation.requestId;
-            if ([...sessions.values(), ...staged.sessions].some(sameRequest)) throw uniqueViolation();
+            if (allSessions().some((s) => s.sessionId === session.sessionId)) throw uniqueViolation();
+            if (allSessions().some((s) => sameAssignedRequest(s, session) || sameCarryOver(s, session))) throw uniqueViolation();
             staged.sessions.push(structuredClone(session));
           },
           async insertEvents(list) {
@@ -407,10 +440,11 @@ function createMemoryStore() {
     },
     async metricsInput() { return store.listSessions(); },
     async listCompletionEvents() { return structuredClone([...completions.values()].reverse()); },
-    async findCompletion({ agentLearnerKey, packageId, packageVersion, packageDigest, sessionId }) {
+    async findCompletion({ agentLearnerKey, packageId, packageVersion, packageDigest, sessionId, remediationRequestId }) {
       const match = [...completions.values()].reverse().find((event) =>
         event.agentLearnerKey === agentLearnerKey && event.package?.id === packageId &&
-        event.package?.version === packageVersion && event.package?.digest === packageDigest && (!sessionId || event.sessionId === sessionId));
+        event.package?.version === packageVersion && event.package?.digest === packageDigest && (!sessionId || event.sessionId === sessionId) &&
+        (!remediationRequestId || event.remediationRequestId === remediationRequestId));
       return match ? structuredClone(match) : null;
     },
     async listIdleOpenSessions(cutoff, limit = 100) {
@@ -444,7 +478,10 @@ function createMemoryStore() {
       return { total: completions.size, published: publications.size,
         pending: completions.size - publications.size - deliveryIncidents.size, quarantined: deliveryIncidents.size };
     },
-    async listCompletionIncidents() { return structuredClone([...deliveryIncidents.values()]); },
+    // As Postgres: newest first, at most `limit`.
+    async listCompletionIncidents({ limit = DEFAULT_INCIDENT_LIMIT } = {}) {
+      return structuredClone([...deliveryIncidents.values()].reverse().slice(0, limit));
+    },
   };
   return store;
 }

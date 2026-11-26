@@ -17,6 +17,8 @@ const INTERNAL_KEY = 'fallback-finalize-service-key';
 const GRADING_KEY = 'fallback-finalize-grading-key';
 const ACTOR = 'fallback-finalize-learner';
 const START = '2026-10-14T06:00:00.000Z';
+// A test seed key, as long as the Engine requires.
+const EPISODE_KEY = 'fallback-finalize-episode-seed-key-0123456789abcdef';
 const AGENT_HEADERS = { 'x-internal-service-key': INTERNAL_KEY, 'x-actor-subject': ACTOR, 'x-actor-role': 'agent' };
 const EXAMINER_HEADERS = { 'x-internal-service-key': INTERNAL_KEY, 'x-actor-subject': 'trusted-operator',
   'x-actor-role': 'examiner', 'x-internal-grading-key': GRADING_KEY };
@@ -55,7 +57,7 @@ async function boot(t) {
   const scoreFallback = async (args) => { ctx.scoreCalls.push(structuredClone(args)); return ctx.score(args); };
   ctx.store = createMemoryStore();
   const server = http.createServer(createApp({ store: ctx.store, sources, internalKey: INTERNAL_KEY, gradingKey: GRADING_KEY,
-    clock: () => START, durationMinutes: 60, selectFallback, scoreFallback }));
+    clock: () => START, durationMinutes: 60, selectFallback, scoreFallback, episodeSeedKey: EPISODE_KEY }));
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   t.after(() => new Promise((resolve) => server.close(resolve)));
   ctx.call = (method, path, body, headers) => new Promise((resolve, reject) => {

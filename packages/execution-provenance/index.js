@@ -3,6 +3,9 @@
 const { createHash } = require('node:crypto');
 const fs = require('node:fs');
 const reference = require('./reference');
+const { policiesOf } = require('../agent-sandbox/src/panel');
+const { AI_SAFETY } = require('../agent-sandbox/src/families');
+const { CODE_DIGEST: SANDBOX_DIGEST, isPassingBehaviourEvidence } = require('../agent-sandbox/src/evidence');
 const remediable = require('./remediable-v1');
 const POLICY = 'reference-execution/1.0.0';
 const RUN = 'execution-provenance/1.0.0';
@@ -13,7 +16,13 @@ const SCHEMA = require('./credential.schema.json').$id;
 const SIMULATION_ISSUER = 'https://eduagentx.example/issuers/eduagentx-test';
 const REPLAY_REVIEW = 'execution-replay-review/1.0.0';
 const REQUIRED_FIXTURE_REVIEWS = 2;
+// Synthetic and replay runs replay the reference scenarios, which exist for the
+// AI-safety package only, so their episodes are played by that domain's panel.
+const SANDBOX_POLICIES = policiesOf(AI_SAFETY);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// Attestation levels a credential may state (target design 4.2, assurance audit D1).
+const ATTESTATION_LEVELS = Object.freeze(['L1-declared', 'L2-observed']);
+const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const HASH = /^sha256:[0-9a-f]{64}$/;
 const text = (v) => typeof v === 'string' && v.length > 0 && v.length <= 256;
 const object = (v) => Boolean(v && typeof v === 'object' && !Array.isArray(v));
@@ -23,13 +32,17 @@ const hash = (v) => `sha256:${createHash('sha256').update(JSON.stringify(canonic
 const responseHash = (v) => `sha256:${createHash('sha256').update(v).digest('hex')}`;
 const same = (a, b) => JSON.stringify(canonical(a)) === JSON.stringify(canonical(b));
 const exact = (v, keys) => object(v) && Object.keys(v).length === keys.length && keys.every((k) => Object.hasOwn(v, k));
+// A grader identity as credentials carry it (assurance audit A11).
+const validGrader = (g) => exact(g, ['id', 'version']) && text(g.id) && text(g.version);
 const fail = (code = 'provenance_conflict', status = 409) => Object.assign(new Error(code), { code, status });
 function pair(environment, mode) {
   return (environment === 'simulation' && ['synthetic', 'replay'].includes(mode)) ||
     (environment === 'live' && mode === 'live');
 }
 
-const referenceDigest = responseHash(fs.readFileSync(`${__dirname}/reference.js`, 'utf8'));
+// The reference source is its code and the written answers it gives, so changing either changes its digest.
+const referenceDigest = responseHash(`${fs.readFileSync(`${__dirname}/reference.js`, 'utf8')}
+${require('./competent-answers').COMPETENT_ANSWERS_TEXT}`);
 const remediableDigest = responseHash(fs.readFileSync(`${__dirname}/remediable-v1.js`, 'utf8'));
 let replay;
 function replayManifest() {
@@ -72,6 +85,11 @@ function source(id) {
       (!reference.listExamScenarios().includes(parts[2]) && id !== remediable.ID)) throw fail('source_not_supported');
   return { id, version: '1.0.0', digest: hash({ id, version: '1.0.0', referenceDigest,
     ...(id === remediable.ID ? { recipeDigest: remediableDigest, recipeVersion: remediable.VERSION } : {}) }) };
+}
+/** @returns {{ profile: string, scenario: string }} the parts of a synthetic run's source id */
+function sourceParts(run) {
+  const [, profile = '', scenario = ''] = String(run?.source?.id || '').split(':');
+  return { profile, scenario };
 }
 function sourceMode(s) { return s?.id?.startsWith('synthetic:') ? 'synthetic' : s?.id === 'replay:reference-safe' ? 'replay' : null; }
 function validSource(s) {
@@ -168,14 +186,61 @@ function receipt(run, phase, item, attemptId = null, now = new Date().toISOStrin
 function validateReceipt(run, a, evidence, rec, phase, item, response, attemptId = null) {
   if (!matchesAuthority(run, a, evidence) || !exact(rec, ['schemaVersion','runId','phase','itemId','attemptId','executorId',
     'source','entryId','contextDigest','responseDigest','receiptId','executedAt']) ||
-    typeof rec.executedAt !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(rec.executedAt) ||
+    typeof rec.executedAt !== 'string' || !ISO_TIME.test(rec.executedAt) ||
     !Number.isFinite(Date.parse(rec.executedAt))) throw fail();
   const expected = receipt(run, phase, item, attemptId, rec.executedAt);
   if (!same(rec, expected.executionEvidence) || response !== expected.response) throw fail();
   return structuredClone(rec);
 }
-function coverage(run, phase, itemIds, receipts, attemptId = null) {
-  if (!validRun(run) || !Array.isArray(itemIds) || !itemIds.length || new Set(itemIds).size !== itemIds.length ||
+// A receipt read back from a stored attempt. New receipts are checked against
+// the reference code when they are written (validateReceipt, episodeReceipt);
+// history is not, because that code and the sandbox's digest change between
+// releases. Here every field must agree with the run, the item, the attempt and
+// the stored response, and the receipt id must be the hash of its fields, which
+// binds what the code produced then (entryId, contextDigest).
+function validateRecordedReceipt(run, rec, phase, item, response, attemptId) {
+  if (!validRun(run, false) || !exact(rec, ['schemaVersion','runId','phase','itemId','attemptId','executorId',
+    'source','entryId','contextDigest','responseDigest','receiptId','executedAt']) || rec.schemaVersion !== RECEIPT ||
+    rec.runId !== run.runId || rec.phase !== phase || rec.itemId !== (phase === 'training' ? item.deliveryItemId : item.id) ||
+    rec.attemptId !== attemptId || rec.executorId !== run.executorId || !same(rec.source, run.source) || !text(rec.entryId) ||
+    !text(rec.contextDigest) || rec.responseDigest !== responseHash(response) || !ISO_TIME.test(String(rec.executedAt))) throw fail();
+  const { receiptId, executedAt, ...fields } = rec;
+  if (receiptId !== hash(fields)) throw fail();
+  return structuredClone(rec);
+}
+// Behaviour items (recorded sandbox episodes). A provenance run does not
+// answer them with a reference text, and no captured replay covers them: the
+// Examination Engine plays the source's reference policy itself, refuses any
+// step that departs from it while holding the attempt's lock, and issues the
+// item's receipt over the recorded steps. The receipt keeps the ordinary
+// format; its entryId names the policy and its contextDigest binds the
+// sandbox code, so a policy or world change cannot reuse an old receipt.
+// Only the Engine holds the world seed, so only it can check the steps; a
+// receipt shows which policy the Engine ran, not that anyone else re-checked it.
+function episodePolicyId(run, item) {
+  const scenario = reference.EXAM_SCENARIOS[sourceParts(run).scenario];
+  return scenario && scenario.slotId === item.slotId && scenario.expected.status === 'agent_failed' ? 'instruction-follower' : 'safe-agent';
+}
+/** @param {object} run a validated execution run @param {{ slotId: string }} item @returns {Function} the sandbox agent the Engine plays for this run's behaviour item */
+const episodePolicy = (run, item) => SANDBOX_POLICIES[episodePolicyId(run, item)];
+/** @returns {object} the receipt for one Engine-recorded episode; executedAt is when it ended */
+function episodeReceipt(run, item, attemptId, response, executedAt) {
+  if (!validRun(run) || !ISO_TIME.test(String(executedAt)) || !Number.isFinite(Date.parse(executedAt))) throw fail();
+  const policy = episodePolicyId(run, item);
+  const fields = { schemaVersion: RECEIPT, runId: run.runId, phase: 'examination', itemId: item.id, attemptId,
+    executorId: run.executorId, source: run.source, entryId: `examination:${item.slotId}:episode:${policy}`,
+    contextDigest: hash({ phase: 'examination', itemId: item.id, attemptId, kind: 'behaviour', policy, sandbox: SANDBOX_DIGEST }),
+    responseDigest: responseHash(response) };
+  return { ...fields, receiptId: hash(fields), executedAt };
+}
+function validateEpisodeReceipt(run, rec, item, response, attemptId) {
+  if (!object(rec) || !same(rec, episodeReceipt(run, item, attemptId, response, rec.executedAt))) throw fail();
+  return structuredClone(rec);
+}
+
+// catalog: false when summarising a stored attempt, whose run may name a reference source the catalog no longer lists.
+function coverage(run, phase, itemIds, receipts, attemptId = null, catalog = true) {
+  if (!validRun(run, catalog) || !Array.isArray(itemIds) || !itemIds.length || new Set(itemIds).size !== itemIds.length ||
       receipts.length !== itemIds.length || new Set(receipts.map((r) => r?.receiptId)).size !== receipts.length ||
       receipts.some((r, i) => r?.schemaVersion !== RECEIPT || r.runId !== run.runId || r.phase !== phase ||
         r.itemId !== itemIds[i] || r.attemptId !== attemptId || r.executorId !== run.executorId || !same(r.source, run.source))) throw fail();
@@ -223,7 +288,19 @@ function credentialProvenance(vc) {
       new Set(outcomes.map((i) => i.itemId)).size !== 15 || safety?.passed !== true ||
       !Array.isArray(safety.criticalViolationRuleIds) || safety.criticalViolationRuleIds.length ||
       !Array.isArray(safety.failureReasons) || safety.failureReasons.length ||
-      !same(scores, vc.evidence?.scores) || !same(safety, vc.evidence?.safetyResult)) return false;
+      !same(scores, vc.evidence?.scores) || !same(safety, vc.evidence?.safetyResult) ||
+      // The grader behind the score is part of the claim (assurance audit A11):
+      // absent in both copies on credentials issued before graders were recorded, else valid.
+      !same(competency.grader ?? null, vc.evidence?.grader ?? null) ||
+      (competency.grader != null && !validGrader(competency.grader)) ||
+      // So is the behaviour evidence: absent or null (not measured), or passing and self-consistent.
+      !same(competency.behaviour ?? null, vc.evidence?.behaviour ?? null) ||
+      // And the attestation level (assurance audit D1): absent on older credentials, else a known level in both copies.
+      !same(competency.attestation ?? null, vc.evidence?.attestation ?? null) ||
+      (competency.attestation != null && !ATTESTATION_LEVELS.includes(competency.attestation.level)) ||
+      (competency.behaviour != null && (!isPassingBehaviourEvidence(competency.behaviour) ||
+        // Every episode belongs to an adversarial item the credential scores.
+        !competency.behaviour.episodes.every((episode) => outcomes.some((i) => i.itemId === episode.itemId && i.tier === 'adversarial'))))) return false;
   return validSummary(s, { subjectId: s?.run?.agentLearnerKey, fingerprint: vc.credentialSubject?.configurationFingerprint,
     package: vc.evidence?.package, examinationId: vc.evidence?.examinationId,
     itemIds: outcomes.map((i) => i.itemId) }, false) &&
@@ -232,6 +309,6 @@ function credentialProvenance(vc) {
     issuerPermits(vc.environment, vc.issuer);
 }
 
-module.exports = { POLICY, RUN, RECEIPT, COVERAGE, SCHEMA, UUID, SIMULATION_ISSUER, replayReviewed, issuerPermits, hash, responseHash, same, pair, fail,
+module.exports = { validateRecordedReceipt, ATTESTATION_LEVELS, POLICY, RUN, RECEIPT, COVERAGE, SCHEMA, UUID, SIMULATION_ISSUER, validGrader, episodePolicy, episodeReceipt, validateEpisodeReceipt, replayReviewed, issuerPermits, hash, responseHash, same, pair, fail,
   source, sourceMode, validSource, enrollments, authority, validAuthority, bindRun, validRun, matchesAuthority, runAuthority,
   context, generated, receipt, validateReceipt, coverage, validCoverage, validCompletion, validSummary, credentialProvenance };

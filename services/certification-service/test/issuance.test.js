@@ -24,6 +24,7 @@ function evidence(overrides = {}) {
     rubric: { id: 'ai-safety-rubric', version: '2.0.0', digest: `sha256:${'c'.repeat(64)}` },
     formDigest: `sha256:${'d'.repeat(64)}`, result: { schemaVersion: 'examination-result/1.0.0', valid: true, passed: true },
     assessment: { schemaVersion: 'examination-assessment/1.0.0', passed: true, overallPercent: 90,
+      grader: { id: 'deterministic-keyword-grader', version: '1.1.0' },
       tierPercents: { recall: 90, applied: 90, adversarial: 90 }, criticalViolationRuleIds: [], failureReasons: [],
       itemOutcomes: [...Array.from({ length: 5 }, (_, i) => ({ itemId: `r${i}`, tier: 'recall' })),
         ...Array.from({ length: 6 }, (_, i) => ({ itemId: `a${i}`, tier: 'applied' })),
@@ -77,6 +78,136 @@ test('issues a signed project credential bound to a complete passing evidence re
   assert.equal(kpi.body.targetMet, true);
   assert.ok(kpi.body.processingP95Ms >= 0);
   assert.ok(kpi.body.p95Ms <= 8000);
+});
+
+const KEYWORD_GRADER = Object.freeze({ id: 'deterministic-keyword-grader', version: '1.1.0' });
+const signedClaims = (response) => JSON.parse(Buffer.from(response.body.credential.compactJws.split('.')[1], 'base64url'));
+
+test('the signed credential names the grader that produced its score', async (t) => {
+  const ctx = await boot(t);
+  const response = await ctx.call('/internal/decisions', { examinationId: evidence().attemptId, idempotencyKey: 'grader-1' });
+  const credential = signedClaims(response);
+  assert.deepEqual(credential.evidence.grader, KEYWORD_GRADER);
+  assert.deepEqual(credential.credentialSubject.competency.grader, KEYWORD_GRADER);
+});
+
+test('a fallback credential names the fallback scorer as its grader', async (t) => {
+  const fallbackGrader = { id: 'deterministic-fallback', version: '1.0.0' };
+  const fallback = evidence({ mode: 'fallback', template: undefined,
+    bank: { id: 'ai-safety-fallback', version: '1.0.0', digest: `sha256:${'f'.repeat(64)}` } });
+  fallback.assessment.grader = fallbackGrader;
+  const ctx = await boot(t, async () => fallback);
+  const response = await ctx.call('/internal/decisions', { examinationId: fallback.attemptId, idempotencyKey: 'grader-3' });
+  assert.equal(response.status, 201, JSON.stringify(response.body));
+  assert.deepEqual(signedClaims(response).evidence.grader, fallbackGrader);
+});
+
+test('an assessment that does not name its grader is refused as malformed evidence', async (t) => {
+  const unnamed = evidence();
+  delete unnamed.assessment.grader;
+  const ctx = await boot(t, async () => unnamed);
+  const response = await ctx.call('/internal/decisions', { examinationId: unnamed.attemptId, idempotencyKey: 'grader-2' });
+  assert.equal(response.body.error || response.body.code || response.body.outcome, 'examination_evidence_malformed', JSON.stringify(response.body));
+  assert.deepEqual(await ctx.store.counts(), { decisions: 0, credentials: 0 });
+});
+
+// A 1.1.0 standard assessment carries the behaviour evidence of its adversarial items.
+const { evidenceOf, heldOutEpisodes } = require('../../../packages/agent-sandbox/test/fixtures');
+// The AI-safety package's adversarial slots and the sandbox families each runs.
+const SLOT_FAMILIES = Object.fromEntries(require('../../curriculum-engine/examples/ai-safety-candidate').examTemplate.slots
+  .filter((slot) => slot.scenarioFamilies).map((slot) => [slot.id, slot.scenarioFamilies]));
+function withBehaviour(score = 100) {
+  // The fixture's adversarial outcomes v0..v3 stand for the Engine's slots v1..v4.
+  const episodes = Object.values(SLOT_FAMILIES).flatMap((families, index) => heldOutEpisodes(`v${index}`, families, { score: () => score }));
+  const value = evidence();
+  value.assessment.schemaVersion = 'examination-assessment/1.1.0';
+  value.assessment.behaviour = evidenceOf(episodes, ['o3', 'o4', 'o5'], ['o1', 'o2']);
+  return value;
+}
+
+test('a standard credential states the behaviour evidence: episodes, bounds, pool and scope', async (t) => {
+  const source = withBehaviour();
+  const ctx = await boot(t, async () => source);
+  const response = await ctx.call('/internal/decisions', { examinationId: source.attemptId, idempotencyKey: 'behaviour-1' });
+  assert.equal(response.status, 201, JSON.stringify(response.body));
+  const credential = signedClaims(response);
+  assert.deepEqual(credential.credentialSubject.competency.behaviour, source.assessment.behaviour);
+  assert.deepEqual(credential.evidence.behaviour, source.assessment.behaviour);
+  assert.match(credential.credentialSubject.competency.behaviour.scope, /does not measure/);
+});
+
+test('behaviour evidence that is missing, failing or inconsistent cannot issue a standard 1.1.0 credential', async (t) => {
+  const missing = withBehaviour(); missing.assessment.behaviour = null;
+  const failing = withBehaviour(60);
+  const forged = withBehaviour(); forged.assessment.behaviour.objectives[0].successLowerBound = 0.99;
+  const onFallback = withBehaviour(); Object.assign(onFallback, { mode: 'fallback', template: undefined,
+    bank: { id: 'ai-safety-fallback', version: '1.0.0', digest: `sha256:${'f'.repeat(64)}` } });
+  for (const [index, source] of [missing, failing, forged, onFallback].entries()) {
+    const ctx = await boot(t, async () => source);
+    const response = await ctx.call('/internal/decisions', { examinationId: source.attemptId, idempotencyKey: `behaviour-bad-${index}` });
+    assert.equal(response.body.error || response.body.code || response.body.outcome, 'examination_evidence_malformed', `${index}: ${JSON.stringify(response.body)}`);
+    assert.deepEqual(await ctx.store.counts(), { decisions: 0, credentials: 0 });
+  }
+});
+
+test('an assessment from before behaviour evidence issues a credential that states behaviour was not measured', async (t) => {
+  const ctx = await boot(t);
+  const response = await ctx.call('/internal/decisions', { examinationId: evidence().attemptId, idempotencyKey: 'behaviour-legacy' });
+  assert.equal(signedClaims(response).credentialSubject.competency.behaviour, null);
+});
+
+test('the credential states whether the platform ran the agent (L2) or the agent declared its own configuration (L1)', async (t) => {
+  const saved = process.env.CERTIFICATION_PLATFORM_SUBJECTS;
+  t.after(() => { if (saved === undefined) delete process.env.CERTIFICATION_PLATFORM_SUBJECTS; else process.env.CERTIFICATION_PLATFORM_SUBJECTS = saved; });
+  for (const [subjects, level] of [['agent-1, live-agent-learner-dev', 'L2-observed'], ['live-agent-learner-dev', 'L1-declared']]) {
+    process.env.CERTIFICATION_PLATFORM_SUBJECTS = subjects;
+    const ctx = await boot(t);
+    const response = await ctx.call('/internal/decisions', { examinationId: evidence().attemptId, idempotencyKey: `attest-${level}` });
+    const credential = signedClaims(response);
+    assert.equal(credential.credentialSubject.competency.attestation.level, level);
+    assert.deepEqual(credential.credentialSubject.competency.attestation, credential.evidence.attestation);
+    assert.match(credential.evidence.attestation.meaning, level === 'L1-declared' ? /self-declared/ : /cannot be checked/);
+  }
+});
+
+test('each credential signs its own entries in the revocation and suspension lists', async (t) => {
+  const first = evidence(), second = evidence({ attemptId: randomUUID() });
+  const sources = new Map([[first.attemptId, first], [second.attemptId, second]]);
+  const ctx = await boot(t, async (id) => sources.get(id), undefined, { statusListBase: 'https://issuer.example/status-lists' });
+  const issued = [];
+  for (const source of [first, second]) {
+    const response = await ctx.call('/internal/decisions', { examinationId: source.attemptId, idempotencyKey: `status-${source.attemptId}` });
+    assert.equal(response.status, 201, JSON.stringify(response.body));
+    issued.push(signedClaims(response).credentialStatus);
+  }
+  assert.deepEqual(issued[0].map((entry) => [entry.statusPurpose, entry.statusListCredential, entry.type]), [
+    ['revocation', 'https://issuer.example/status-lists/revocation', 'BitstringStatusListEntry'],
+    ['suspension', 'https://issuer.example/status-lists/suspension', 'BitstringStatusListEntry']]);
+  assert.notEqual(issued[0][0].statusListIndex, issued[1][0].statusListIndex, 'one index per credential');
+  assert.equal(issued[0][0].statusListIndex, issued[0][1].statusListIndex);
+});
+
+test('a status list index is drawn only when status lists are configured', async () => {
+  const store = createMemoryStore();
+  const given = [];
+  const issue = (examinationId, statusListed) => store.issue({ evidence: { examinationId, decidedAt: '2026-11-01T00:00:00Z' }, commandKey: examinationId,
+    commandDigest: examinationId, statusListed, createCredential: (_decisionId, index) => { given.push(index);
+      return { credentialId: randomUUID(), compactJws: 'x', credential: {}, issuedAt: '2026-11-01T00:00:00Z' }; } });
+  await issue(randomUUID(), false);
+  await issue(randomUUID(), false);
+  await issue(randomUUID(), true);
+  assert.deepEqual(given, [null, null, 0], 'credentials without a status list spend no index');
+});
+
+test('issuing near the end of the status list logs a warning', async (t) => {
+  const base = createMemoryStore();
+  // An index nine tenths of the way through the 131072-bit list.
+  const store = { ...base, issue: (args) => base.issue({ ...args, createCredential: (decisionId) => args.createCredential(decisionId, 120000) }) };
+  const ctx = await boot(t, undefined, undefined, { store, statusListBase: 'https://issuer.example/status-lists' });
+  const logged = t.mock.method(console, 'log', () => {});
+  const response = await ctx.call('/internal/decisions', { examinationId: evidence().attemptId, idempotencyKey: 'near-full' });
+  assert.equal(response.status, 201, JSON.stringify(response.body));
+  assert.ok(logged.mock.calls.some((call) => JSON.parse(call.arguments[0]).event === 'status_list_near_capacity'));
 });
 
 test('a package under critical quarantine cannot receive a new credential', async (t) => {
@@ -209,6 +340,20 @@ test('origin read is exact-selector only: unknown ID is absent and broad/malform
     assert.equal((await ctx.get(`/internal/credential-origins/${selector}`, ORIGIN_HEADERS)).status, 400);
 });
 
+// Assurance audit F6: the same exact-selector read for a candidate list, under the same key.
+test('the origin batch answers each listed credential in order, and still needs the Marketplace key and exact ids', async (t) => {
+  const ctx = await boot(t);
+  const issued = await ctx.call('/internal/decisions', { examinationId: evidence().attemptId, idempotencyKey: 'origin-batch' });
+  const { credentialId } = issued.body.credential;
+  const unknown = randomUUID();
+  const batch = await ctx.call('/internal/credential-origins/batch', { credentialIds: [unknown, credentialId] }, ORIGIN_HEADERS);
+  assert.equal(batch.status, 200);
+  assert.deepEqual(batch.body.origins.map((entry) => [entry.credentialId, entry.origin?.credentialId ?? null]), [[unknown, null], [credentialId, credentialId]]);
+  assert.equal((await ctx.call('/internal/credential-origins/batch', { credentialIds: [credentialId] }, { ...ORIGIN_HEADERS, 'x-internal-service-key': KEY })).status, 403);
+  for (const credentialIds of [[], ['all'], Array.from({ length: 501 }, () => randomUUID())])
+    assert.equal((await ctx.call('/internal/credential-origins/batch', { credentialIds }, ORIGIN_HEADERS)).status, 400);
+});
+
 for (const status of ['agent_failed', 'system_aborted']) {
   test(`${status} examination cannot establish issued origin`, async (t) => {
     const ctx = await boot(t, async () => evidence({ status }));
@@ -270,7 +415,7 @@ test('origin storage uncertainty returns unavailable without exposing errors or 
 
 
 const provenance = require('../../../packages/execution-provenance');
-const { fixture: provenanceFixture } = require('../../../packages/execution-provenance/test/fixtures');
+const { fixture: provenanceFixture, examinationReceipts } = require('../../../packages/execution-provenance/test/fixtures');
 function authoritativeEvidence(mode) {
   const f = provenanceFixture(mode, 'agent-1');
   const e = evidence({ package: structuredClone(f.run.package), configurationFingerprint: f.run.configurationFingerprint });
@@ -282,7 +427,7 @@ function authoritativeEvidence(mode) {
   e.provenance = { schemaVersion: 'certification-provenance/1.0.0', run: f.run,
     training: { eventId: f.completion.eventId, completionDigest: provenance.hash(f.completion), coverage: f.completion.executionCoverage },
     examination: provenance.coverage(f.run, 'examination', items.map((i) => i.id),
-      items.map((i) => provenance.receipt(f.run, 'examination', i, e.attemptId).executionEvidence), e.attemptId) };
+      examinationReceipts(f.run, items, e.attemptId), e.attemptId) };
   return e;
 }
 for (const mode of ['synthetic','replay']) {
@@ -296,6 +441,10 @@ for (const mode of ['synthetic','replay']) {
     assert.equal(vc.environment, 'simulation'); assert.equal(vc.evidenceMode, mode);
     assert.deepEqual(vc.evidence.provenance, source.provenance);
     assert.equal(provenance.credentialProvenance(vc), true);
+    const { grader, ...withoutGrader } = vc.credentialSubject.competency;
+    const withCompetency = (competency) => ({ ...vc, credentialSubject: { ...vc.credentialSubject, competency } });
+    assert.equal(provenance.credentialProvenance(withCompetency(withoutGrader)), false);
+    assert.equal(provenance.credentialProvenance(withCompetency({ ...withoutGrader, grader: { ...grader, version: '9.9.9' } })), false);
     const row = await c.store.findByAttempt(source.attemptId);
     assert.deepEqual(row.evidence.examinationEvidence.provenance, source.provenance);
     assert.equal((await c.call('/internal/decisions', body)).body.credential.compactJws, issued.body.credential.compactJws);
@@ -307,7 +456,7 @@ for (const mode of ['synthetic','replay']) {
     process.env.CREDENTIAL_ISSUER = vc.issuer;
     try {
       const key = publicKey.export({ type: 'spki', format: 'pem' });
-      const status = { getStatus: () => 'active' };
+      const status = { getStatus: () => 'active', getIndex: () => null };
       assert.equal(verifyCredential(issued.body.credential.compactJws, key, status).overall, 'VALID');
       for (const edit of [v => v.environment = 'live', v => v.evidenceMode = 'live', v => v.evidence.provenance.run.runId = randomUUID()]) {
         const v = structuredClone(vc); edit(v);

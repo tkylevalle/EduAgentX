@@ -82,3 +82,29 @@ test('a saved status survives a restart, and an unreadable file stops the servic
   assert.notEqual(corrupt.status, 0);
   assert.match(corrupt.stderr, /unreadable.*refusing to start/);
 });
+
+// Assurance audit F6: Marketplace reads statuses and verifies credentials for a whole candidate list at once.
+test('batch status and verify answer each item in order, as the single routes would', async () => {
+  const known = newId();
+  assert.equal((await post('/status/register', { credentialId: known })).status, 201);
+  const statuses = await (await post('/status/batch', { credentialIds: [known, 'never-registered'] }, null)).json();
+  assert.deepEqual(statuses.statuses, [{ credentialId: known, status: 'active' }, { credentialId: 'never-registered', status: null }]);
+  const verified = await (await post('/verify/batch', { jws: ['not-a-jws'] }, null)).json();
+  assert.equal(verified.results.length, 1);
+  assert.equal(typeof verified.results[0].httpStatus, 'number');
+  assert.equal((await post('/status/batch', { credentialIds: [] }, null)).status, 400);
+  assert.equal((await post('/verify/batch', { jws: Array.from({ length: 501 }, () => 'x') }, null)).status, 400);
+});
+
+test('a verify batch of real-sized credentials is accepted, while single routes keep the small body limit', async () => {
+  const big = `h.${'p'.repeat(34000)}.s`;
+  const verified = await post('/verify/batch', { jws: Array.from({ length: 20 }, () => big) }, null);
+  assert.equal(verified.status, 200);
+  assert.equal((await verified.json()).results.length, 20);
+  assert.equal((await post('/verify', { jws: `h.${'p'.repeat(70000)}.s` }, null)).status, 413);
+});
+
+test('a verify batch refuses any credential larger than the single verify route takes', async () => {
+  const refused = await post('/verify/batch', { jws: ['h.p.s', `h.${'p'.repeat(70000)}.s`] }, null);
+  assert.equal(refused.status, 400);
+});

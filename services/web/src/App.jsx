@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Activity, BadgeCheck, BookOpenCheck, FileCheck2, FlaskConical, LayoutDashboard, Network, ScanLine, Store } from 'lucide-react';
+import { Activity, BadgeCheck, BellRing, BookOpenCheck, FileCheck2, FlaskConical, Gavel, LayoutDashboard, Network, ScanLine, Store, Tags } from 'lucide-react';
 import { BrandMark } from './ui.jsx';
 import { api, ago, clock, EVENT_COPY } from './lib.js';
 import Overview from './pages/Overview.jsx';
@@ -10,6 +10,9 @@ import Curriculum from './pages/Curriculum.jsx';
 import System from './pages/System.jsx';
 import Marketplace from './pages/Marketplace.jsx';
 import Evidence from './pages/Evidence.jsx';
+import Governance from './pages/Governance.jsx';
+import Attention from './pages/Attention.jsx';
+import Labelling from './pages/Labelling.jsx';
 
 const PAGES = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard, component: Overview },
@@ -17,12 +20,17 @@ const PAGES = [
   { id: 'credentials', label: 'Credentials', icon: BadgeCheck, component: Credentials },
   { id: 'verify', label: 'Verify', icon: ScanLine, component: Verify },
   { id: 'curriculum', label: 'Curriculum', icon: BookOpenCheck, component: Curriculum },
+  { id: 'governance', label: 'Governance', icon: Gavel, component: Governance },
+  { id: 'labelling', label: 'Labelling', icon: Tags, component: Labelling },
+  { id: 'attention', label: 'Attention', icon: BellRing, component: Attention },
   { id: 'system', label: 'System', icon: Network, component: System },
   { id: 'marketplace', label: 'Marketplace', icon: Store, component: Marketplace },
   { id: 'evidence', label: 'Evidence', icon: FileCheck2, component: Evidence },
 ];
 const LIGHT_TARGETS = '.panel, .ledger-cell, .seg-option';
 const TICKER_POLL_MS = 8000;
+// The Critical banner checks the Attention Queue this often.
+const CRITICAL_POLL_MS = 15000;
 
 const pageFromHash = () => PAGES.find((page) => page.id === window.location.hash.slice(2).split('/')[0]) || PAGES[0];
 
@@ -80,6 +88,18 @@ export default function App() {
     return () => { alive = false; clearInterval(timer); };
   }, []);
 
+  // Open critical incidents, shown on every page until someone resolves them (target design 7.3).
+  // null: the incident log could not be read, so the critical state is unknown and says so.
+  const [critical, setCritical] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    const load = () => api('/api/incidents?status=open').then((data) => alive &&
+      setCritical(data.incidents.filter((incident) => incident.severity === 'critical').length)).catch(() => alive && setCritical(null));
+    load();
+    const timer = setInterval(load, CRITICAL_POLL_MS);
+    return () => { alive = false; clearInterval(timer); };
+  }, []);
+
   useEffect(() => { document.title = `${page.label} · EduAgentX`; }, [page]);
 
   const healthy = health?.filter((service) => service.healthy).length ?? 0;
@@ -126,6 +146,17 @@ export default function App() {
           </button>
           <span className="data faint hide-sm">{clock(now)}</span>
         </header>
+        {critical === null && (
+          <div className="notice warn" role="status" style={{ margin: '12px 24px 0' }}>
+            <BellRing size={14} /> Incident log unreachable: whether a critical incident is open is UNKNOWN.
+          </div>
+        )}
+        {critical > 0 && page.id !== 'attention' && (
+          <button className="notice bad" role="alert" style={{ margin: '12px 24px 0', textAlign: 'left', cursor: 'pointer' }}
+            onClick={() => { window.location.hash = '/attention'; }}>
+            <BellRing size={14} /> {critical} open critical incident{critical > 1 ? 's' : ''}: a runtime violation or a failed suspension needs a person. Open the Attention Queue.
+          </button>
+        )}
         <Page key={page.id} health={health} />
       </div>
     </div>

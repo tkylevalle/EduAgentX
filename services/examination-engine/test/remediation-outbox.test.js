@@ -8,22 +8,16 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { ADMIN, AGENT, ACTOR, SAFE, fakeGrader, boot, startAndAnswer, grade, adminView } = require('./exam-harness');
+const { ADMIN, AGENT, ACTOR, SAFE, fakeGrader, boot, startAndAnswer, grade, adminView, answerItem, safeAnswer, unsafeAnswer } = require('./exam-harness');
 
-// Flags the first adversarial item of the form with one critical rule.
-function violating() {
-  let flagged = null;
-  return fakeGrader({ perItem: (item) => {
-    if (item.tier === 'adversarial' && flagged === null) flagged = item.itemId;
-    return item.itemId === flagged ? { criticalViolationRuleIds: ['critical-o4'] } : {};
-  } });
-}
 const trace = (ctx, attemptId, headers = ADMIN) =>
   ctx.call('GET', `/internal/admin/attempts/${attemptId}/remediation`, undefined, headers);
 
+// The agent follows the injected instruction in its v2 sandbox world: a real
+// critical-o4 action, graded by the Engine's sandbox.
 async function failedAttempt(t, options = {}) {
-  const ctx = await boot(t, { grader: violating(), ...options });
-  const attempt = await startAndAnswer(ctx);
+  const ctx = await boot(t, options);
+  const attempt = await startAndAnswer(ctx, unsafeAnswer());
   const graded = await grade(ctx, attempt);
   assert.equal(graded.body.attempt.status, 'agent_failed');
   return { ctx, attempt };
@@ -44,7 +38,7 @@ test('a critical violation commits one remediation event with the exact gap', as
   assert.equal(event.eventId, `examination.remediation.required:${attempt.attemptId}`);
   assert.deepEqual(event.gap, { objectiveIds: view.assessment.failedObjectiveIds, criticalViolationRuleIds: ['critical-o4'] });
   assert.ok(event.gap.objectiveIds.includes('o4'));
-  assert.deepEqual(event.failure.failureReasons, ['critical_violation']);
+  assert.deepEqual(event.failure.failureReasons, ['critical_violation', 'insufficient_behaviour_bound']);
   assert.equal(event.failure.terminalEventId, `grade:${attempt.attemptId}:terminal`);
   assert.deepEqual(event.evidence, { mode: 'synthetic', environment: 'simulation' });
   assert.deepEqual(await ctx.store.findRemediation(attempt.attemptId), { event, delivery: null });
@@ -142,8 +136,8 @@ test('the trace of an attempt with no remediation says so', async (t) => {
 });
 
 test('a new attempt waits while an earlier one has no outcome, so the gate cannot be raced', async (t) => {
-  const ctx = await boot(t, { grader: violating() });
-  const answered = await startAndAnswer(ctx);
+  const ctx = await boot(t);
+  const answered = await startAndAnswer(ctx, unsafeAnswer());
   const raced = await ctx.call('POST', '/internal/attempts', { idempotencyKey: 'before-grading' });
   assert.deepEqual([raced.status, raced.body.error], [409, 'previous_attempt_awaiting_outcome']);
   await grade(ctx, answered);
@@ -186,9 +180,9 @@ test('an event that keeps failing does not hold back a newer one', async (t) => 
   ctx.input.completion = remediationCompletion(ctx, older.eventId);
   ctx.setClock('2026-10-15T06:40:00.000Z');
   let retake = (await ctx.call('POST', '/internal/attempts', { idempotencyKey: 'retake' })).body.attempt;
-  for (const [index, item] of retake.form.items.entries()) {
-    retake = (await ctx.call('POST', `/internal/attempts/${retake.attemptId}/responses`, { idempotencyKey: `x-${index}`,
-      expectedSequence: retake.sequence, itemId: item.id, response: SAFE })).body.attempt;
+  const retakeForm = retake.form;
+  for (const [index, item] of retakeForm.items.entries()) {
+    retake = await answerItem(ctx, retake, item, unsafeAnswer()(item, index, retake.attemptId), `x-${index}`);
   }
   await grade(ctx, retake);
   const [next] = await ctx.store.claimPendingRemediations({ now: at(30), limit: 1 });
@@ -196,18 +190,16 @@ test('an event that keeps failing does not hold back a newer one', async (t) => 
 });
 
 test('a remediation closed by a passing re-examination no longer gates a new standard attempt', async (t) => {
-  const failFirst = fakeGrader({ perItem: (item) =>
-    (failFirst.calls.length === 1 && item.tier === 'adversarial' ? { criticalViolationRuleIds: ['critical-o4'] } : {}) });
-  const ctx = await boot(t, { grader: failFirst });
+  const ctx = await boot(t);
   const standard = ctx.input.completion;
-  const failed = await startAndAnswer(ctx);
+  const failed = await startAndAnswer(ctx, unsafeAnswer());
   assert.equal((await grade(ctx, failed)).body.attempt.status, 'agent_failed');
   const { event } = await ctx.store.findRemediation(failed.attemptId);
   ctx.input.completion = remediationCompletion(ctx, event.eventId);
   let retake = (await ctx.call('POST', '/internal/attempts', { idempotencyKey: 'retake' })).body.attempt;
-  for (const [index, item] of retake.form.items.entries()) {
-    retake = (await ctx.call('POST', `/internal/attempts/${retake.attemptId}/responses`, { idempotencyKey: `retake-r-${index}`,
-      expectedSequence: retake.sequence, itemId: item.id, response: SAFE })).body.attempt;
+  const retakeForm = retake.form;
+  for (const [index, item] of retakeForm.items.entries()) {
+    retake = await answerItem(ctx, retake, item, safeAnswer(item, index, retake.attemptId), `retake-r-${index}`);
   }
   assert.equal((await grade(ctx, retake)).body.attempt.status, 'complete');
   ctx.input.completion = standard;

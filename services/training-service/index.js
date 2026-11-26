@@ -16,22 +16,26 @@ const { Pool } = require('pg');
 const telemetry = require('../../packages/telemetry');
 const execution = require('../../packages/execution-provenance');
 const { EVIDENCE_ENVIRONMENTS } = require('../../packages/external-agent-protocol');
-const { decideContinue, decideRemediation, decideStart, decideSubmit, deriveSessionState } = require('./session');
+const { decideCarriedRemediation, decideContinue, endedUnfinished, decideRemediation, decideStart, decideSubmit, deriveSessionState } = require('./session');
 const { objectiveProgress, policyFromEnv } = require('./plan');
 const { summariseTraining } = require('./metrics');
 const { parseRemediationRequest } = require('./remediation-request');
+const { isDomainId } = require('../../packages/agent-sandbox/src/families');
 const { createPgStore, decideAndAppend, isUniqueViolation } = require('./store');
 const { idleCutoff, sessionTimeoutFromEnv, startExpirySweep } = require('./expiry');
 const { DEFAULT_STREAM, createRelayClient, startCompletionRelay } = require('./relay');
-const { ContractError, SourceUnavailableError, createPackageSource, createRegistrySource } = require('./clients');
+const { startIncidentForwarding } = require('./incident-forwarding');
+const { ContractError, DomainRequiredError, SourceUnavailableError, createPackageSource, createRegistrySource } = require('./clients');
 
 const SERVICE_NAME = 'training-service';
 const API_VERSION = 'v1';
 const IDENTIFIER = /^[\x20-\x7e]{1,256}$/;
+// A remediation request id as the Engine writes it: examination.remediation.required:<attemptId>.
+const REQUEST_ID = /^[A-Za-z0-9._:-]{1,200}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // The only body fields each interaction accepts; anything else is refused.
 const BODY_FIELDS = {
-  start: ['idempotencyKey', 'evidence', 'trustedExecution'],
+  start: ['idempotencyKey', 'evidence', 'trustedExecution', 'domainId'],
   continue: ['idempotencyKey', 'evidence', 'trustedExecution'],
   submit: ['idempotencyKey', 'evidence', 'deliveryItemId', 'response', 'trustedExecution', 'executionEvidence'],
 };
@@ -39,6 +43,8 @@ const REJECTION_STATUS = {
   not_registered: 403, response_too_long: 422, unknown_objectives: 422, no_targeted_content: 422,
 };
 const MAX_COMPLETION_EVENTS = 100;
+// The incident view is a page of the newest, like the outbox view above.
+const MAX_COMPLETION_INCIDENTS = 100;
 
 class HttpError extends Error {
   constructor(status, error, extra = {}) {
@@ -90,22 +96,52 @@ function createApp({
 
   app.post('/internal/sessions/start', handle(async (req) => {
     const actor = req.header('x-actor-subject');
-    const input = requestInput(req, 'start');
-    const options = { correlationId: req.correlationId };
-    return decideAndAppend(store, actor, async (tx) => {
-      const open = await tx.findStart?.(actor, input.idempotencyKey) || await tx.findOpenSession(actor);
-      if (!open) {
-        const [pkg, registration] = await Promise.all([
-          packageSource.getActive(options), registrySource.getRegistration(actor, options)]);
-        return decideStart(pkg, registration, null, { ...input, sessionId: randomUUID(), agentLearnerKey: actor });
-      }
-      const events = await tx.getEvents(open.sessionId);
-      const [pkg, registration] = await Promise.all([
-        governingPackage(open, options), registrySource.getRegistration(actor, options)]);
-      return decideStart(pkg, registration, { session: open, state: deriveSessionState(events) },
-        { ...input, agentLearnerKey: actor });
-    });
+    const { domainId } = req.body || {};
+    if (domainId !== undefined && !isDomainId(domainId)) throw new HttpError(400, 'invalid_request', { details: ['domainId'] });
+    const input = requestInput(req, 'start', domainId ? { domainId } : {});
+    return decideAndAppend(store, actor, (tx) => startSession(tx, actor, input, { correlationId: req.correlationId }));
   }));
+
+  // One start decision: replay, resume the open session, carry over an owed
+  // remediation, or start a standard session. The registration is read at most
+  // once per decision, however many of those paths it tries.
+  async function startSession(tx, actor, input, options) {
+    let registrationRead;
+    const registration = () => (registrationRead ??= registrySource.getRegistration(actor, options));
+    // A retried start replays its own session first, whatever the domain now holds.
+    const replayed = await tx.findStart?.(actor, input.idempotencyKey);
+    // A start that names its domain resumes, or carries over, only that domain's
+    // session: a remediation owed in one domain never takes over training in another.
+    // A start with no domain takes the learner's newest session in any domain, as
+    // before domains; with several domains Active, learners name theirs.
+    const domainPkg = !replayed && input.domainId ? await packageSource.getActive(options, { domain: input.domainId }) : null;
+    // decideStart with no package refuses as no_active_package (or not_registered first).
+    if (!replayed && input.domainId && !domainPkg) return decideStart(null, await registration(), null, { ...input, agentLearnerKey: actor });
+    const scope = domainPkg?.id ?? null;
+    const open = replayed || await tx.findOpenSession(actor, scope);
+    if (open) {
+      const events = await tx.getEvents(open.sessionId);
+      const [pkg, current] = await Promise.all([governingPackage(open, options), registration()]);
+      return decideStart(pkg, current, { session: open, state: deriveSessionState(events) }, { ...input, agentLearnerKey: actor });
+    }
+    const carried = await carryOverRemediation(tx, actor, scope, input, { options, registration });
+    if (carried) return carried;
+    // A learner names the domain to train in when more than one is Active.
+    const [pkg, current] = await Promise.all([domainPkg || packageSource.getActive(options, {}), registration()]);
+    return decideStart(pkg, current, null, { ...input, sessionId: randomUUID(), agentLearnerKey: actor });
+  }
+
+  // A remediation ended unfinished (idle or reconfigured) is still owed: it is
+  // carried over before any standard session. Null when nothing is carried.
+  async function carryOverRemediation(tx, actor, scope, input, { options, registration }) {
+    const previous = await tx.findLatestRemediation(actor, scope);
+    const ended = previous && deriveSessionState(previous.events);
+    // Checked here too so an ordinary start never fetches the old package.
+    if (!endedUnfinished(ended)) return null;
+    const [pkg, current] = await Promise.all([governingPackage(previous.session, options), registration()]);
+    return decideCarriedRemediation(pkg, current, { session: previous.session, state: ended },
+      { ...input, sessionId: randomUUID(), agentLearnerKey: actor });
+  }
 
   const sessionStep = (action, decide, readExtra = () => ({})) => handle(async (req) => {
     const actor = req.header('x-actor-subject');
@@ -159,10 +195,12 @@ function createApp({
     const options = { correlationId: req.correlationId };
     return decideAndAppend(store, request.agentLearnerKey, async (tx) => {
       const existingRequest = await tx.findRemediation(request.agentLearnerKey, request.requestId);
-      const openSession = existingRequest ? null : await tx.findOpenSession(request.agentLearnerKey);
+      // Only a session on the failed package's own domain is in the way.
+      const openSession = existingRequest ? null : await tx.findOpenSession(request.agentLearnerKey, request.packageId);
       if (existingRequest || openSession) return decideRemediation(null, null, { existingRequest, openSession }, input);
+      // Remediation trains on the package the failed attempt was for.
       const [pkg, registration] = await Promise.all([
-        packageSource.getActive(options), registrySource.getRegistration(request.agentLearnerKey, options)]);
+        packageSource.getActive(options, { packageId: request.packageId }), registrySource.getRegistration(request.agentLearnerKey, options)]);
       return decideRemediation(pkg, registration, {}, input);
     });
   }));
@@ -185,12 +223,16 @@ function createApp({
 
   // Exact authoritative lookup for Examination. The caller never supplies a
   // completion envelope; this reads Training's committed completion outbox.
+  // remediationRequestId: the newest completion of that remediation request
+  // (its assigned or a carried-over session), even when later training followed it.
   app.get('/internal/completions/latest', async (req, res) => {
     try {
       const names = ['agentLearnerKey', 'packageId', 'packageVersion', 'packageDigest'];
       if (req.query.sessionId && !UUID.test(req.query.sessionId)) throw new HttpError(400, 'invalid_request');
+      if (req.query.remediationRequestId !== undefined && !REQUEST_ID.test(String(req.query.remediationRequestId)))
+        throw new HttpError(400, 'invalid_request');
       if (names.some((name) => !IDENTIFIER.test(req.query[name] || '')) ||
-        Object.keys(req.query).some((name) => ![...names, 'sessionId'].includes(name)))
+        Object.keys(req.query).some((name) => ![...names, 'sessionId', 'remediationRequestId'].includes(name)))
         throw new HttpError(400, 'invalid_request');
       const completion = await store.findCompletion(req.query);
       if (!completion) throw new HttpError(404, 'completion_not_found');
@@ -200,7 +242,7 @@ function createApp({
 
   app.get('/internal/completion-incidents', async (req, res) => {
     try {
-      const incidents = await store.listCompletionIncidents();
+      const incidents = await store.listCompletionIncidents({ limit: MAX_COMPLETION_INCIDENTS });
       res.json({ apiVersion: API_VERSION, incidents, correlationId: req.correlationId });
     } catch (error) { sendError(req, res, error); }
   });
@@ -288,6 +330,9 @@ function createApp({
     const correlationId = req.correlationId;
     if (error.code === 'provenance_conflict') return res.status(409).json({ error: error.code, correlationId });
     if (error instanceof HttpError) return res.status(error.status).json({ apiVersion: API_VERSION, ...error.body, correlationId });
+    if (error instanceof DomainRequiredError) {
+      return res.status(409).json({ apiVersion: API_VERSION, error: error.code, domains: error.domains, correlationId });
+    }
     if (error instanceof SourceUnavailableError) {
       telemetry.log(SERVICE_NAME, 'dependency_failed', { correlationId, dependency: error.source, outcome: error.code });
       return res.status(503).json({ apiVersion: API_VERSION, error: 'dependency_unavailable', dependency: error.source, correlationId });
@@ -339,6 +384,8 @@ async function start() {
     sessionTimeoutMs,
   }).listen(process.env.PORT || 4004);
   startExpirySweep({ store, timeoutMs: sessionTimeoutMs });
+  // Completion-delivery incidents reach the one Assurance Incident log (audit E9); a failed run is logged and repeated.
+  startIncidentForwarding(store, { onError: () => telemetry.log(SERVICE_NAME, 'incident_forwarding_failed') });
   // Without REDIS_URL the outbox is kept and read through the admin API only.
   if (process.env.REDIS_URL) {
     startCompletionRelay({

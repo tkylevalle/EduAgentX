@@ -118,7 +118,7 @@ test('console shows training metrics and remediation sessions with their cause',
   const page = await request(consoleServer, 'GET', '/');
   const block = page.body.slice(page.body.indexOf('<h3>Metrics</h3>'), page.body.indexOf('<h3>Current</h3>'));
   for (const [label, value] of [['Started', '3'], ['Completed', '2'], ['Remediated', '1'], ['Resumed', '4'],
-    ['Aborted', '1'], ['Completion rate', '66.7%']]) {
+    ['Aborted', '1'], ['Delivery completion rate', '66.7%']]) {
     assert.match(block, new RegExp(`<dt>${label}</dt><dd>${value}</dd>`), label);
   }
   const current = page.body.slice(page.body.indexOf('<h3>Current</h3>'), page.body.indexOf('<h3>History</h3>'));

@@ -10,6 +10,8 @@ const { createMemoryStore } = require('../store');
 const { DependencyError } = require('../sources');
 
 const INTERNAL_KEY = 'examination-test-key';
+// A test seed key, as long as the Engine requires.
+const EPISODE_KEY = 'app-test-episode-seed-key-0123456789abcdef';
 const AGENT = 'agent-1';
 const agentHeaders = { 'x-internal-service-key': INTERNAL_KEY, 'x-actor-subject': AGENT, 'x-actor-role': 'agent' };
 
@@ -34,11 +36,11 @@ async function boot(t, input = fixture(), overrides = {}) {
   const sources = {
     activePackage: async () => input.pkg,
     registration: async () => input.registration,
-    completion: async () => input.completion,
+    completion: async (actor, pkg, correlationId, sessionId, { remediationRequestId } = {}) => (!remediationRequestId || input.completion?.remediationRequestId === remediationRequestId ? input.completion : null),
     ...overrides,
   };
   const server = http.createServer(createApp({ store, sources, internalKey: INTERNAL_KEY,
-    clock: () => '2026-10-12T06:00:00.000Z', durationMinutes: 60 }));
+    clock: () => '2026-10-12T06:00:00.000Z', durationMinutes: 60, episodeSeedKey: EPISODE_KEY }));
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   t.after(() => new Promise((resolve) => server.close(resolve)));
   return { input, store, sources, call: (method, path, body, headers = agentHeaders) =>

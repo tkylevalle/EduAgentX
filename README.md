@@ -33,6 +33,30 @@ command line, run `node scripts/poc-lifecycle.js [scenario]`. The report is
 written to `artifacts/poc/lifecycle-run.json`. The web app's Lifecycle Lab
 runs the same driver live.
 
+No package is active until two reviewers approve it. On a new device nobody
+has reviewed the package yet, so the first run (web app or command line)
+approves it with the two demo reviewer accounts, `REVIEWER_1` and
+`REVIEWER_2` from `.env`. Each of those reviews says in its comment that it is
+an automatic demo approval and not a human review, and the run reports
+`autoApproved`. A package that any person has already reviewed is never
+approved over them. Set `DEMO_AUTO_APPROVE=0` in `.env` to turn this off; the
+run then stops at the first step with `package_awaiting_review` until two
+people review the package in the web app's Governance page. On a throwaway
+test stack, a script can also submit two reviews labelled TEST, and it
+refuses to run without the flag:
+
+```
+EDUAGENTX_DISPOSABLE_STACK=1 node scripts/review-test-package.js ai-safety
+```
+
+Written answers are graded by the rubric judge, which needs `JUDGE_API_KEY`
+(or `OPENCODE_API_KEY`) in `.env`. Without a key, the grading service still
+grades every answer the repository has a recorded judge verdict for, which
+includes all of the scripted agent's answers, so the synthetic lifecycle
+passes. Any other written answer, such as a Live model run, is refused
+(`grading_unavailable`) instead of being scored without the judge. The service
+logs `judge_not_configured` at start when it has no key.
+
 The Lifecycle Lab's **Live model** scenario lets a real LLM train and sit the
 exam. Its evidence is labelled LIVE, and the same rules grade it. It runs as
 its own Agent Learner (`live-agent-learner-dev`), so a failing live run never
@@ -44,10 +68,11 @@ OPENCODE_API_KEY=your-key
 LIVE_MODEL=glm-5.3-flash   # optional; deepseek-v4.1-flash also works
 ```
 
-The web app is a local demo console, not a deployable operator UI. To set up
-a package without manual steps, it holds the admin and both reviewer
-credentials and the curriculum internal key. Compose binds it to
-`127.0.0.1`, and its action routes accept only same-origin JSON requests.
+The web app is a local demo console, not a deployable operator UI. It holds
+the admin credentials and the curriculum internal key, but no reviewer
+credentials: a reviewer signs in with their own to submit a review. Compose
+binds it to `127.0.0.1`, and its action routes accept only same-origin JSON
+requests.
 
 After you pull new code, run `EduAgentX-Start.bat rebuild` (or `make up`). It
 adds any new local secrets to `.env` and rebuilds the images. Without a key

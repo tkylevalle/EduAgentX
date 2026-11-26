@@ -14,6 +14,8 @@ const INTERNAL_KEY = 'fallback-route-service-key';
 const GRADING_KEY = 'fallback-route-grading-key';
 const ACTOR = 'fallback-route-learner';
 const START = '2026-10-14T06:00:00.000Z';
+// A test seed key, as long as the Engine requires.
+const EPISODE_KEY = 'fallback-route-episode-seed-key-0123456789abcdef';
 const AGENT_HEADERS = { 'x-internal-service-key': INTERNAL_KEY, 'x-actor-subject': ACTOR, 'x-actor-role': 'agent' };
 const EXAMINER_HEADERS = { 'x-internal-service-key': INTERNAL_KEY, 'x-actor-subject': 'trusted-operator',
   'x-actor-role': 'examiner', 'x-internal-grading-key': GRADING_KEY };
@@ -42,9 +44,13 @@ function selectionFor(pkg) {
 async function boot(t) {
   const input = fixture();
   const store = createMemoryStore();
-  const ctx = { input, store, selectCalls: [] };
+  const ctx = { input, store, selectCalls: [], activeCalls: [] };
   const sources = {
-    activePackage: async () => input.pkg,
+    activePackage: async (correlationId, selector) => {
+      ctx.activeCalls.push(selector);
+      if (ctx.activeError) throw ctx.activeError;
+      return input.pkg;
+    },
     registration: async (actor) => input.registrations.has(actor)
       ? { agentLearnerKey: actor, configurationFingerprint: input.registrations.get(actor) } : null,
     completion: async (actor) => input.completion(actor),
@@ -52,7 +58,7 @@ async function boot(t) {
   ctx.select = async ({ pkg }) => ({ selection: selectionFor(pkg), packageVersion: pkg.version, packageDigest: pkg.digest });
   const selectFallback = async (args) => { ctx.selectCalls.push(args); return ctx.select(args); };
   const server = http.createServer(createApp({ store, sources, internalKey: INTERNAL_KEY, gradingKey: GRADING_KEY,
-    clock: () => START, durationMinutes: 60, selectFallback }));
+    clock: () => START, durationMinutes: 60, selectFallback, episodeSeedKey: EPISODE_KEY }));
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   t.after(() => new Promise((resolve) => server.close(resolve)));
   ctx.call = (method, path, body, headers) => new Promise((resolve, reject) => {
@@ -165,6 +171,23 @@ test('a generation-outage fallback needs no cause and starts a fallback attempt'
   assert.equal(omitted.status, 201);
   assert.equal((await ctx.store.get(started.body.attempt.attemptId)).fallbackCauseAttemptId, null);
   assert.deepEqual(ctx.selectCalls.map(({ reason }) => reason), ['standard_generation_unavailable', 'standard_generation_unavailable']);
+});
+
+test('a fallback names its domain as the standard start does, and several Active domains without one is a 409', async (t) => {
+  const ctx = await boot(t);
+  const body = { idempotencyKey: 'domain-1', agentLearnerKey: ACTOR, reason: 'standard_generation_unavailable', domainId: 'ai-safety' };
+  const started = await ctx.fallback(body);
+  assert.equal(started.status, 201, JSON.stringify(started.body));
+  assert.deepEqual(ctx.activeCalls[0], { domain: 'ai-safety' });
+  const unknown = await ctx.fallback({ ...body, idempotencyKey: 'domain-2', domainId: 'not-a-domain' });
+  assert.deepEqual([unknown.status, unknown.body.error], [400, 'invalid_request']);
+  const cause = await abortedStandard(ctx);
+  ctx.activeCalls.length = 0;
+  await ctx.fallback(gradingRequest(cause, { idempotencyKey: 'domain-3', domainId: 'ai-safety' }));
+  assert.deepEqual(ctx.activeCalls[0], { packageId: ctx.input.pkg.packageId, domain: 'ai-safety' });
+  ctx.activeError = Object.assign(fail('domain_required'), { domains: ['ai-safety', 'personal-data'] });
+  const ambiguous = await ctx.fallback({ ...body, idempotencyKey: 'domain-4', domainId: undefined });
+  assert.deepEqual([ambiguous.status, ambiguous.body.error, ambiguous.body.domains], [409, 'domain_required', ['ai-safety', 'personal-data']]);
 });
 
 test('invalid reason/cause combinations and untrusted callers are refused before any work', async (t) => {

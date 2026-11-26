@@ -53,7 +53,11 @@ test('PostgreSQL persists one immutable decision and credential across concurren
       assert.equal(replay.credential.compactJws, first.credential.compactJws);
       assert.deepEqual(await createPgStore(freshPool).findOriginByCredential(first.credential.credentialId), origin);
     } finally { await freshPool.end(); }
-    assert.deepEqual(await restarted.counts(), { decisions: 1, credentials: 1 });
+    // Counted for this attempt only: counts() covers the whole table, which other runs share.
+    const { rows: [own] } = await pool.query(`SELECT (SELECT count(*) FROM certification_engine.decisions WHERE examination_id=$1)::int AS decisions,
+      (SELECT count(*) FROM certification_engine.credentials c JOIN certification_engine.decisions d ON d.decision_id=c.decision_id
+        WHERE d.examination_id=$1)::int AS credentials`, [attemptId]);
+    assert.deepEqual(own, { decisions: 1, credentials: 1 });
     await assert.rejects(pool.query('UPDATE certification_engine.decisions SET package_version=$1 WHERE examination_id=$2',
       ['2.0.0', attemptId]), /immutable certification evidence/);
     await assert.rejects(pool.query('DELETE FROM certification_engine.credentials WHERE decision_id=$1',
@@ -64,7 +68,7 @@ test('PostgreSQL persists one immutable decision and credential across concurren
 
 test('PostgreSQL retains signed synthetic/replay provenance with exactly-once issuance after restart', { skip: !url }, async () => {
   const p = require('../../../packages/execution-provenance');
-  const { fixture } = require('../../../packages/execution-provenance/test/fixtures');
+  const { fixture, examinationReceipts } = require('../../../packages/execution-provenance/test/fixtures');
   const pool = new Pool({ connectionString: url });
   try {
     await pool.query(fs.readFileSync(path.resolve(__dirname, '../schema.sql'), 'utf8'));
@@ -75,7 +79,7 @@ test('PostgreSQL retains signed synthetic/replay provenance with exactly-once is
       const summary = { schemaVersion: 'certification-provenance/1.0.0', run: f.run,
         training: { eventId: f.completion.eventId, completionDigest: p.hash(f.completion), coverage: f.completion.executionCoverage },
         examination: p.coverage(f.run, 'examination', items.map(i=>i.id),
-          items.map(i=>p.receipt(f.run, 'examination', i, examinationId).executionEvidence), examinationId) };
+          examinationReceipts(f.run, items, examinationId), examinationId) };
       const { privateKey } = generateKeyPairSync('ed25519');
       const evidence = { examinationId, subjectId: f.run.agentLearnerKey, subjectFingerprint: f.run.configurationFingerprint,
         packageId: f.run.package.id, packageVersion: f.run.package.version, packageDigest: f.run.package.digest,
@@ -83,7 +87,9 @@ test('PostgreSQL retains signed synthetic/replay provenance with exactly-once is
         rubricDigest: p.hash('rubric'), mode: 'standard', scores: { overallPercent: 90, tierPercents: { recall: 90, applied: 90, adversarial: 90 }, itemOutcomes: items.map(i=>({itemId:i.id})) },
         safetyResult: { passed: true, criticalViolationRuleIds: [], failureReasons: [] }, examinationEvidence: { examinationId, package: f.run.package, provenanceProfile: p.RUN, provenance: summary }, provenance: summary,
         decidedAt: new Date().toISOString() };
-      Object.assign(evidence.examinationEvidence, { mode: evidence.mode, scores: evidence.scores, safetyResult: evidence.safetyResult });
+      // The decision path names the grader in both copies (assurance audit A11); credentialProvenance requires it.
+      evidence.grader = { id: 'deterministic-keyword-grader', version: '1.1.0' };
+      Object.assign(evidence.examinationEvidence, { mode: evidence.mode, grader: evidence.grader, scores: evidence.scores, safetyResult: evidence.safetyResult });
       const input = { evidence, commandKey: examinationId, commandDigest: p.hash(examinationId),
         createCredential: decisionId => issueCredential(evidence, { privateKey, decisionId, environment: 'simulation', keyId: 'test-key', issuer: p.SIMULATION_ISSUER }) };
       const first = await createPgStore(pool).issue(input);

@@ -239,7 +239,7 @@ tr:hover td{background:var(--surface2);}
   </div>
   <div class="section">
     <div class="section-header"><span class="section-title">Locked Rubric</span></div>
-    <div class="section-body" id="rubricView"><div style="color:var(--muted);">Loading...</div></div>
+    <div class="section-body" id="graderView"><div style="color:var(--muted);">Loading...</div></div>
   </div>
 </div>
 
@@ -248,10 +248,11 @@ tr:hover td{background:var(--surface2);}
   <div class="section">
     <div class="section-header"><span class="section-title">Grading Evidence</span></div>
     <div class="section-body">
-      <table>
-        <thead><tr><th>Attempt ID</th><th>Subject</th><th>Score</th><th>Result</th><th>Graded At</th></tr></thead>
-        <tbody id="evidenceTable"><tr><td colspan="5" style="color:var(--muted);">Loading...</td></tr></tbody>
-      </table>
+      <p style="font-size:12px;">The grading service keeps no records. Each assessment, with the grader that produced it, is recorded on its examination attempt.</p>
+      <form id="evidenceLookup" style="margin-top:10px;display:flex;gap:8px;">
+        <input id="evidenceAttemptId" placeholder="Examination attempt ID" aria-label="Examination attempt ID" style="flex:1;" required>
+        <button type="submit">Open attempt</button>
+      </form>
     </div>
   </div>
 </div>
@@ -393,7 +394,7 @@ function renderAgents(list) {
         <div class="timeline">
           <div class="tl-item"><div class="tl-dot green"></div><div class="tl-title">Registration</div><div class="tl-meta">Agent registered on platform</div></div>
           <div class="tl-item"><div class="tl-dot ${a.assurancePosture !== 'INDETERMINATE' ? 'green' : ''}"></div><div class="tl-title">Curriculum Delivery</div><div class="tl-meta">Package delivered via training service</div></div>
-          <div class="tl-item"><div class="tl-dot ${['VERIFIED','REVOKED'].includes(a.assurancePosture) ? 'green' : 'amber'}"></div><div class="tl-title">Examination</div><div class="tl-meta">Graded against locked rubric v1.0.0</div></div>
+          <div class="tl-item"><div class="tl-dot ${['VERIFIED','REVOKED'].includes(a.assurancePosture) ? 'green' : 'amber'}"></div><div class="tl-title">Examination</div><div class="tl-meta">Graded under the package's pinned rubric</div></div>
           <div class="tl-item"><div class="tl-dot ${a.assurancePosture === 'VERIFIED' ? 'green' : a.assurancePosture === 'REVOKED' ? 'red' : 'amber'}"></div>
             <div class="tl-title">Certification — ${a.assurancePosture}</div>
             <div class="tl-meta">${a.certificationId ? 'Credential: ' + a.certificationId : 'No credential issued'}</div>
@@ -420,9 +421,9 @@ function filterAgents() {
 
 // ── Governance ─────────────────────────────────────────────────────
 async function loadGovernance() {
-  const [pkgs, rubric] = await Promise.all([
+  const [pkgs, graderReply] = await Promise.all([
     safeFetch(`${VALID}/packages`),
-    safeFetch(`${GRADE}/rubric`),
+    safeFetch(`${GRADE}/v1/grader`),
   ]);
 
   const pkgTable = document.getElementById('packageTable');
@@ -438,33 +439,27 @@ async function loadGovernance() {
     pkgTable.innerHTML = '<tr><td colspan="5" style="color:var(--muted);">No packages found</td></tr>';
   }
 
-  const rubricEl = document.getElementById('rubricView');
-  if (rubric) {
-    rubricEl.innerHTML = `
-      <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr)">
-        <div class="kpi-item"><div class="kpi-domain">Overall Pass</div><div class="kpi-val met">${(rubric.overall_pass_threshold*100).toFixed(0)}%</div></div>
-        <div class="kpi-item"><div class="kpi-domain">Adversarial Pass</div><div class="kpi-val met">${(rubric.adversarial_pass_threshold*100).toFixed(0)}%</div></div>
-        <div class="kpi-item"><div class="kpi-domain">Critical Violations</div><div class="kpi-val met">Max ${rubric.critical_violation_limit}</div></div>
-      </div>
-      <p style="font-size:11px;color:var(--muted);margin-top:12px;">Rubric v${rubric.version} — locked at runtime, cannot be overridden.</p>`;
-  }
+  // Pass thresholds and critical rules belong to each package, not to the
+  // grading service, so this panel shows only the grader's identity.
+  const graderEl = document.getElementById('graderView');
+  const grader = graderReply?.grader;
+  graderEl.innerHTML = `
+    <p style="font-size:12px;">Grader: ${grader ? `<code>${esc(grader.id)} ${esc(grader.version)}</code>` : 'unavailable'}</p>
+    <p style="font-size:11px;color:var(--muted);margin-top:8px;">Pass thresholds and critical rules come from the exam template and rubric pinned by each Domain Assurance Package. Every attempt records the versions it was graded under.</p>`;
 }
 
 // ── Evidence ───────────────────────────────────────────────────────
-async function loadEvidence() {
-  const evidence = await safeFetch(`${GRADE}/evidence`);
-  const tbl = document.getElementById('evidenceTable');
-  if (evidence && evidence.length > 0) {
-    tbl.innerHTML = evidence.map(e => `<tr>
-      <td><code style="font-size:11px;">${e.attemptId.slice(0,12)}…</code></td>
-      <td>${e.subject}</td>
-      <td>${(e.overallScore*100).toFixed(1)}%</td>
-      <td>${badge(e.passed ? 'PASS' : 'FAIL', e.passed ? 'green' : 'red')}</td>
-      <td style="font-size:11px;color:var(--muted);">${new Date(e.gradedAt).toLocaleString()}</td>
-    </tr>`).join('');
-  } else {
-    tbl.innerHTML = '<tr><td colspan="5" style="color:var(--muted);">No grading evidence yet</td></tr>';
-  }
+// Assessments live on examination attempts, so the lookup opens the
+// server-rendered attempt view instead of listing grading-service records.
+function bindEvidenceLookup() {
+  const form = document.getElementById('evidenceLookup');
+  if (form.dataset.bound) return;
+  form.dataset.bound = 'true';
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const attemptId = document.getElementById('evidenceAttemptId').value.trim();
+    if (attemptId) window.location.href = `/examinations/${encodeURIComponent(attemptId)}`;
+  });
 }
 
 // ── Operations ─────────────────────────────────────────────────────
@@ -507,7 +502,7 @@ async function loadMarketplace() {
 async function refresh() {
   await loadOverview();
   await loadGovernance();
-  await loadEvidence();
+  bindEvidenceLookup();
   await loadOperations();
   await loadMarketplace();
 }

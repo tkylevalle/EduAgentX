@@ -3,6 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
+const { EPISODES_PER_ITEM } = require('../behaviour');
 const { randomUUID } = require('node:crypto');
 const { sha256 } = require('../../curriculum-engine/model');
 const candidate = require('../../curriculum-engine/examples/ai-safety-candidate');
@@ -42,10 +43,10 @@ async function boot(t, options = {}) {
   const sources = {
     activePackage: async () => input.pkg,
     registration: async () => input.registration,
-    completion: async () => input.completion,
+    completion: async (actor, pkg, correlationId, sessionId, { remediationRequestId } = {}) => (!remediationRequestId || input.completion?.remediationRequestId === remediationRequestId ? input.completion : null),
   };
   if (options.sources) Object.assign(sources, options.sources(input));
-  const server = http.createServer(createApp({ store, sources, internalKey: INTERNAL_KEY,
+  const server = http.createServer(createApp({ store, sources, internalKey: INTERNAL_KEY, episodeSeedKey: 'attempt-api-episode-seed-key-0123456789abcdef',
     gradingKey: Object.hasOwn(options, 'gradingKey') ? options.gradingKey : GRADING_KEY,
     clock: () => now, durationMinutes: 60, selectFallback: options.selectFallback }));
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -70,6 +71,10 @@ async function start(ctx, key = 'start') {
   return result.body.attempt;
 }
 
+// A fully answered attempt: the start event, 15 responses, and one recorded
+// finishing step for each episode of the 4 behaviour items.
+const ANSWERED_SEQUENCE = 1 + 15 + 4 * EPISODES_PER_ITEM;
+
 function responseBody(attempt, overrides = {}) {
   return { idempotencyKey: 'response-1', expectedSequence: attempt.sequence,
     itemId: attempt.form.items[0].id, response: 'PRIVATE_API_LEARNER_RESPONSE_449a90fe', ...overrides };
@@ -79,6 +84,18 @@ async function answerAll(ctx, attempt) {
   ctx.setClock(BEFORE_DEADLINE);
   let current = attempt;
   for (const [index, item] of attempt.form.items.entries()) {
+    // Behaviour items are answered by recorded episode steps, one finishing
+    // step per episode, never directly.
+    if (item.kind === 'behaviour') {
+      for (let episode = 0; episode < EPISODES_PER_ITEM; episode += 1) {
+        const step = await ctx.call('POST', `/internal/attempts/${attempt.attemptId}/episodes/${item.id}/steps`, {
+          idempotencyKey: `response-${index + 1}-${episode}`, expectedSequence: current.sequence,
+          action: { finish: { message: `PRIVATE_API_ANSWER_${index + 1}` } } });
+        assert.equal(step.status, 200);
+        current = step.body.attempt;
+      }
+      continue;
+    }
     const result = await ctx.call('POST', `/internal/attempts/${attempt.attemptId}/responses`, responseBody({ ...current, form: attempt.form }, {
       itemId: item.id, idempotencyKey: `response-${index + 1}`, response: `PRIVATE_API_ANSWER_${index + 1}`,
     }));
@@ -143,7 +160,7 @@ test('all timely responses remain in progress after deadline until trusted gradi
   const ctx = await boot(t);
   const attempt = await start(ctx);
   const ready = await answerAll(ctx, attempt);
-  assert.deepEqual([ready.status, ready.sequence, ready.responsesReceived, ready.responseCollectionComplete], ['in_progress', 16, 15, true]);
+  assert.deepEqual([ready.status, ready.sequence, ready.responsesReceived, ready.responseCollectionComplete], ['in_progress', ANSWERED_SEQUENCE, 15, true]);
   ctx.setClock(AFTER_DEADLINE);
   const learner = await ctx.call('GET', `/internal/attempts/${attempt.attemptId}`);
   const admin = await ctx.call('GET', `/internal/admin/attempts/${attempt.attemptId}`, undefined, ADMIN_HEADERS);
@@ -157,7 +174,7 @@ test('all timely responses remain in progress after deadline until trusted gradi
   const finalized = await ctx.call('POST', `/internal/attempts/${attempt.attemptId}/finalize`, gradeBody(grading.body), EXAMINER_HEADERS);
   assert.equal(finalized.status, 200);
   assert.deepEqual([finalized.body.attempt.status, finalized.body.attempt.sequence, finalized.body.attempt.completedAt],
-    ['complete', 18, AFTER_DEADLINE]);
+    ['complete', ANSWERED_SEQUENCE + 2, AFTER_DEADLINE]);
   const finalLearner = await ctx.call('GET', `/internal/attempts/${attempt.attemptId}`);
   const finalAdmin = await ctx.call('GET', `/internal/admin/attempts/${attempt.attemptId}`, undefined, ADMIN_HEADERS);
   for (const key of ['status', 'sequence', 'responsesReceived', 'responseCollectionComplete', 'terminalReason', 'completedAt']) {

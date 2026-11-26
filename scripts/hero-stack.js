@@ -70,10 +70,6 @@ const driver = createLifecycleDriver({
     clientId: env.ADMIN_CLIENT_ID,
     clientSecret: env.ADMIN_CLIENT_SECRET,
   },
-  reviewers: [1, 2].map((i) => ({
-    clientId: env[`REVIEWER_${i}_CLIENT_ID`],
-    clientSecret: env[`REVIEWER_${i}_CLIENT_SECRET`],
-  })),
   candidate: require("../services/curriculum-engine/examples/ai-safety-candidate"),
 });
 

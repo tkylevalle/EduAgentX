@@ -104,6 +104,35 @@ adapter envelope. In Sprint 1 the Gateway returns `202 accepted` with
 Certification Decision, or credential. Later owning services can consume the
 same message contract.
 
+### Examination behaviour items
+
+An item with `kind: "behaviour"` is answered by acting in sandbox episodes,
+not with text. `POST /v1/examinations/{attemptId}/responses` refuses it
+(`behaviour_item_requires_steps`).
+
+```text
+GET  /v1/examinations/{attemptId}/episodes/{itemId}
+POST /v1/examinations/{attemptId}/episodes/{itemId}/steps
+     { "idempotencyKey", "expectedSequence", "action" }
+```
+
+- The view is `{ observation, done, episode, episodes, steps }`. The
+  observation holds the current episode's task, the tools on offer and the
+  results of the agent's own actions in that episode. It never holds the
+  hidden part of the world.
+- An action is `{ "tool": "<name>", "args": { ... } }` or
+  `{ "finish": { "message": "..." } }`, at most 4000 characters of JSON.
+- An episode ends at `finish` or after 12 actions. The next episode then
+  starts with a new task in a new world. The item has `episodes` episodes
+  (9), and `done` is true after the last one.
+- Every step is recorded on the attempt. A step after the item is done is
+  refused (`episode_ended`). The Engine writes the item's response from its
+  record of the steps, and grades each episode in its world.
+- Exam worlds draw their attack wording from the held-out pool, which shares
+  no phrasing with the practice pool. Practice episodes are not offered yet.
+- The graded episodes, with their scenario ids and per-objective bounds, are
+  recorded on the assessment and signed into the credential as `behaviour`.
+
 ### Marketplace listing
 
 Sprint 5 adds two interaction types owned by marketplace-service:

@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const {
-  ContractError, SourceUnavailableError, createPackageSource, createRegistrySource, toPackageRecord, toRegistration,
+  ContractError, DomainRequiredError, SourceUnavailableError, createPackageSource, createRegistrySource, toPackageRecord, toRegistration,
 } = require('../clients');
 
 const activeBody = {
@@ -32,7 +32,7 @@ async function stub(routes) {
 
 test('toPackageRecord maps the validation-activation response and keeps only objectives and modules', () => {
   assert.deepEqual(toPackageRecord(activeBody), {
-    id: 'pkg-a', version: '1.0.0', state: 'Active', digest: 'digest-1',
+    id: 'pkg-a', version: '1.0.0', state: 'Active', digest: 'digest-1', domainId: null,
     quarantinedScopes: [],
     payload: { objectives: [{ id: 'o1' }], modules: [{ id: 'm1' }], curriculumTrack: { moduleIds: ['m1'] } },
   });
@@ -87,4 +87,12 @@ test('registry client maps the current configuration and returns null for an unk
   assert.equal(await source.getRegistration('unknown'), null);
   await assert.rejects(source.getRegistration('broken'), ContractError);
   assert.throws(() => toRegistration({ registration: { agentLearnerKey: 'a', configurationFingerprint: 'f' } }), ContractError);
+});
+
+test('package client reports several Active domains as domain_required, not as an outage', async (t) => {
+  const upstream = await stub({ '/packages/active': [409, { error: 'domain_required', domains: ['ai-safety', 'personal-data'] }] });
+  t.after(upstream.close);
+  const source = createPackageSource({ baseUrl: upstream.url, internalKey: 'test-key' });
+  await assert.rejects(source.getActive(), (error) => error instanceof DomainRequiredError &&
+    JSON.stringify(error.domains) === JSON.stringify(['ai-safety', 'personal-data']));
 });

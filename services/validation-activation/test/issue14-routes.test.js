@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createApp } = require('../src');
 const candidate = require('../../curriculum-engine/examples/ai-safety-candidate');
+const { deliveryChoices } = require('../../curriculum-engine/fallback');
 
 function fakePackageDb(activePackage) {
   const packages = new Map([[activePackage.id, structuredClone(activePackage)]]);
@@ -15,7 +16,7 @@ function fakePackageDb(activePackage) {
     packages,
     async seedPackage(pkg) { packages.set(pkg.id, { ...structuredClone(pkg), state: 'Candidate' }); evidence.set(pkg.id, []); },
     async getPackage(id) { return structuredClone(packages.get(id) || null); },
-    async getActivePackage() { return structuredClone([...packages.values()].find((pkg) => pkg.state === 'Active') || null); },
+    async getActivePackages() { return structuredClone([...packages.values()].filter((pkg) => pkg.state === 'Active')); },
     async listPackages() { return [...packages.values()].map(({ id, version, digest, state }) => ({ id, version, digest, state })); },
     async appendEvidence(id, entry) { evidence.get(id).push(structuredClone(entry)); },
     async getEvidence(id) { return structuredClone(evidence.get(id) || []); },
@@ -107,9 +108,31 @@ test('fallback selection requires prior passing validation, complete pinned bank
     assert.equal(selected.mode, 'fallback');
     assert.equal(selected.items.length, 15);
     assert.equal(selected.items.some((item) => Object.hasOwn(item, 'expectedAnswer')), false);
+    // Audit A10: each attempt sees the options in its own shuffled order.
+    const bank = active.fallbackBank || active.fallback_bank;
+    for (const item of selected.items) {
+      const authored = bank.items.find((value) => value.id === item.id).choices;
+      assert.deepEqual(item.choices, deliveryChoices(authored, `${selected.attemptId}:${item.id}`));
+    }
 
     const partial = await fetch(`${baseUrl}/fallback/score`, { method: 'POST', headers,
       body: JSON.stringify({ package_id: active.id, attemptId: selected.attemptId, responses: [] }) });
     assert.equal(partial.status, 422);
+  });
+});
+
+test('with two domains Active, /packages/active needs a domain or package id and never guesses', async () => {
+  await withServer(async (baseUrl, store) => {
+    const refunds = structuredClone(require('../../curriculum-engine/examples/customer-refunds-candidate'));
+    store.packages.set('customer-refunds', { ...refunds, id: 'customer-refunds', version: refunds.manifest.version, state: 'Active', digest: 'e'.repeat(64) });
+    const get = (query) => fetch(`${baseUrl}/packages/active${query}`, { headers }).then(async (res) => ({ status: res.status, body: await res.json() }));
+    const ambiguous = await get('');
+    assert.deepEqual([ambiguous.status, ambiguous.body.error], [409, 'domain_required']);
+    assert.deepEqual(ambiguous.body.domains.sort(), ['ai-safety', 'customer-refunds']);
+    const byDomain = await get('?domain=customer-refunds');
+    assert.deepEqual([byDomain.status, byDomain.body.packageId, byDomain.body.domainId], [200, 'customer-refunds', 'customer-refunds']);
+    const byId = await get(`?packageId=${candidate.manifest.packageId}`);
+    assert.deepEqual([byId.status, byId.body.domainId], [200, 'ai-safety']);
+    assert.equal((await get('?domain=payments')).status, 404);
   });
 });

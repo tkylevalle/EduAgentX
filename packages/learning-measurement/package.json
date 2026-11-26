@@ -1,0 +1,8 @@
+{
+  "name": "eduagentx-learning-measurement",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Measures whether training changes an agent's behaviour: held-out sandbox items in arms with no notes, own notes and control notes, with intervals.",
+  "main": "src/measure.js",
+  "scripts": { "test": "node --test test/*.test.js" }
+}

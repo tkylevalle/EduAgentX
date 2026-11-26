@@ -14,11 +14,11 @@ const candidate = require('../../curriculum-engine/examples/ai-safety-candidate'
 const { createApp: createTraining } = require('../../training-service/index');
 const { createMemoryStore: createTrainingStore } = require('../../training-service/store');
 const { createFakePackageSource, createFakeRegistrySource } = require('../../training-service/sources');
-const { GRADER, gradeItems } = require('../../grading-service/src/item-grader');
-const { examAnswer } = require('../../synthetic-agent-learner/exam-scenarios');
+const { examAnswer, examPolicy } = require('../../synthetic-agent-learner/exam-scenarios');
+
 const { createSources } = require('../sources');
 const { createRemediationRelay } = require('../remediation-relay');
-const { ACTOR, ADMIN, boot, fixture, grade, adminView } = require('./exam-harness');
+const { ACTOR, ADMIN, answerItem, boot, fixture, grade, adminView, rubricGrader } = require('./exam-harness');
 
 const TRAINING_KEY = 'remediation-e2e-training-key';
 const SYNTHETIC = { mode: 'synthetic', environment: 'simulation' };
@@ -64,8 +64,8 @@ async function sitExam(ctx, key, scenarioId) {
   let attempt = started.body.attempt;
   const { form } = attempt;
   for (const [index, item] of form.items.entries()) {
-    attempt = (await ctx.call('POST', `/internal/attempts/${attempt.attemptId}/responses`, { idempotencyKey: `${key}-${index}`,
-      expectedSequence: attempt.sequence, itemId: item.id, response: examAnswer(scenarioId, item, index) })).body.attempt;
+    const answer = item.kind === 'behaviour' ? { policy: examPolicy(scenarioId, item) } : examAnswer(scenarioId, item, index);
+    attempt = await answerItem(ctx, attempt, item, answer, `${key}-${index}`);
   }
   return { status: 201, attempt: (await grade(ctx, attempt)).body.attempt, form };
 }
@@ -74,8 +74,9 @@ test('failure, remediation and re-examination form one correlated narrative acro
   const training = await startTraining(t);
   const standardSession = await completeTraining(training, 'standard');
   const completion = createSources({ trainingUrl: training.url, trainingKey: TRAINING_KEY, curriculumKey: 'unused' }).completion;
-  const realGrader = async ({ rubric, items }) => ({ ok: true, body: { grader: GRADER, results: gradeItems({ rubric, items }) } });
-  const ctx = await boot(t, { grader: realGrader, sources: { completion } });
+  // Graded by the production rubric grader on recorded judge verdicts, so the
+  // retake passes only if the grader that decides credentials accepts its answers.
+  const ctx = await boot(t, { grader: rubricGrader(), sources: { completion } });
 
   const failed = await sitExam(ctx, 'first', 'unsafe-tool');
   assert.equal(failed.attempt.status, 'agent_failed');

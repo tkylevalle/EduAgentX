@@ -1,14 +1,16 @@
 'use strict';
 
 // EduAgentX web app server. It serves the built client and a small read/act
-// API over the platform's public Gateway. Every credential (admin, reviewers,
-// curriculum key) stays here; the browser only ever sees answer-free,
-// operator-level projections.
+// API over the platform's public Gateway. Operator credentials (admin,
+// curriculum key) stay here; the browser only ever sees answer-free,
+// operator-level projections. It holds no reviewer credentials: a reviewer
+// signs in with their own to submit a review or a grader label (assurance audit C3).
 
 const path = require('node:path');
 const fs = require('node:fs');
 const express = require('express');
-const { createLifecycleDriver, STEPS } = require('../../packages/demo-lifecycle');
+const { createLifecycleDriver, demoAutoApproveFromEnv, STEPS } = require('../../packages/demo-lifecycle');
+const { UUID } = require('../../packages/execution-provenance');
 
 const PORT = Number(process.env.PORT || 4300);
 const GATEWAY_URL = process.env.API_GATEWAY_URL || 'http://api-gateway:4000';
@@ -24,8 +26,15 @@ const HEARTBEAT_MS = 10_000;
 // The measured examination took about 6 s on the demo stack; grading may wait longer.
 const CANDIDATE_STEP_TIMEOUT_MS = 120_000;
 const STATUS_ACTIONS = ['suspend', 'reinstate', 'revoke'];
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_AGENT_KEY_LENGTH = 256;
+// Package ids and versions are slugs and semver strings ('ai-safety-fundamentals',
+// '1.0.0'); anything else is refused before it reaches the Gateway path.
+const PACKAGE_KEY = /^[A-Za-z0-9._-]{1,128}$/;
+// Governance lists only the versions a reviewer can act on or check.
+const REVIEWABLE_STATES = ['AwaitingReview', 'Active'];
+// Only a refused sign-in is the reviewer's mistake; a throttled or failing
+// Gateway must read as an outage so they do not retype a correct secret.
+const SIGN_IN_REFUSED = [401, 403];
 // The app is served to this machine only (Compose binds 127.0.0.1).
 const LOCAL_HOST = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i;
 
@@ -70,13 +79,19 @@ function sameHost(origin, host) {
   try { return new URL(origin).host.toLowerCase() === host.toLowerCase(); } catch { return false; }
 }
 
+// A source section's link is rendered as an anchor in the reviewer's browser,
+// and PDF or embedded sections can carry any URL, so only https survives:
+// javascript:, data: and plain http links become null.
+function safeLink(value) {
+  if (typeof value !== 'string') return null;
+  try { return new URL(value).protocol === 'https:' ? value : null; } catch { return null; }
+}
+
 function createServer({ env = process.env, fetchImpl = fetch, driver } = {}) {
   const admin = { clientId: env.ADMIN_CLIENT_ID, clientSecret: env.ADMIN_CLIENT_SECRET };
-  const reviewers = [1, 2].map((index) => ({ clientId: env[`REVIEWER_${index}_CLIENT_ID`], clientSecret: env[`REVIEWER_${index}_CLIENT_SECRET`] }))
-    .filter((reviewer) => reviewer.clientId && reviewer.clientSecret);
   const lifecycle = driver || createLifecycleDriver({ gatewayUrl: GATEWAY_URL, syntheticUrl: SYNTHETIC_URL,
-    validationUrl: VALIDATION_URL, curriculumInternalKey: env.CURRICULUM_INTERNAL_KEY, admin, reviewers,
-    candidate: loadCandidate(), fetchImpl });
+    validationUrl: VALIDATION_URL, curriculumInternalKey: env.CURRICULUM_INTERNAL_KEY, admin,
+    candidate: loadCandidate(), autoApprove: demoAutoApproveFromEnv(env), fetchImpl });
   let token = null;
   let tokenExpiresAt = 0;
   let runInProgress = false;
@@ -140,6 +155,7 @@ function createServer({ env = process.env, fetchImpl = fetch, driver } = {}) {
     if (!pkg) return null;
     return {
       packageId: pkg.packageId, version: pkg.version, digest: pkg.digest, state: pkg.state,
+      domain: pkg.manifest?.domain || pkg.domain || null,
       certificationBlocked: pkg.certificationBlocked, quarantinedScopes: pkg.quarantinedScopes,
       track: pkg.curriculumTrack,
       modules: (pkg.modules || []).map((module) => ({ id: module.id, title: module.title,
@@ -208,6 +224,144 @@ function createServer({ env = process.env, fetchImpl = fetch, driver } = {}) {
   app.get('/api/package', async (req, res) => {
     try { res.json({ package: await activePackage() }); }
     catch { res.status(503).json({ error: 'package_unavailable' }); }
+  });
+
+  // Governance (target design 3.2 step 5; assurance audit C1-C3): what a
+  // reviewer needs to judge a package, and the review they submit under their
+  // own identity. The server never stores a reviewer's credentials: it trades
+  // them for a token for this one request.
+  const reviewView = (pkg) => ({
+    packageId: pkg.packageId, version: pkg.version, digest: pkg.digest, state: pkg.state, domain: pkg.manifest?.domain || pkg.domain || null,
+    domainId: pkg.manifest?.domainId || null, createdBy: pkg.createdBy || null,
+    sources: (pkg.sources || []).map((source) => ({ id: source.id, title: source.title, issuer: source.issuer, edition: source.edition,
+      licence: source.licenseBasis, licenceStatus: source.licenceStatus, kind: source.snapshotKind, status: source.verificationStatus,
+      url: source.canonicalUrl, cited: (pkg.citedSources || []).includes(source.id) })),
+    sections: (pkg.sourceSections || []).map((section) => ({ id: section.id, sourceId: section.sourceId, locator: section.locator, text: section.text, url: safeLink(section.url) })),
+    modules: (pkg.modules || []).map((module) => ({ id: module.id, title: module.title, objectiveIds: module.objectiveIds,
+      items: (module.deliveryItems || []).map((item) => ({ kind: item.kind || 'lesson', text: item.text })),
+      claims: (module.claims || []).map((claim) => ({ text: claim.text, quote: claim.quote, sectionId: claim.sectionId })) })),
+    objectives: (pkg.objectives || []).map((objective) => ({ id: objective.id, statement: objective.statement, safetyCritical: objective.safetyCritical })),
+    criticalRules: pkg.rubric?.criticalViolationRules || [],
+    criteria: (pkg.rubric?.criteria || []).map((criterion) => ({ id: criterion.id, weight: criterion.weight, anchor: criterion.anchor })),
+    reviews: (pkg.reviews || []).map((review) => ({ reviewer: review.reviewer_id, score: review.score, approved: review.approved,
+      criterionScores: review.criterionScores || {}, sourceChecks: review.sourceChecks || {}, comment: review.comment || '', at: review.ts })),
+    openDisagreements: pkg.openDisagreements || [], resolutions: pkg.resolutions || [],
+    reviewState: pkg.reviewState || null, reviewPolicy: pkg.reviewPolicy || null, citedSources: pkg.citedSources || [],
+    gates: (pkg.evidence || []).filter((entry) => entry.event === 'validation_run').slice(-1)[0]?.result?.gates || [],
+  });
+  // Resolves to { token } or { status, error } so a refused sign-in and an outage stay distinct.
+  const reviewerToken = async (body) => {
+    if (typeof body?.clientId !== 'string' || typeof body?.clientSecret !== 'string' || !body.clientId || !body.clientSecret) {
+      return { status: 401, error: 'reviewer_sign_in_failed' };
+    }
+    const reply = await call(`${GATEWAY_URL}/v1/auth/tokens`, { method: 'POST', body: { clientId: body.clientId, clientSecret: body.clientSecret } });
+    if (reply.status === 200) return { token: reply.data.accessToken };
+    return SIGN_IN_REFUSED.includes(reply.status) ? { status: 401, error: 'reviewer_sign_in_failed' } : { status: 503, error: 'reviewer_sign_in_unavailable' };
+  };
+  const asReviewer = async (req, res, route, body) => {
+    const reviewer = await reviewerToken(req.body);
+    if (!reviewer.token) return res.status(reviewer.status).json({ error: reviewer.error });
+    const reply = await call(`${GATEWAY_URL}${route}`, { method: 'POST', body, headers: { authorization: `Bearer ${reviewer.token}` } });
+    return res.status(reply.status).json(reply.data);
+  };
+
+  // The list is one read of summaries; the page fetches the detail of the package it shows.
+  app.get('/api/governance/packages', async (req, res) => {
+    try {
+      const list = await gateway('/v1/admin/curriculum/packages');
+      if (list.status !== 200) return res.status(503).json({ error: 'packages_unavailable' });
+      res.json({ packages: (Array.isArray(list.data) ? list.data : []).filter((pkg) => REVIEWABLE_STATES.includes(pkg.state))
+        .map(({ packageId, version, digest, state, domainId = null, approvals = null, required = null }) =>
+          ({ packageId, version, digest, state, domainId, approvals, required })) });
+    } catch { res.status(503).json({ error: 'packages_unavailable' }); }
+  });
+
+  app.get('/api/governance/packages/:packageId/:version', async (req, res) => {
+    const { packageId, version } = req.params;
+    if (!PACKAGE_KEY.test(packageId) || !PACKAGE_KEY.test(version)) return res.status(400).json({ error: 'invalid_request' });
+    try {
+      const reply = await gateway(`/v1/admin/curriculum/packages/${encodeURIComponent(packageId)}/${encodeURIComponent(version)}`);
+      if (reply.status === 404) return res.status(404).json({ error: 'package_not_found' });
+      if (reply.status !== 200) return res.status(503).json({ error: 'package_unavailable' });
+      res.json({ package: reviewView(reply.data) });
+    } catch { res.status(503).json({ error: 'package_unavailable' }); }
+  });
+
+  app.post('/api/governance/reviews', async (req, res) => {
+    const { packageId, version, criterionScores, sourceChecks, approved, comment } = req.body || {};
+    try { await asReviewer(req, res, '/v1/curriculum/review', { package_id: packageId, version, criterionScores, sourceChecks, approved, comment }); }
+    catch { res.status(503).json({ error: 'review_unavailable' }); }
+  });
+
+  app.post('/api/governance/resolutions', async (req, res) => {
+    const { packageId, version, criterionId, resolution } = req.body || {};
+    try { await asReviewer(req, res, '/v1/curriculum/review/resolutions', { package_id: packageId, version, criterionId, resolution }); }
+    catch { res.status(503).json({ error: 'resolution_unavailable' }); }
+  });
+
+  // Activation is the operator's step, and the service refuses it until two people approved with no open disagreement.
+  app.post('/api/governance/activate', async (req, res) => {
+    try {
+      const reply = await gateway('/v1/admin/curriculum/activate', { method: 'POST', body: { package_id: req.body?.packageId, version: req.body?.version } });
+      res.status(reply.status).json(reply.data);
+    } catch { res.status(503).json({ error: 'activation_unavailable' }); }
+  });
+
+  // Grader labelling (packages/grading-validity README, "How to label"; target
+  // design 9): a reviewer labels one response at a time under their own
+  // account, signing in as on Governance. Only the response, its item prompt,
+  // an opaque key and the reviewer's own count reach the page: never another
+  // person's label or a grader score.
+  const asLabeller = async (req, res, work) => {
+    const reviewer = await reviewerToken(req.body);
+    if (!reviewer.token) return res.status(reviewer.status).json({ error: reviewer.error });
+    return work((route, options = {}) => call(`${GATEWAY_URL}${route}`, { ...options, headers: { authorization: `Bearer ${reviewer.token}` } }));
+  };
+  const ownProgress = (data) => ({ labelled: data.labelled, total: data.total });
+  // A refusal passes on its status and error code, nothing else.
+  const labellingRefusal = (res, reply) => res.status(reply.status).json({ error: reply.data?.error || 'labelling_unavailable' });
+
+  app.post('/api/labelling/next', async (req, res) => {
+    try {
+      await asLabeller(req, res, async (asReviewerCall) => {
+        const [queue, progress] = await Promise.all([asReviewerCall('/v1/grader-labels/next?limit=1'), asReviewerCall('/v1/grader-labels/progress')]);
+        if (queue.status !== 200) return labellingRefusal(res, queue);
+        if (progress.status !== 200) return labellingRefusal(res, progress);
+        const [item] = Array.isArray(queue.data.items) ? queue.data.items : [];
+        res.json({ datasetVersion: queue.data.datasetVersion, progress: ownProgress(progress.data),
+          item: item ? { itemKey: item.itemKey, prompt: item.prompt, response: item.response } : null });
+      });
+    } catch { res.status(503).json({ error: 'labelling_unavailable' }); }
+  });
+
+  app.post('/api/labelling/labels', async (req, res) => {
+    const { itemKey, acceptable, score, safetyViolation } = req.body || {};
+    try {
+      await asLabeller(req, res, async (asReviewerCall) => {
+        const reply = await asReviewerCall('/v1/grader-labels', { method: 'POST', body: { itemKey, acceptable, score, safetyViolation } });
+        if (reply.status !== 201) return labellingRefusal(res, reply);
+        res.status(201).json({ recorded: true, progress: ownProgress(reply.data) });
+      });
+    } catch { res.status(503).json({ error: 'labelling_unavailable' }); }
+  });
+
+  // Attention Queue (target design 7.3; audit E9, E10): the one incident log,
+  // open incidents first. Acknowledging or resolving appends an update.
+  app.get('/api/incidents', async (req, res) => {
+    const status = ['open', 'all', 'acknowledged', 'resolved'].includes(req.query.status) ? req.query.status : 'open';
+    try {
+      const reply = await gateway(`/v1/admin/incidents?status=${status}`);
+      if (reply.status !== 200) return res.status(503).json({ error: 'incidents_unavailable' });
+      res.json({ incidents: reply.data.incidents || [] });
+    } catch { res.status(503).json({ error: 'incidents_unavailable' }); }
+  });
+  app.post('/api/incidents/:incidentId/updates', async (req, res) => {
+    if (!UUID.test(req.params.incidentId)) return res.status(400).json({ error: 'invalid_incident_id' });
+    try {
+      const reply = await gateway(`/v1/admin/incidents/${req.params.incidentId}/updates`, { method: 'POST',
+        body: { status: req.body?.status, note: req.body?.note } });
+      res.status(reply.status).json(reply.data);
+    } catch { res.status(503).json({ error: 'incidents_unavailable' }); }
   });
 
   app.get('/api/credentials', async (req, res) => {

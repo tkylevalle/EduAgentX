@@ -3,6 +3,7 @@
 const execution = require('../../packages/execution-provenance');
 const { sha256 } = require('../curriculum-engine/model');
 const { checkAssessment } = require('./assessment');
+const { actionsResponse, episodesOf, isAction, isRecordedAction } = require('./behaviour');
 const KEY = /^[\x20-\x7e]{1,256}$/;
 const REASONS = ['infrastructure_failure', 'governance_changed', 'grading_unavailable'];
 const terminalTypes = { attempt_completed: 'complete', agent_failed: 'agent_failed', system_aborted: 'system_aborted' };
@@ -11,7 +12,7 @@ const exact = (value, fields) => value && typeof value === 'object' && !Array.is
   Object.keys(value).length === fields.length && fields.every((key) => Object.hasOwn(value, key));
 
 function validateCommand(command) {
-  if (!command || !['response', 'finalize', 'abort', 'timeout', 'system_abort'].includes(command.type))
+  if (!command || !['response', 'episode_step', 'finalize', 'abort', 'timeout', 'system_abort'].includes(command.type))
     throw fail('invalid_request', 400);
   if (!Number.isFinite(Date.parse(command.now))) throw fail('invalid_request', 400);
   if (command.type === 'timeout') return;
@@ -21,7 +22,9 @@ function validateCommand(command) {
   }
   if (typeof command.idempotencyKey !== 'string' || !KEY.test(command.idempotencyKey) ||
     !Number.isSafeInteger(command.expectedSequence) || command.expectedSequence < 1) throw fail('invalid_request', 400);
-  if (command.type === 'response') {
+  if (command.type === 'episode_step') {
+    if (typeof command.itemId !== 'string' || !command.itemId || !isAction(command.action)) throw fail('invalid_request', 400);
+  } else if (command.type === 'response') {
     if (typeof command.itemId !== 'string' || !command.itemId || typeof command.response !== 'string' ||
       !command.response.trim() || command.response.length > 16000 || command.response.includes('\0') ||
       Buffer.from(command.response, 'utf8').toString('utf8') !== command.response) throw fail('invalid_request', 400);
@@ -38,7 +41,7 @@ function validateCommand(command) {
 
 function commandDigest(attemptId, command) {
   const semantic = { attemptId, type: command.type, expectedSequence: command.expectedSequence };
-  for (const name of ['itemId', 'response', 'eventId', 'formDigest', 'rubricDigest', 'responseSetDigest', 'result', 'reason',
+  for (const name of ['itemId', 'action', 'response', 'eventId', 'formDigest', 'rubricDigest', 'responseSetDigest', 'result', 'reason',
     'assessment','executionEvidence'])
     if (command[name] !== undefined) semantic[name] = command[name];
   return sha256(semantic);
@@ -52,7 +55,10 @@ function derive(attempt, events, responses) {
     attempt.form.subject.configurationFingerprint !== attempt.configurationFingerprint || attempt.form.mode !== attempt.mode ||
     sha256(attempt.form.package) !== sha256(attempt.package) || Date.parse(attempt.deadlineAt) <= Date.parse(attempt.startedAt))
     throw fail('invalid_manifest');
-  if ((attempt.form.provenanceProfile || attempt.form.schemaVersion.endsWith('/1.1.0')) && (!execution.validRun(attempt.form.provenance) ||
+  // A stored run is history: it is checked whole, but not against today's
+  // reference-source catalog, which changes whenever the reference code does.
+  // New runs are checked against the catalog when they are admitted.
+  if ((attempt.form.provenanceProfile || attempt.form.schemaVersion.endsWith('/1.1.0')) && (!execution.validRun(attempt.form.provenance, false) ||
     attempt.form.provenanceProfile !== execution.RUN || attempt.form.provenance.agentLearnerKey !== attempt.agentLearnerKey ||
     attempt.form.provenance.configurationFingerprint !== attempt.configurationFingerprint ||
     !execution.same(attempt.form.provenance.package, attempt.package) ||
@@ -60,6 +66,7 @@ function derive(attempt, events, responses) {
     throw fail('invalid_manifest');
   const executionReceipts = [];
   const answered = new Set(), identities = new Set();
+  const steps = new Map();
   let grade = null, previousTime = Date.parse(attempt.startedAt);
   const orderedDigest = () => sha256(attempt.form.items.flatMap((item) => {
     const response = responses.find((value) => value.itemId === item.id && answered.has(item.id));
@@ -73,16 +80,27 @@ function derive(attempt, events, responses) {
     if (event.eventId) identities.add(event.eventId);
     if (event.seq === 1) {
       if (event.eventType !== 'attempt_started' || time !== Date.parse(attempt.startedAt)) throw fail('invalid_event_history');
+    } else if (event.eventType === 'episode_step_recorded') {
+      const item = attempt.form.items.find((value) => value.id === event.payload?.itemId);
+      if (grade || !item || item.kind !== 'behaviour' || answered.has(item.id) || time >= Date.parse(attempt.deadlineAt) ||
+        !isRecordedAction(event.payload.action)) throw fail('invalid_event_history');
+      // Collected here, as each step is checked, rather than with recordedSteps,
+      // which reads events this loop has not validated yet.
+      if (!steps.has(item.id)) steps.set(item.id, []);
+      steps.get(item.id).push(event.payload.action);
     } else if (event.eventType === 'response_accepted') {
       const row = responses.find((r) => r.itemId === event.payload?.itemId);
-      if (grade || !row || answered.has(row.itemId) || !attempt.form.items.some((item) => item.id === row.itemId) ||
+      const answeredItem = attempt.form.items.find((item) => item.id === row?.itemId);
+      // A behaviour item's response is the Engine's record of its steps.
+      if (answeredItem?.kind === 'behaviour' && row.response !== actionsResponse(episodesOf(steps.get(row.itemId) || []))) throw fail('invalid_event_history');
+      if (grade || !row || answered.has(row.itemId) || !answeredItem ||
         time >= Date.parse(attempt.deadlineAt) || row.seq !== event.seq || Date.parse(row.acceptedAt) !== time ||
         row.responseDigest !== event.payload.responseDigest || sha256(row.response) !== row.responseDigest)
         throw fail('invalid_event_history');
       if (attempt.form.provenanceProfile) {
         const r = attempt.form.provenance;
-        execution.validateReceipt(r, execution.runAuthority(r), { mode: r.evidenceMode, environment: r.environment },
-          event.payload.executionEvidence, 'examination', attempt.form.items.find((i) => i.id === row.itemId), row.response, attempt.attemptId);
+        // Receipts were checked against the reference code when written; read back, they must be intact.
+        execution.validateRecordedReceipt(r, event.payload.executionEvidence, 'examination', answeredItem, row.response, attempt.attemptId);
         executionReceipts.push(event.payload.executionEvidence);
       }
       answered.add(row.itemId);
@@ -117,7 +135,7 @@ function derive(attempt, events, responses) {
     throw fail('invalid_response_history');
   return { ...attempt, ...state,
     ...(attempt.form.provenanceProfile && state.responseCollectionComplete ? { executionCoverage: execution.coverage(attempt.form.provenance,
-      'examination', attempt.form.items.map((i) => i.id), attempt.form.items.map((i) => executionReceipts.find((r) => r.itemId === i.id)), attempt.attemptId) } : {}), responseSetDigest: orderedDigest(), events, responses };
+      'examination', attempt.form.items.map((i) => i.id), attempt.form.items.map((i) => executionReceipts.find((r) => r.itemId === i.id)), attempt.attemptId, false) } : {}), responseSetDigest: orderedDigest(), events, responses };
 }
 
 function stateReceipt(snapshot) {

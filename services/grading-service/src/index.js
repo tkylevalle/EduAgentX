@@ -1,10 +1,10 @@
 'use strict';
 const express = require('express');
 const { timingSafeEqual } = require('node:crypto');
-const { validateGradingInput } = require('./validator');
-const { gradeAttempt } = require('./grader');
-const { getRubric } = require('./rubric');
-const { GRADER, gradeItems, validateItemGradingRequest } = require('./item-grader');
+const { DEFAULT_MODEL, DEFAULT_URL, createJudge } = require('./judge');
+const { GradingUnavailableError, createRubricGrader, graderIdentity, validateJudgedRequest } = require('./rubric-grader');
+const { loadRecordedVerdicts } = require('./recorded-verdicts');
+const { createMemoryCache } = require('./verdict-cache');
 
 const SERVICE_NAME = 'grading-service';
 
@@ -19,82 +19,67 @@ function matchesKey(supplied, expected) {
   return left.length === right.length && timingSafeEqual(left, right);
 }
 
-function createApp({ itemGradingKey = process.env.GRADING_SERVICE_KEY } = {}) {
+/**
+ * The rubric judge from the environment. The key is optional so the service
+ * starts without one; every verdict not already cached then fails closed.
+ * @param {NodeJS.ProcessEnv} env
+ */
+function judgeFromEnv(env = process.env) {
+  return createJudge({ apiKey: env.JUDGE_API_KEY || env.OPENCODE_API_KEY, url: env.JUDGE_MODEL_URL || DEFAULT_URL,
+    model: env.JUDGE_MODEL || DEFAULT_MODEL });
+}
+
+/**
+ * The rubric grader with its cache started from the recorded verdicts of the
+ * same grader version, so a recorded answer is graded even without a key.
+ * @param {{ judge?: object, recordedDir?: string }} options
+ * @returns {{ grader: object, judge: object, recorded: number }}
+ */
+function graderFromEnv({ judge = judgeFromEnv(), recordedDir } = {}) {
+  const entries = loadRecordedVerdicts({ dir: recordedDir, identity: graderIdentity(judge.model) });
+  return { grader: createRubricGrader({ judge, cache: createMemoryCache({ entries }) }), judge, recorded: Object.keys(entries).length };
+}
+
+// The service has one grader, the layered rubric judge. Pass thresholds and
+// critical rules are not held here: each attempt is graded under the rubric
+// and exam template pinned by its Domain Assurance Package, which the
+// Examination Engine sends with the rule definitions and item prompts.
+function createApp({ itemGradingKey = process.env.GRADING_SERVICE_KEY, grader = graderFromEnv().grader,
+  logEvent = log } = {}) {
   const app = express();
   app.use(express.json({ limit: '256kb' }));
-
-  // In-memory evidence store (PostgreSQL in Sprint 4)
-  const evidence = new Map();
 
   app.get('/health', (_req, res) => {
     res.json({ status: 'ok', service: SERVICE_NAME });
   });
 
-  // GET /rubric — return the locked rubric
-  app.get('/rubric', (_req, res) => {
-    res.json(getRubric());
+  // The identity of the grader behind every score, for consoles and evidence.
+  app.get('/v1/grader', (_req, res) => {
+    res.json({ grader: grader.identity });
   });
 
-  // POST /grade — grade an attempt
-  // Fails closed: any validation error returns 422 with no score
-  app.post('/grade', (req, res) => {
-    const errors = validateGradingInput(req.body);
-    if (errors.length) {
-      return res.status(422).json({
-        error: 'invalid_grading_input',
-        details: errors,
-        score: null,
-        passed: null,
-      });
-    }
-
-    let result;
-    try {
-      result = gradeAttempt(req.body);
-    } catch (err) {
-      return res.status(422).json({
-        error: 'grading_failed',
-        message: err.message,
-        score: null,
-        passed: null,
-      });
-    }
-
-    // Store immutable evidence
-    evidence.set(result.attemptId, result);
-
-    res.status(200).json(result);
-  });
-
-  // POST /v1/item-grades — the Examination Engine's grading call. Stateless:
-  // the Engine records the outcome with the attempt, so no response is kept here.
-  app.post('/v1/item-grades', (req, res) => {
+  // POST /v1/item-grades — the Examination Engine's grading call. Stateless
+  // apart from the verdict cache: the Engine records the outcome with the attempt.
+  // A judge that cannot give a verdict is a 503, which the Engine retries
+  // within its window and then aborts as grading_unavailable.
+  app.post('/v1/item-grades', async (req, res) => {
     if (!itemGradingKey) return res.status(503).json({ error: 'grading_not_configured' });
     if (!matchesKey(req.header('x-grading-service-key'), itemGradingKey)) return res.status(403).json({ error: 'forbidden' });
-    const errors = validateItemGradingRequest(req.body);
+    const errors = validateJudgedRequest(req.body);
     if (errors.length) return res.status(422).json({ error: 'invalid_item_grading_input', details: errors });
-    const results = gradeItems(req.body);
-    log('items_graded', { correlationId: req.header('x-correlation-id') || null, items: results.length });
-    return res.status(200).json({ grader: GRADER, results });
-  });
-
-  // GET /evidence/:attemptId — retrieve immutable grading evidence
-  app.get('/evidence/:attemptId', (req, res) => {
-    const record = evidence.get(req.params.attemptId);
-    if (!record) return res.status(404).json({ error: 'not_found' });
-    res.json(record);
-  });
-
-  // GET /evidence — list all grading records
-  app.get('/evidence', (_req, res) => {
-    const records = [...evidence.values()].map(r => ({
-      attemptId: r.attemptId,
-      subject: r.subject,
-      passed: r.passed,
-      overallScore: r.overallScore,
-      gradedAt: r.gradedAt,
-    }));
-    res.json(records);
+    const correlationId = req.header('x-correlation-id') || null;
+    try {
+      const results = await grader.gradeItems(req.body);
+      logEvent('items_graded', { correlationId, items: results.length });
+      return res.status(200).json({ grader: grader.identity, results });
+    } catch (error) {
+      if (error instanceof GradingUnavailableError) {
+        logEvent('items_ungradeable', { correlationId, reason: error.code });
+        return res.status(503).json({ error: error.code });
+      }
+      logEvent('grading_failed', { correlationId, error: error?.name || 'Error' });
+      return res.status(500).json({ error: 'grading_failed' });
+    }
   });
 
   return app;
@@ -102,7 +87,13 @@ function createApp({ itemGradingKey = process.env.GRADING_SERVICE_KEY } = {}) {
 
 if (require.main === module) {
   const port = process.env.PORT || 4020;
-  createApp().listen(port, () => log('listening', { port: Number(port) }));
+  const { grader, judge, recorded } = graderFromEnv();
+  createApp({ grader }).listen(port, () => {
+    log('listening', { port: Number(port), judgeModel: judge.model, judgeAvailable: judge.available, judgeReason: judge.reason,
+      recordedVerdicts: recorded });
+    if (!judge.available) log('judge_not_configured', { recordedVerdicts: recorded,
+      effect: 'only recorded answers can be graded; any other written answer is refused (503) until JUDGE_API_KEY or OPENCODE_API_KEY is set in .env' });
+  });
 }
 
-module.exports = { createApp };
+module.exports = { createApp, graderFromEnv, judgeFromEnv };

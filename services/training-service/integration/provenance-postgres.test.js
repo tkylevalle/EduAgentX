@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const { Pool } = require('pg');
 const { createPgStore } = require('../store');
+const { applySchema } = require('./schema');
 const { fixture } = require('../../../packages/execution-provenance/test/fixtures');
 const url = process.env.TRAINING_TEST_DATABASE_URL;
 
@@ -11,7 +12,7 @@ test('PostgreSQL preserves immutable synthetic/replay runs and receipts across c
   const pool = new Pool({ connectionString: url });
   const schema = fs.readFileSync(`${__dirname}/../schema.sql`, 'utf8');
   try {
-    await pool.query(schema);
+    await applySchema(pool, schema);
     for (const mode of ['synthetic','replay']) {
       const f = fixture(mode, `pg-${mode}`), store = createPgStore(pool);
       await store.transaction(f.run.agentLearnerKey, async (tx) => {
@@ -39,7 +40,7 @@ test('PostgreSQL preserves immutable synthetic/replay runs and receipts across c
     const legacy = fixture('synthetic', 'pg-legacy'); delete legacy.session.provenance;
     const store = createPgStore(pool);
     await store.transaction('pg-legacy', async (tx) => { await tx.insertSession(legacy.session); });
-    await pool.query(schema);
+    await applySchema(pool, schema);
     assert.equal((await store.readSession(legacy.session.sessionId)).session.provenance, undefined);
   } finally { await pool.end(); }
 });

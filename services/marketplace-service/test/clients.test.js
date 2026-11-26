@@ -229,14 +229,16 @@ test('lifecycle origin remains uncheckable without configured issuer access', as
 
 // --- credential mapper
 
+const GRADER = Object.freeze({ id: 'deterministic-keyword-grader', version: '1.1.0' });
+
 function realIssued(evidencePatch = {}) {
   const { privateKey } = generateKeyPairSync('ed25519');
   const scores = { overallPercent: 88.5, tierPercents: { recall: 90, applied: 85, adversarial: 76.25 }, itemOutcomes: [] };
   const pkg = { id: 'ai-safety-fundamentals', version: '1.0.0', digest: 'sha256-package-1' };
   const evidence = {
     subjectId: 'agent/a b', subjectFingerprint: 'sha256:fp-a', packageId: pkg.id, packageVersion: pkg.version, mode: 'standard',
-    scores, safetyResult: { passed: true, criticalViolationRuleIds: [], failureReasons: [] },
-    examinationEvidence: { examinationId: 'exam-1', package: pkg, mode: 'standard', scores }, ...evidencePatch,
+    scores, safetyResult: { passed: true, criticalViolationRuleIds: [], failureReasons: [] }, grader: GRADER,
+    examinationEvidence: { examinationId: 'exam-1', package: pkg, mode: 'standard', grader: GRADER, scores }, ...evidencePatch,
   };
   return issueCredential(evidence, { privateKey, keyId: 'test-key', now: () => '2026-09-18T00:00:00.000Z' });
 }
@@ -246,9 +248,22 @@ test('toCandidate maps a credential exactly as certification-service issues it',
   assert.deepEqual(toCandidate(issued), {
     credentialId: issued.credentialId, agentLearnerKey: 'agent/a b', configurationFingerprint: 'sha256:fp-a',
     package: { id: 'ai-safety-fundamentals', version: '1.0.0', digest: 'sha256-package-1' },
-    overallPercent: 88.5, adversarialPercent: 76.25, assessmentMode: 'standard', environment: null, evidenceMode: null,
+    overallPercent: 88.5, adversarialPercent: 76.25, assessmentMode: 'standard', grader: GRADER, behaviour: null, attestationLevel: null, environment: null, evidenceMode: null,
     validFrom: '2026-09-18T00:00:00.000Z', validUntil: '2027-09-18T00:00:00.000Z', compactJws: issued.compactJws,
   });
+});
+
+test('toCandidate shows the behaviour bounds a credential states, and nothing for evidence that does not check out', () => {
+  const { evidenceOf, heldOutEpisodes } = require('../../../packages/agent-sandbox/test/fixtures');
+  const issued = structuredClone(realIssued());
+  issued.credential.credentialSubject.competency.behaviour = evidenceOf(heldOutEpisodes('item-v1', ['secret-exfiltration']), ['o3'], ['o1']);
+  const shown = toCandidate(issued).behaviour;
+  assert.deepEqual(shown.objectives, [{ objectiveId: 'o3', families: ['secret-exfiltration'], episodes: 9,
+    successLowerBound: 0.7008, violationUpperBound: 0.2831 }]);
+  assert.deepEqual(shown.untestedObjectiveIds, ['o1']);
+  assert.match(shown.scope, /does not measure/);
+  issued.credential.credentialSubject.competency.behaviour.objectives[0].episodes = 90;
+  assert.equal(toCandidate(issued).behaviour, null);
 });
 
 test('toCandidate maps every missing or unexpected field to null and never guesses', () => {
@@ -295,4 +310,29 @@ test('origin labels are mapped only from explicit credential fields, never infer
   }
   // This mapper does not verify a signature. Eligibility must still verify the JWS
   // and the authoritative lifecycle before any mapped credential can be ranked.
+});
+
+test('verification: a credential INVALID only for its status keeps a valid schema; the status gate excludes it', () => {
+  for (const code of ['SUSPENDED', 'REVOKED']) {
+    assert.deepEqual(toSignatureAndSchema({ ...report({ overall: 'INVALID' }), reasonCodes: [code] }), { signature: 'valid', schema: 'valid' }, code);
+  }
+  assert.equal(toSignatureAndSchema({ ...report({ overall: 'INVALID' }), reasonCodes: ['SUSPENDED', 'EXPIRED'] }).schema, 'invalid');
+  assert.equal(toSignatureAndSchema({ ...report({ overall: 'INVALID' }), reasonCodes: [] }).schema, 'invalid');
+});
+
+// main's own executor credential; its Marketplace projection was written before
+// the candidate carried grader, behaviour and attestationLevel.
+test('a projection of an older shape is derived again from its signed credential; a same-shape edit is kept', () => {
+  const { withCurrentCandidate } = require('../clients');
+  const vc = require('../../../packages/execution-provenance/test/fixtures/main-provenance-credential.json');
+  const credentialId = vc.id.split('/').at(-1);
+  const compactJws = `h.${Buffer.from(JSON.stringify(vc)).toString('base64url')}.s`;
+  const current = toCandidate({ credentialId, credential: vc, compactJws });
+  const { grader, behaviour, attestationLevel, ...older } = current;
+  const record = { credentialId, agentLearnerKey: current.agentLearnerKey, status: 'active', candidate: older };
+  assert.deepEqual(withCurrentCandidate(record).candidate, current);
+  const edited = { ...record, candidate: { ...current, overallPercent: 1 } };
+  assert.equal(withCurrentCandidate(edited), edited, 'a candidate of the current shape is never replaced');
+  const unreadable = { ...record, candidate: { ...older, compactJws: 'not-a-jws' } };
+  assert.equal(withCurrentCandidate(unreadable), unreadable);
 });
