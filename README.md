@@ -4,9 +4,9 @@ EduAgentX is a competency-assurance platform for software agents. An Agent
 Learner registers, studies a curriculum, takes an exam, and receives evidence
 of its competence. The glossary is in [CONTEXT.md](CONTEXT.md).
 
-Sprint 1 delivers the walking skeleton: an authenticated API Gateway, the
+Sprint 1 built the walking skeleton. It has an authenticated API Gateway, the
 Agent Registry, the provider-neutral `ExternalAgentLearner` protocol, a
-deterministic Synthetic Agent Learner, a read-only Assurance Console, and
+deterministic Synthetic Agent Learner, a read-only Assurance Console and
 monitoring.
 
 ## Quick start
@@ -29,54 +29,56 @@ keeps the data.
 
 To drive one Agent Learner through the whole lifecycle (package, training,
 examination, credential, verification, status change, monitoring) from the
-command line, run `node scripts/poc-lifecycle.js [scenario]`. The report is
-written to `artifacts/poc/lifecycle-run.json`. The web app's Lifecycle Lab
-runs the same driver live.
+command line, run `node scripts/poc-lifecycle.js [scenario]`. It writes its
+report to `artifacts/poc/lifecycle-run.json`. The web app's Lifecycle Lab runs
+the same driver live.
 
-No package is active until two reviewers approve it. On a new device nobody
-has reviewed the package yet, so the first run (web app or command line)
-approves it with the two demo reviewer accounts, `REVIEWER_1` and
-`REVIEWER_2` from `.env`. Each of those reviews says in its comment that it is
-an automatic demo approval and not a human review, and the run reports
-`autoApproved`. A package that any person has already reviewed is never
-approved over them. Set `DEMO_AUTO_APPROVE=0` in `.env` to turn this off; the
-run then stops at the first step with `package_awaiting_review` until two
-people review the package in the web app's Governance page. On a throwaway
-test stack, a script can also submit two reviews labelled TEST, and it
-refuses to run without the flag:
+A package stays inactive until two reviewers approve it. On a new device
+nobody has reviewed the package yet, so the first run (web app or command
+line) approves it with the two demo reviewer accounts, `REVIEWER_1` and
+`REVIEWER_2` from `.env`. The comment on each of those reviews says it is an
+automatic demo approval and not a human review, and the run reports
+`autoApproved`. If a person has already reviewed the package, the run never
+approves it over them.
+
+To turn this off, set `DEMO_AUTO_APPROVE=0` in `.env`. The run then stops at
+the first step with `package_awaiting_review` until two people review the
+package on the web app's Governance page. On a throwaway test stack,
+`review-test-package.js` submits two reviews labelled TEST. It refuses to run
+without the disposable-stack flag:
 
 ```
 EDUAGENTX_DISPOSABLE_STACK=1 node scripts/review-test-package.js ai-safety
 ```
 
-Written answers are graded by the rubric judge, which needs `JUDGE_API_KEY`
-(or `OPENCODE_API_KEY`) in `.env`. Without a key, the grading service still
-grades every answer the repository has a recorded judge verdict for, which
-includes all of the scripted agent's answers, so the synthetic lifecycle
-passes. Any other written answer, such as a Live model run, is refused
-(`grading_unavailable`) instead of being scored without the judge. The service
-logs `judge_not_configured` at start when it has no key.
+The rubric judge grades written answers. It needs `JUDGE_API_KEY` (or
+`OPENCODE_API_KEY`) in `.env`. Without a key, the grading service still grades
+any answer that has a recorded judge verdict in the repository. All of the
+scripted agent's answers have one, so the synthetic lifecycle passes. The
+service refuses any other written answer, such as one from a Live model run,
+with `grading_unavailable` rather than score it without the judge. It logs
+`judge_not_configured` at start when it has no key.
 
-The Lifecycle Lab's **Live model** scenario lets a real LLM train and sit the
-exam. Its evidence is labelled LIVE, and the same rules grade it. It runs as
-its own Agent Learner (`live-agent-learner-dev`), so a failing live run never
-blocks the synthetic profiles. To enable it, add an OpenCode Go key to `.env`
-and rebuild:
+In the Lifecycle Lab's Live model scenario, a real LLM trains and sits the
+exam. The same rules grade it, and its evidence carries the LIVE label. It runs
+as its own Agent Learner (`live-agent-learner-dev`), so a failing live run
+never blocks the synthetic profiles. To turn it on, add an OpenCode Go key to
+`.env` and rebuild:
 
 ```
 OPENCODE_API_KEY=your-key
 LIVE_MODEL=glm-5.3-flash   # optional; deepseek-v4.1-flash also works
 ```
 
-The web app is a local demo console, not a deployable operator UI. It holds
-the admin credentials and the curriculum internal key, but no reviewer
-credentials: a reviewer signs in with their own to submit a review. Compose
+The web app is a local demo console. Don't deploy it as an operator UI. It
+holds the admin credentials and the curriculum internal key but no reviewer
+credentials, so a reviewer signs in with their own to submit a review. Compose
 binds it to `127.0.0.1`, and its action routes accept only same-origin JSON
 requests.
 
 After you pull new code, run `EduAgentX-Start.bat rebuild` (or `make up`). It
-adds any new local secrets to `.env` and rebuilds the images. Without a key
-the Live model tile is disabled and everything else works.
+adds any new local secrets to `.env` and rebuilds the images. Without a key the
+web app disables the Live model tile, and everything else works.
 
 | URL | What |
 |---|---|
