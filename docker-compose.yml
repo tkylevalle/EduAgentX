@@ -746,14 +746,16 @@ services:
 
   grading-service:
     build:
-      context: ./services/grading-service
+      context: .
+      dockerfile: services/grading-service/Dockerfile
     container_name: eduagentx-grading-service
     environment:
       PORT: 4020
       SERVICE_NAME: grading-service
       GRADING_SERVICE_KEY: ${GRADING_SERVICE_KEY:?Run node scripts/setup-dev.js}
       # Rubric judge. The key is optional so the stack starts: without one,
-      # every text item whose verdict is not cached fails closed (503) and the
+      # only answers with a recorded verdict (the scripted agent's, baked into
+      # the image) are graded; any other text item fails closed (503) and the
       # Examination Engine aborts the attempt as grading_unavailable.
       JUDGE_API_KEY: ${JUDGE_API_KEY:-}
       OPENCODE_API_KEY: ${OPENCODE_API_KEY:-}

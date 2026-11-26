@@ -44,5 +44,12 @@ driver.run({ onStep: (step) => {
   fs.mkdirSync(path.dirname(output), { recursive: true });
   fs.writeFileSync(output, `${JSON.stringify(report, null, 2)}\n`);
   console.log(`\n${report.status.toUpperCase()}  ${output}`);
+  if (report.steps?.some((step) => step.error === 'package_awaiting_review')) {
+    const { packageId, version } = candidate.manifest;
+    console.log(`\n${packageId} ${version} needs two approving reviews before it can be activated. Either:\n` +
+      `  - two people review it in the Governance page (http://localhost:4300), signing in with REVIEWER_1 and REVIEWER_2 from .env; or\n` +
+      `  - on a throwaway test stack only: EDUAGENTX_DISPOSABLE_STACK=1 node scripts/review-test-package.js ${domain}\n` +
+      'Then run this script again.');
+  }
   if (report.status !== 'passed') process.exitCode = 1;
 });
