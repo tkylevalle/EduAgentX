@@ -7,13 +7,11 @@ const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const { spawnSync } = require('node:child_process');
 const candidate = require('../services/curriculum-engine/examples/ai-safety-candidate');
+const { readEnvFile } = require('../packages/demo-lifecycle/stack');
 
 const root = path.resolve(__dirname, '..');
 const output = path.join(root, 'artifacts', 'sprint2', 'live-smoke.json');
-const local = Object.fromEntries(fs.readFileSync(path.join(root, '.env'), 'utf8').split(/\r?\n/)
-  .filter(line => /^[A-Z][A-Z0-9_]*=/.test(line)).map(line => {
-    const at = line.indexOf('='); return [line.slice(0, at), line.slice(at + 1)];
-  }));
+const local = readEnvFile(path.join(root, '.env'));
 const gateway = `http://127.0.0.1:${local.GATEWAY_PORT || 8080}`;
 const validation = `http://127.0.0.1:${local.VALIDATION_ACTIVATION_PORT || 4010}`;
 const synthetic = `http://127.0.0.1:${local.SYNTHETIC_AGENT_PORT || 4200}`;

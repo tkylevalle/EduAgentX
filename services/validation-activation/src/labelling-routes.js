@@ -90,4 +90,4 @@ function registerLabellingRoutes(route, { requireInternalActor, labelStore, labe
   });
 }
 
-module.exports = { registerLabellingRoutes, MAX_BATCH };
+module.exports = { registerLabellingRoutes };

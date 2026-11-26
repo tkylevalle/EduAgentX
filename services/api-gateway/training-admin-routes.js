@@ -4,6 +4,7 @@
 // Training's own read routes do not check roles, so the admin role is enforced here.
 
 const execution = require('../../packages/execution-provenance');
+const { isPlainObject } = require('./route-helpers');
 
 const REMEDIATION_FIELDS = Object.freeze([
   'requestId', 'agentLearnerKey', 'packageId', 'packageVersion', 'objectiveIds', 'cause', 'evidence',
@@ -16,8 +17,6 @@ const REMEDIATION_FIELDS = Object.freeze([
  */
 function registerTrainingAdminRoutes(app, { requireRole, proxyJson, trainingServiceUrl, trainingInternalKey, trainingHeaders,
   trainingUnavailable, enrolledExecutors }) {
-  // Read-only Training Session views for the Assurance Console. Training's own
-  // read routes do not check roles, so the admin role is enforced here.
   app.get('/v1/admin/training-sessions', requireRole('admin'), async (req, res) => {
     if (!trainingInternalKey) return trainingUnavailable(req, res);
     const query = new URLSearchParams();
@@ -50,7 +49,7 @@ function registerTrainingAdminRoutes(app, { requireRole, proxyJson, trainingServ
   // it; Training validates the rest and records the admin as requestedBy.
   app.post('/v1/admin/training-remediations', requireRole('admin'), async (req, res) => {
     const body = req.body;
-    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    if (!isPlainObject(body)) {
       return res.status(400).json({ apiVersion: 'v1', error: 'invalid_request', details: ['body'], correlationId: req.correlationId });
     }
     const unexpected = Object.keys(body).filter((name) => !REMEDIATION_FIELDS.includes(name));
@@ -66,4 +65,4 @@ function registerTrainingAdminRoutes(app, { requireRole, proxyJson, trainingServ
   });
 }
 
-module.exports = { REMEDIATION_FIELDS, registerTrainingAdminRoutes };
+module.exports = { registerTrainingAdminRoutes };

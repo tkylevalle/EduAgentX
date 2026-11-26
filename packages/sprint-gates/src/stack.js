@@ -11,6 +11,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const assert = require('node:assert/strict');
 const { createLifecycleDriver } = require('../../demo-lifecycle');
+const { stackConnection } = require('../../demo-lifecycle/stack');
 const { createGate } = require('./gate');
 
 const ROOT = path.join(__dirname, '..', '..', '..');
@@ -20,8 +21,7 @@ const REQUIRED_ENV = Object.freeze(['ADMIN_CLIENT_ID', 'ADMIN_CLIENT_SECRET', 'C
   'REVIEWER_1_CLIENT_ID', 'REVIEWER_2_CLIENT_ID']);
 // The spec's two-person review: two distinct authenticated reviewers.
 const MIN_APPROVERS = 2;
-// The demo's shared reviewer credentials. The demo driver signs reviews with
-// them (assurance audit C3), so their approvals are not a people's review.
+// The demo's reviewer accounts; their approvals are automatic, not people's reviews.
 const SCRIPTED_REVIEWER_KEYS = Object.freeze(['REVIEWER_1_CLIENT_ID', 'REVIEWER_2_CLIENT_ID']);
 
 /** @returns {Record<string, string>} the KEY=value lines of .env; fails if a required key is missing */
@@ -35,13 +35,7 @@ function readEnv(file = path.join(ROOT, '.env')) {
 }
 
 function stackDriver(env) {
-  return createLifecycleDriver({
-    gatewayUrl: `http://127.0.0.1:${env.GATEWAY_PORT || 8080}`,
-    syntheticUrl: `http://127.0.0.1:${env.SYNTHETIC_AGENT_PORT || 4200}`,
-    validationUrl: `http://127.0.0.1:${env.VALIDATION_ACTIVATION_PORT || 4010}`,
-    curriculumInternalKey: env.CURRICULUM_INTERNAL_KEY,
-    admin: { clientId: env.ADMIN_CLIENT_ID, clientSecret: env.ADMIN_CLIENT_SECRET },
-  });
+  return createLifecycleDriver(stackConnection(env));
 }
 
 /**
@@ -110,4 +104,4 @@ async function runGate(name, defineChecks) {
   }
 }
 
-module.exports = { MIN_APPROVERS, checkActivePackage, readEnv, requireActivePackage, runGate };
+module.exports = { checkActivePackage, readEnv, requireActivePackage, runGate };

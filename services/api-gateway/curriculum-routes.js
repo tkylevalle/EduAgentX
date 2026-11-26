@@ -6,6 +6,7 @@
 // internal key and the subject derived here.
 
 const telemetry = require('../../packages/telemetry');
+const { isPlainObject } = require('./route-helpers');
 
 /**
  * @param {import('express').Express} app
@@ -71,39 +72,18 @@ function registerCurriculumRoutes(app, { requireRole, proxyJson, forwardJson, pr
       { headers: curriculumHeaders(req) });
   });
 
-  // Issue #27: bounded Governance command, requiring two distinct approving
-  // identities before it executes — the same two-person pattern already
-  // used for curriculum review (two distinct reviewer subjects before
-  // activation), now applied to quarantine release, one of the actions the
-  // spec names as human-governance-controlled (corrections, key rotation,
-  // policy changes, quarantine release). Either governance_operator or
-  // admin may approve; any two DISTINCT subjects (not roles) complete it —
-  // matching how /review counts distinct reviewer_id values regardless of
-  // whether the caller was 'reviewer' or 'admin'.
-  //
-  // The Gateway never mutates state itself. On every call (first and
-  // second) it rechecks authoritative state immediately before recording an
-  // approval or acting — closing a real gap in validation-activation's own
-  // restore route, which does not itself verify a scope is still
-  // quarantined before restoring it. Only once two distinct, matching
-  // approvals are gathered does it call the owning service, which performs
-  // the mutation and records it in its own append-only evidence trail —
-  // that evidence trail is the audit record for the action itself; the
-  // pending-approval store here only ever tracks *who has approved so far*,
-  // never a domain record.
-  //
-  // governance_operator (and viewer/evaluator/demo_operator) are
-  // intentionally only ever added to routes meant for them — never to
-  // curriculum/activate, training-remediations, or any other mutating
-  // admin route — so none of these roles can edit a score, force a pass,
-  // issue a credential, or touch immutable policy/evidence.
+  // Quarantine release needs two distinct approving subjects (not roles), as
+  // curriculum review does. Each call rechecks that the scope is still
+  // quarantined, because validation-activation's restore route does not.
+  // Only the second approval calls the owning service, whose evidence trail
+  // is the audit record; the pending store only tracks who has approved.
   app.post('/v1/admin/governance/packages/:packageId/quarantine-release',
     requireRole('governance_operator', 'admin'), async (req, res) => {
       const body = req.body;
       const scope = body?.scope;
       const checks = {
         version: typeof body?.version === 'string' && body.version.trim().length > 0,
-        scope: Boolean(scope) && typeof scope === 'object' && !Array.isArray(scope) &&
+        scope: isPlainObject(scope) &&
           typeof scope.type === 'string' && typeof scope.id === 'string' && scope.id.trim().length > 0,
         reason: typeof body?.reason === 'string' && body.reason.trim().length > 0,
         evidenceReference: typeof body?.evidenceReference === 'string' && body.evidenceReference.trim().length > 0,
@@ -124,11 +104,7 @@ function registerCurriculumRoutes(app, { requireRole, proxyJson, forwardJson, pr
       }
       if (current.status !== 200) return res.status(current.status).json(current.body);
 
-      // Recheck authoritative state: the scope must be quarantined right now,
-      // under this request, not merely when an operator last looked at it.
-      // Done on every call, including the first approval, so a stale
-      // approval can never be banked against a scope that is not (or is no
-      // longer) quarantined.
+      // Rechecked on every call, so a stale approval is never banked.
       const stillQuarantined = (current.body.quarantinedScopes || [])
         .some((entry) => entry.scopeType === scope.type && entry.scopeId === scope.id);
       if (!stillQuarantined) {
@@ -161,9 +137,7 @@ function registerCurriculumRoutes(app, { requireRole, proxyJson, forwardJson, pr
         return res.status(409).json({ apiVersion: 'v1', error: 'approval_mismatch', correlationId: req.correlationId });
       }
 
-      // Second, distinct, matching approval: execute. Clear the pending
-      // entry first so this can never be completed twice, and combine both
-      // approvers' stated reasons into the record the owning service keeps.
+      // Second approval: clear pending first so it cannot complete twice.
       governanceApprovalStore.delete(key);
       telemetry.log(serviceName, 'governance_second_approval_executing', {
         correlationId: req.correlationId, packageId: req.params.packageId, scope,

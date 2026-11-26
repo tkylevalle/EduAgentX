@@ -79,12 +79,8 @@ function createApp({
   monitoringGatewayKey = process.env.MONITORING_GATEWAY_KEY,
   protocolIdempotencyStore = new Map(),
   executionPrincipals = execution.enrollments(),
-  // Issue #27: pending two-person approvals for governance commands, keyed
-  // by `${packageId}:${scopeType}:${scopeId}`. Ephemeral and per-instance,
-  // same bounded-state pattern as protocolIdempotencyStore above — it never
-  // holds a domain record, only "who has approved so far," so losing it on
-  // restart just means approvals have to be re-submitted, not that any
-  // state is corrupted.
+  // Pending two-person governance approvals by `${packageId}:${scopeType}:${scopeId}`.
+  // Per-instance: a restart only means approvals are submitted again.
   governanceApprovalStore = new Map(),
   rateLimit,
 } = {}) {

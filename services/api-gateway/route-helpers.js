@@ -12,7 +12,10 @@ const TRAINING_IDENTIFIER = /^[\x20-\x7e]{1,256}$/;
 /** @param {unknown} value @returns {boolean} whether value is an identifier string; no other type is coerced */
 const isIdentifier = (value) => typeof value === 'string' && TRAINING_IDENTIFIER.test(value);
 
+/** @param {unknown} value @returns {boolean} whether value is a JSON object (not null, not an array) */
+const isPlainObject = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+
 // The 503 a route answers when its upstream is not configured or not reachable.
 const unavailable = (req, res, error) => res.status(503).json({ apiVersion: 'v1', error, correlationId: req.correlationId });
 
-module.exports = { UUID, TRAINING_IDENTIFIER, isIdentifier, unavailable };
+module.exports = { UUID, TRAINING_IDENTIFIER, isIdentifier, isPlainObject, unavailable };

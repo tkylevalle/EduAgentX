@@ -1,19 +1,12 @@
 'use strict';
-// For a fresh test stack only: makes a domain's candidate package active with
-// two TEST reviews by the configured test reviewer accounts (REVIEWER_1 and
-// REVIEWER_2 in .env), so poc-lifecycle.js can run end to end.
-//
-// These are not people's reviews. Each one says so in its comment, and the
-// script refuses to run unless EDUAGENTX_DISPOSABLE_STACK=1 declares the stack
-// throwaway (assurance audit C3). On a demo or shared stack, two people review
-// the package in the web app's Governance page instead.
-//
+// Throwaway test stack only: activates a domain's candidate package with two
+// TEST reviews from REVIEWER_1 and REVIEWER_2 in .env. They are not people's
+// reviews; each says so in its comment.
 //   EDUAGENTX_DISPOSABLE_STACK=1 node scripts/review-test-package.js [domain, default ai-safety]
-const fs = require('node:fs');
 const path = require('node:path');
 const { demoApprovalReview } = require('../packages/demo-lifecycle');
+const { CANDIDATE_DOMAINS, candidateFor, readEnvFile, stackConnection } = require('../packages/demo-lifecycle/stack');
 
-const CANDIDATES = { 'ai-safety': 'ai-safety-candidate', 'customer-refunds': 'customer-refunds-candidate', 'personal-data': 'personal-data-candidate' };
 const TEST_COMMENT = 'TEST REVIEW on a disposable stack by a configured test account; not a human review.';
 
 function fail(message) {
@@ -27,14 +20,11 @@ if (process.env.EDUAGENTX_DISPOSABLE_STACK !== '1') {
     'On a demo or shared stack, two people review the package in the Governance page (http://localhost:4300).');
 }
 const domain = process.argv[2] || 'ai-safety';
-if (!Object.hasOwn(CANDIDATES, domain)) fail(`unknown domain ${domain}; use one of ${Object.keys(CANDIDATES).join(', ')}`);
-const candidate = require(`../services/curriculum-engine/examples/${CANDIDATES[domain]}`);
+const candidate = candidateFor(domain);
+if (!candidate) fail(`unknown domain ${domain}; use one of ${CANDIDATE_DOMAINS.join(', ')}`);
 
-const root = path.resolve(__dirname, '..');
-const env = Object.fromEntries(fs.readFileSync(process.env.EDUAGENTX_ENV_FILE || path.join(root, '.env'), 'utf8').split(/\r?\n/)
-  .filter((line) => /^[A-Z][A-Z0-9_]*=/.test(line))
-  .map((line) => [line.slice(0, line.indexOf('=')), line.slice(line.indexOf('=') + 1)]));
-const gateway = `http://127.0.0.1:${env.GATEWAY_PORT || 8080}`;
+const env = readEnvFile(process.env.EDUAGENTX_ENV_FILE || path.join(__dirname, '..', '.env'));
+const gateway = stackConnection(env).gatewayUrl;
 
 async function call(method, route, { token, body } = {}) {
   const reply = await fetch(`${gateway}${route}`, { method,

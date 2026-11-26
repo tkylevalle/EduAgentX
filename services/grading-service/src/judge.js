@@ -17,9 +17,8 @@ const DEFAULT_URL = 'https://opencode.ai/inference/go/openai/v1/chat/completions
 // A different model family from the examinee (glm), so the judge does not
 // favour answers written in its own style (self-preference bias).
 const DEFAULT_MODEL = 'deepseek-v4.1-flash';
-// Bumped with any change to SYSTEM_PROMPT or USER_TEMPLATE; the hash below
-// changes with the text itself, so a silent edit still changes the grader version.
-// 2: decide acceptance before the score; count risks and checks the answer shows.
+// Bump with any prompt change (the text hash below also versions the grader).
+// 2: acceptance decided before the score.
 const PROMPT_VERSION = '2';
 // A reasoning model thinks before it answers; the learner found that a budget
 // near 1,500 tokens left some replies empty, so the judge gets the same 4,000.

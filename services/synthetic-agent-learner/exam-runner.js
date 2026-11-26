@@ -37,10 +37,8 @@ function policyFor(attempt, item, actFor) {
   return actFor ? actFor(item, { package: attempt.form?.package || null }) : null;
 }
 
-// knowledge.lookup, pinned to the exam's own package version so a lookup never
-// reads a newer one. A failed lookup gives no lessons and the item is still
-// answered; knowledge counts lookups, failures, empty answers and answers from
-// the index's stale cache, so a closed or degraded book is visible.
+// knowledge.lookup, pinned to the exam's package version. A failed lookup
+// gives no lessons; knowledge counts failed, empty and stale answers.
 function createLookup(call, knowledge, pkg) {
   const pin = pkg?.id && pkg?.version ? `&packageId=${encodeURIComponent(pkg.id)}&version=${encodeURIComponent(pkg.version)}` : '';
   return async (query, limit = LOOKUP_RESULTS) => {

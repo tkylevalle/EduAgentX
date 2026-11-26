@@ -2,6 +2,8 @@
 // Issue #30: Marketplace forwarding. The listing interaction an Agent Learner
 // sends through the lifecycle route, and the Capability Request routes.
 
+const { isPlainObject } = require('./route-helpers');
+
 // Who may change Capability Requests and run checks, and who may only read them.
 const MARKETPLACE_WRITERS = Object.freeze(['admin', 'demo_operator']);
 const MARKETPLACE_READERS = Object.freeze([...MARKETPLACE_WRITERS, 'viewer', 'evaluator', 'governance_operator']);
@@ -54,7 +56,7 @@ function createMarketplaceGateway({ requireRole, proxyJson, forwardJson, proxyFa
     let body;
     if (method === 'POST') {
       body = req.body;
-      if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      if (!isPlainObject(body)) {
         return res.status(400).json({ apiVersion: 'v1', error: 'invalid_request', details: ['body'], correlationId: req.correlationId });
       }
       const unexpected = Object.keys(body).filter((name) => !allowedFields.includes(name));
@@ -99,4 +101,4 @@ function createMarketplaceGateway({ requireRole, proxyJson, forwardJson, proxyFa
   return { forwardListingInteraction, registerRoutes };
 }
 
-module.exports = { MARKETPLACE_EVALUATION_TIMEOUT_MS, MARKETPLACE_READERS, MARKETPLACE_WRITERS, createMarketplaceGateway };
+module.exports = { createMarketplaceGateway };
