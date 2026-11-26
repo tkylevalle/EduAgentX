@@ -26,7 +26,9 @@ for (const { name, directory } of listComponents()) {
   const execution = spawnSync(
     process.execPath,
     ['--test', '--test-reporter=tap', ...testFiles],
-    { cwd: directory, encoding: 'utf8', env: process.env }
+    // A component's TAP output passes 1 MB (examination-engine logs ~1.7 MB);
+    // at spawnSync's 1 MB default the child is killed and counted as failed.
+    { cwd: directory, encoding: 'utf8', env: process.env, maxBuffer: 64 * 1024 * 1024 }
   );
   const output = `${execution.stdout || ''}${execution.stderr || ''}`;
   process.stdout.write(output);
